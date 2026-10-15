@@ -22,7 +22,7 @@ pub struct Spec {
     /// The instructions (`.harness/launch-prompt.md`, `harness/prompts/automation.md`, or the main
     /// session's start file). The agent must read all of it before anything else.
     pub prompt_file: PathBuf,
-    /// The same instructions already in memory, when the caller has them (`harness launch`, whose
+    /// The same instructions already in memory, when the caller has them (`ach launch`, whose
     /// dry run writes no file). Read them through [`prompt_text`], never `prompt_file` directly.
     pub prompt: Option<String>,
     /// The first user message that tells the agent to follow the instructions. An adapter that
@@ -48,10 +48,10 @@ pub trait Runner: Sync {
     fn available(&self) -> bool {
         which(self.binary()).is_some()
     }
-    /// Whether the harness agents can run as subagents. Without them, `harness launch` tells the
+    /// Whether the harness agents can run as subagents. Without them, `ach launch` tells the
     /// session to run subagent steps one by one itself.
     fn subagents(&self) -> bool;
-    /// Whether the harness has named model presets (`preset_by_level`, `harness launch --preset`).
+    /// Whether the harness has named model presets (`preset_by_level`, `ach launch --preset`).
     fn presets(&self) -> bool {
         false
     }
@@ -73,7 +73,7 @@ pub trait Runner: Sync {
     /// (`skills/contest-harness`) and, where supported, the extension package from `root`. Must be
     /// idempotent. Returns one human-readable line per action.
     fn install(&self, root: &Path) -> Result<Vec<String>>;
-    /// Whether `install` has been done for the checkout at `root` (`harness doctor`). `None` when
+    /// Whether `install` has been done for the checkout at `root` (`ach doctor`). `None` when
     /// the adapter cannot tell.
     fn installed(&self, _root: &Path) -> Option<bool> {
         None
@@ -91,7 +91,7 @@ pub trait Runner: Sync {
         }
         Ok(Vec::new())
     }
-    /// The per-agent models the harness currently uses (`harness agents`, `harness doctor`);
+    /// The per-agent models the harness currently uses (`ach agents`, `ach doctor`);
     /// `None` when the adapter cannot tell.
     fn agent_models(&self) -> Option<BTreeMap<String, String>> {
         None

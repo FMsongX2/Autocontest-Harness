@@ -495,7 +495,7 @@ pub fn route(
     }
 
     append_existing(config, &name, &entry.title)?;
-    transition(entry, "routed", "harness route", &target_str)?;
+    transition(entry, "routed", "ach route", &target_str)?;
     fs::write(&contest_json, pretty(entry)?)?;
     summary["warnings"] = json!(warnings);
     Ok(summary)

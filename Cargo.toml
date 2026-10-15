@@ -1,6 +1,6 @@
 [package]
 name = "autocontest-harness"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Discover, gate, route and run contest entries with coding agents"
@@ -14,7 +14,7 @@ name = "harness"
 path = "src/lib.rs"
 
 [[bin]]
-name = "harness"
+name = "ach"
 path = "src/main.rs"
 
 [dependencies]

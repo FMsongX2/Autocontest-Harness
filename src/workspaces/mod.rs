@@ -2,7 +2,7 @@
 //! - `orca`: Orca workspaces and terminals (`orca` CLI).
 //! - `tmux`: one tmux session (`contest-harness`), one window per contest.
 //! - `headless`: a detached background process; no TTY, so the runner's one-shot command is used.
-//! - `terminal`: replace the current process (used by `harness chat`).
+//! - `terminal`: replace the current process (used by `ach chat`).
 
 use std::path::PathBuf;
 

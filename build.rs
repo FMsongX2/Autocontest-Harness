@@ -1,13 +1,13 @@
-//! Embed the git commit the binary was built from (`HARNESS_GIT_SHA`), so `harness --version` and
-//! `harness doctor` can tell when the installed binary is older than the checkout it reads.
+//! Embed the git commit the binary was built from (`ACH_GIT_SHA`), so `ach --version` and
+//! `ach doctor` can tell when the installed binary is older than the checkout it reads.
 
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
     // Release builds from an exported tree (no .git) pass the commit in explicitly.
-    println!("cargo:rerun-if-env-changed=HARNESS_GIT_SHA");
-    let sha = std::env::var("HARNESS_GIT_SHA").ok().filter(|sha| !sha.is_empty()).unwrap_or_else(|| {
+    println!("cargo:rerun-if-env-changed=ACH_GIT_SHA");
+    let sha = std::env::var("ACH_GIT_SHA").ok().filter(|sha| !sha.is_empty()).unwrap_or_else(|| {
         Command::new("git")
             .args(["rev-parse", "--short=12", "HEAD"])
             .output()
@@ -17,7 +17,7 @@ fn main() {
             .filter(|sha| !sha.is_empty())
             .unwrap_or_else(|| "unknown".to_string())
     });
-    println!("cargo:rustc-env=HARNESS_GIT_SHA={sha}");
+    println!("cargo:rustc-env=ACH_GIT_SHA={sha}");
 
     // Rebuild when HEAD moves: HEAD itself, the branch it points at, and packed refs.
     let git = Path::new(".git");

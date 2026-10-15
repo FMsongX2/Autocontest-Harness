@@ -35,7 +35,7 @@ BUILD="$(mktemp -d /tmp/autocontest-harness-release.XXXXXX)"
 trap 'rm -rf "$BUILD"' EXIT
 # Build from an exported tree at a neutral path, and strip local paths from the binaries.
 git archive --format=tar HEAD | tar -x -C "$BUILD"
-export HARNESS_GIT_SHA="$SHA"
+export ACH_GIT_SHA="$SHA"
 export RUSTFLAGS="--remap-path-prefix=$BUILD=/build --remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$HOME/.rustup=/rustup --remap-path-prefix=$HOME=/home"
 export CARGO_TARGET_DIR="$BUILD/target"
 
@@ -46,20 +46,20 @@ DIST="$ROOT/dist/$TAG"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 for t in "${MAC_TARGETS[@]}" "${LINUX_TARGETS[@]}"; do
-  bin="$CARGO_TARGET_DIR/$t/release/harness"
+  bin="$CARGO_TARGET_DIR/$t/release/ach"
   [ -x "$bin" ] || fail "missing binary for $t"
   # A published binary must not carry the builder's username or home directory.
   if LC_ALL=C grep -a -q -e "$HOME" -e "/$(id -un)/" "$bin"; then fail "$t binary contains a local path"; fi
   stage="$BUILD/stage-$t"
   mkdir -p "$stage"
-  cp "$bin" "$stage/harness"
+  cp "$bin" "$stage/ach"
   cp LICENSE "$stage/"
   # No macOS extended attributes and no local user/group names in the archive.
   COPYFILE_DISABLE=1 tar --no-xattrs --uid 0 --gid 0 --uname root --gname root \
-    -czf "$DIST/harness-$VERSION-$t.tar.gz" -C "$stage" harness LICENSE
+    -czf "$DIST/ach-$VERSION-$t.tar.gz" -C "$stage" ach LICENSE
 done
-(cd "$DIST" && shasum -a 256 harness-*.tar.gz > SHA256SUMS)
-"$CARGO_TARGET_DIR/aarch64-apple-darwin/release/harness" --version 2>/dev/null || true
+(cd "$DIST" && shasum -a 256 ach-*.tar.gz > SHA256SUMS)
+"$CARGO_TARGET_DIR/aarch64-apple-darwin/release/ach" --version 2>/dev/null || true
 echo "packaged into $DIST:"
 ls -l "$DIST"
 

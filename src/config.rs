@@ -34,21 +34,21 @@ pub struct Persona {
     /// How the persona addresses the user; replaces `{{call_user}}` in the persona file.
     pub call_user: String,
     /// Persona traces that must never appear in contest deliverables or commit messages
-    /// (`call_user` is checked too). `harness check` and the `awaiting_approval` gate scan for them.
+    /// (`call_user` is checked too). `ach check` and the `awaiting_approval` gate scan for them.
     pub guard_terms: Vec<String>,
 }
 
-/// When scheduled runs happen (`harness schedule`), all in the machine's local time.
+/// When scheduled runs happen (`ach schedule`), all in the machine's local time.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Schedule {
     /// 5-field cron expression for the scheduled run (collection, gating, launching, cleanup).
     pub cron: String,
     /// What starts the run: one of `schedule::SCHEDULERS` (`orca` automation, or `launchd`/`cron`
-    /// running `harness autorun`).
+    /// running `ach autorun`).
     pub scheduler: String,
     /// Hours (a cron hour field such as `0-5`; empty = never) in which a scheduled run also runs
-    /// the ContestScout web search. `harness tick` reports the decision as `scout`.
+    /// the ContestScout web search. `ach tick` reports the decision as `scout`.
     pub scout_hours: String,
 }
 
@@ -77,7 +77,7 @@ pub struct Config {
     pub persona: Persona,
     pub schedule: Schedule,
     /// Model per harness agent (`agents/<Name>.md`), in the runner's selector syntax (omp:
-    /// `provider/model:effort` or `@role`). `harness install` applies it; `null` removes a choice
+    /// `provider/model:effort` or `@role`). `ach install` applies it; `null` removes a choice
     /// the harness applied before, so the agent's own default role applies again.
     pub agent_models: BTreeMap<String, Option<String>>,
 }
@@ -179,7 +179,7 @@ fn segments(key: &str) -> Result<Vec<&str>> {
     Ok(parts)
 }
 
-/// Set `key` to `value` in the config file at `path` (`harness config set`). Objects on the way are
+/// Set `key` to `value` in the config file at `path` (`ach config set`). Objects on the way are
 /// created; the whole config must still validate.
 pub fn set_at(path: &Path, key: &str, value: Value) -> Result<Value> {
     let parts = segments(key)?;
@@ -198,7 +198,7 @@ pub fn set_at(path: &Path, key: &str, value: Value) -> Result<Value> {
     save_overlay(path, overlay)
 }
 
-/// Remove `key` from the config file at `path`, so its default applies again (`harness config unset`).
+/// Remove `key` from the config file at `path`, so its default applies again (`ach config unset`).
 pub fn unset_at(path: &Path, key: &str) -> Result<Value> {
     let parts = segments(key)?;
     let mut overlay = read_overlay(path)?;

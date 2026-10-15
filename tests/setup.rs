@@ -1,4 +1,4 @@
-//! Setup: `harness init` scaffolding, `harness config` edits, per-agent model choices.
+//! Setup: `ach init` scaffolding, `ach config` edits, per-agent model choices.
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
@@ -50,7 +50,7 @@ fn config_set_validates_before_writing_and_unset_restores_the_default() {
         assert_eq!(std::fs::read(&file).unwrap(), before, "{key} changed the file");
     }
 
-    // `null` keeps the key in the file: `harness install` reads it as "remove that override".
+    // `null` keeps the key in the file: `ach install` reads it as "remove that override".
     config::set_at(&file, "agent_models.ContestJudge", Value::Null).unwrap();
     assert_eq!(config::load_at(&file).unwrap().agent_models.get("ContestJudge"), Some(&None));
 
@@ -152,9 +152,9 @@ fn init_creates_private_files_once_and_never_overwrites() {
     // A fresh clone's `data/` gets the umask's mode, which lets other users list it.
     std::fs::set_permissions(root.join("data"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let run = || {
-        let out = Command::new(env!("CARGO_BIN_EXE_harness"))
+        let out = Command::new(env!("CARGO_BIN_EXE_ach"))
             .args(["init", "--json"])
-            .env("HARNESS_HOME", &root)
+            .env("ACH_HOME", &root)
             .env("PATH", "/usr/bin:/bin")
             .output()
             .unwrap();

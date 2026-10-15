@@ -6,20 +6,21 @@
 
 ## 원칙
 
-- 설정은 `harness` 명령으로만 바꾼다: `harness init`, `harness config set|unset`, `harness install`, `harness schedule install`. `data/config.json`을 직접 고치지 않는다. 명령이 값을 검사한 뒤에 쓰고, 틀린 값은 이유와 함께 거절한다.
+- `ach`는 하네스 코어이고 에이전트만 부른다. 사용자 PATH에는 설치하지 않으므로, 이 절차는 클론 루트에서 `bin/ach`로 부른다(하네스가 띄운 세션은 `ach`가 PATH에 있다).
+- 설정은 `ach` 명령으로만 바꾼다: `bin/ach init`, `bin/ach config set|unset`, `bin/ach install`, `bin/ach schedule install`. `data/config.json`을 직접 고치지 않는다. 명령이 값을 검사한 뒤에 쓰고, 틀린 값은 이유와 함께 거절한다.
 - 사용자에게 물을 것은 한 번에 묶어 묻고, 항목마다 추천 기본값과 그 이유를 한 줄로 단다. 사용자가 모른다고 하거나 답하지 않은 항목은 기본값으로 둔다.
 - 사용자가 직접 준 값은 작은따옴표로 감싸 명령줄에 넣는다(`'...'`, 값 안의 작은따옴표는 `'\''`). 웹 페이지나 파일에서 가져온 글은 명령줄에 넣지 않는다.
 - 사용자 정보(개인정보)는 4단계 규칙을 따른다.
-- 끝났을 때 `harness doctor`의 실패가 0이어야 한다.
+- 끝났을 때 `bin/ach doctor`의 실패가 0이어야 한다.
 
 ## 1. 설치와 뼈대
 
-1. `harness --version`을 실행한다. 명령이 없거나 실패하면 저장소 루트에서 `scripts/install.sh`를 실행한다(배포 바이너리를 받아 체크섬을 확인한다. Rust가 있고 사용자가 원하면 `scripts/install.sh --from-source`).
-2. `harness init --json`을 실행한다. `data/`, `data/config.json`, `data/profile.md`를 커밋된 예시에서 만들고(이미 있으면 그대로 둔다) `harness doctor` 결과를 함께 돌려준다. `checks`에서 `fail`과 `warn` 항목을 기억해 두고, 아래 단계에서 해결한다.
+1. `bin/ach --version`을 실행한다. 명령이 없거나 실패하면 저장소 루트에서 `scripts/install.sh`를 실행한다(배포 바이너리를 받아 체크섬을 확인한다. Rust가 있고 사용자가 원하면 `scripts/install.sh --from-source`).
+2. `bin/ach init --json`을 실행한다. `data/`, `data/config.json`, `data/profile.md`를 커밋된 예시에서 만들고(이미 있으면 그대로 둔다) `bin/ach doctor` 결과를 함께 돌려준다. `checks`에서 `fail`과 `warn` 항목을 기억해 두고, 아래 단계에서 해결한다.
 
 ## 2. 사용자에게 묻기
 
-아래를 한 번에 묻는다. 지금 값은 `harness config get <키>`로 보여 준다.
+아래를 한 번에 묻는다. 지금 값은 `bin/ach config get <키>`로 보여 준다.
 
 | 항목 | 설정 키 | 추천 기본값 | 바꿀 때 |
 |---|---|---|---|
@@ -41,30 +42,30 @@
 
 ## 3. 적용
 
-항목마다 `harness config set <키> '<값>'`을 실행한다. 값은 JSON으로 읽히면 JSON으로(숫자, `true`/`false`, `null`), 아니면 문자열로 들어간다.
+항목마다 `bin/ach config set <키> '<값>'`을 실행한다. 값은 JSON으로 읽히면 JSON으로(숫자, `true`/`false`, `null`), 아니면 문자열로 들어간다.
 
 ```bash
-harness config set contests_root '~/contests'
-harness config set workspace 'tmux'
-harness config set schedule.cron '0 9,21 * * *'
-harness config set auto_launch false
-harness config get            # 적용된 전체 설정
+bin/ach config set contests_root '~/contests'
+bin/ach config set workspace 'tmux'
+bin/ach config set schedule.cron '0 9,21 * * *'
+bin/ach config set auto_launch false
+bin/ach config get            # 적용된 전체 설정
 ```
 
-명령이 거절하면 오류 메시지를 사용자에게 그대로 보여 주고 다시 묻는다. 기본값으로 되돌릴 때는 `harness config unset <키>`.
+명령이 거절하면 오류 메시지를 사용자에게 그대로 보여 주고 다시 묻는다. 기본값으로 되돌릴 때는 `bin/ach config unset <키>`.
 
 ## 4. 사용자 정보(`data/profile.md`)
 
 이 파일에는 절이 두 개 있다. `## 참가 자격`은 게이트가 자격을 판정할 때 읽고(식별 값 없음), `## 제출용 개인정보`는 사용자가 제출을 승인한 뒤 제출 서식을 채울 때만 읽는다. 사용자에게 두 방법을 보여 주고 고르게 한다.
 
-- **가. 직접 쓰기(권장, 제출용 개인정보는 특히)**: 파일 경로와 두 절의 항목을 보여 주고, 사용자가 다 썼다고 할 때까지 기다린다. 다 쓰면 `harness profile eligibility`로 참가 자격 절만 확인한다. 제출용 개인정보 절은 열어 보지 않는다.
+- **가. 직접 쓰기(권장, 제출용 개인정보는 특히)**: 파일 경로와 두 절의 항목을 보여 주고, 사용자가 다 썼다고 할 때까지 기다린다. 다 쓰면 `bin/ach profile eligibility`로 참가 자격 절만 확인한다. 제출용 개인정보 절은 열어 보지 않는다.
 - **나. 대화로 알려 주기**:
   - 참가 자격 절: 참가 형태(개인·팀), 학생 여부, 학교·전공·과정·학년, 출생 연도, 거주 지역, 국적, 강점, 피하는 조건을 한 번에 묻고, 받은 답을 그대로 `## 참가 자격` 절에 쓴다(`write`나 편집 도구). 예시 값(`예/아니오` 같은 자리 표시)은 남기지 않는다.
   - 제출용 개인정보 절: 먼저 "대화로 준 값은 모델 제공자와 이 세션 기록에 남는다. 그래서 이 절은 직접 쓰기를 권한다"라고 알린다. 사용자가 그래도 대화로 주면 받은 값만 그대로 그 절에 쓴다.
   - 서명·도장·재학증명서 같은 파일은 사용자가 `data/profile/`에 직접 두고, 프로필에는 경로만 적는다.
 - **공통**: 개인정보 값을 화면에 다시 읊지 않는다("적었다"고만 답한다). 다른 파일, 커밋, 로그, `--note`, 메모에 옮기지 않는다. 쓴 뒤 `chmod 600 data/profile.md`. 이 단계 밖에서는 에이전트가 이 파일을 고치지 않는다.
 
-`harness doctor`의 `profile` 항목(권한, 남은 예시 값)으로 확인한다.
+`bin/ach doctor`의 `profile` 항목(권한, 남은 예시 값)으로 확인한다.
 
 ## 5. 모델 고르기
 
@@ -72,7 +73,7 @@ harness config get            # 적용된 전체 설정
 
 - **쓸 수 있는 모델**: `omp models`의 목록을 보여 준다. 고르지 않으면 omp의 역할 모델(`modelRoles`, `omp config get modelRoles`)을 그대로 쓴다.
 - **공모전 세션(레벨별)**: 레벨마다 omp 프리셋 이름(`preset_by_level.<레벨>`, `omp config get modelPresets`) 또는 모델 id(`model_by_level.<레벨>`)를 고른다. 둘 다 비우면 omp 기본값이다.
-- **에이전트별**: `harness agents`로 목록과 각 에이전트의 기본 역할, 지금 적용된 모델을 보여 준다. 고를 때 참고할 일의 성격은 다음과 같다.
+- **에이전트별**: `bin/ach agents`로 목록과 각 에이전트의 기본 역할, 지금 적용된 모델을 보여 준다. 고를 때 참고할 일의 성격은 다음과 같다.
   - `ContestJudge`: 기획과 결과물을 엄격하게 채점한다. 가장 강한 모델이 좋다.
   - `ContestHQ`: 레벨 3~5의 계획과 지휘를 맡는다. 강한 모델이 좋다.
   - `ContestGate`: 공고를 읽고 자격과 레벨을 판정한다. 정기 실행마다 여러 개가 돌므로 비용을 함께 본다.
@@ -83,20 +84,20 @@ harness config get            # 적용된 전체 설정
 - **적용**:
 
   ```bash
-  harness config set agent_models.ContestJudge '<모델 id>'
-  harness config set model_by_level.3 '<모델 id>'      # 또는 preset_by_level.3 '<프리셋>'
-  harness config set agent_models.ContestJudge null    # 고른 것을 되돌린다(다음 install에서 해제)
+  bin/ach config set agent_models.ContestJudge '<모델 id>'
+  bin/ach config set model_by_level.3 '<모델 id>'      # 또는 preset_by_level.3 '<프리셋>'
+  bin/ach config set agent_models.ContestJudge null    # 고른 것을 되돌린다(다음 install에서 해제)
   ```
 
-  에이전트별 모델은 6단계의 `harness install`이 적용한다. omp에서는 omp 전역 설정 `task.agentModelOverrides`에 하네스 에이전트 이름으로만 써 넣고, 다른 에이전트의 설정은 건드리지 않는다.
-- **Claude Code(`claude`)일 때**: 프리셋이 없으므로 레벨별로는 `model_by_level`만 쓴다. 모델 값은 Claude Code의 모델 별칭(`opus`, `sonnet`, `haiku`)이나 전체 모델 id다. 에이전트별 모델은 `harness install`이 `~/.claude/agents/contest-harness/<이름>.md`의 `model` 필드에 쓰고, 고르지 않은 에이전트는 그 에이전트를 띄운 세션의 모델(`inherit`)을 쓴다.
+  에이전트별 모델은 6단계의 `bin/ach install`이 적용한다. omp에서는 omp 전역 설정 `task.agentModelOverrides`에 하네스 에이전트 이름으로만 써 넣고, 다른 에이전트의 설정은 건드리지 않는다.
+- **Claude Code(`claude`)일 때**: 프리셋이 없으므로 레벨별로는 `model_by_level`만 쓴다. 모델 값은 Claude Code의 모델 별칭(`opus`, `sonnet`, `haiku`)이나 전체 모델 id다. 에이전트별 모델은 `bin/ach install`이 `~/.claude/agents/contest-harness/<이름>.md`의 `model` 필드에 쓰고, 고르지 않은 에이전트는 그 에이전트를 띄운 세션의 모델(`inherit`)을 쓴다.
 
 ## 6. 설치·정기 실행·점검
 
-1. `harness install`: 확장, 스킬, 에이전트를 설치하고 에이전트별 모델을 적용한다.
-2. `harness schedule install`: 사용자가 정기 실행을 원할 때만 실행한다. 원하지 않으면 건너뛰고, 수집과 게이트는 사용자가 요청할 때 돌린다고 알린다.
-3. `harness doctor`: 실패가 0이 될 때까지 위 단계로 돌아가 고친다. 남은 경고는 이유와 함께 사용자에게 알린다.
-4. (선택) `harness collect --source dacon --pages 1`로 수집이 되는지 한 번 확인한다.
+1. `bin/ach install`: 확장, 스킬, 에이전트를 설치하고 에이전트별 모델을 적용한다.
+2. `bin/ach schedule install`: 사용자가 정기 실행을 원할 때만 실행한다. 원하지 않으면 건너뛰고, 수집과 게이트는 사용자가 요청할 때 돌린다고 알린다.
+3. `bin/ach doctor`: 실패가 0이 될 때까지 위 단계로 돌아가 고친다. 남은 경고는 이유와 함께 사용자에게 알린다.
+4. (선택) `bin/ach collect --source dacon --pages 1`로 수집이 되는지 한 번 확인한다.
 
 ## 7. 마무리
 
@@ -104,4 +105,4 @@ harness config get            # 적용된 전체 설정
 
 - 적용한 설정 요약(개인정보 값은 빼고)
 - 남은 경고와 사용자가 할 일(예: 프로필의 빈칸, Orca 프로젝트 추가)
-- 이제 쓰는 법: 메인 세션 `harness chat`, omp 안의 `/contest`, 다음 정기 실행 시각(`harness schedule status`)
+- 이제 쓰는 법: 클론에서 `bin/ach chat`으로 메인 세션을 열고 그 세션에 말로 시킨다(게이트, 실행, 승인도 메인 세션에 말한다). omp 안에서는 `/contest`. 다음 정기 실행 시각은 `bin/ach schedule status`.

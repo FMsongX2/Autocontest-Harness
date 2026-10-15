@@ -66,7 +66,7 @@
     <div class="diagram-container">
       <svg viewBox="0 0 960 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pipeline-title pipeline-desc">
         <title id="pipeline-title">How a contest moves through the harness</title>
-        <desc id="pipeline-desc">Swimlane diagram: the harness CLI collects a listing, an agent gates it, the CLI routes and launches it, an agent works by level, the CLI checks score and persona traces, you approve, and the agent submits; Level 5 also stops once for a plan review.</desc>
+        <desc id="pipeline-desc">Swimlane diagram: ach, the harness core, collects a listing, an agent gates it, ach routes and launches it, an agent works by level, ach checks score and persona traces, you approve by telling the main session, and the agent submits; Level 5 also stops once for a plan review.</desc>
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
           <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
@@ -83,7 +83,7 @@
         <line x1="128" y1="56" x2="128" y2="320" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
         <text x="48" y="103" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">YOU</text>
         <text x="48" y="191" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">AGENTS</text>
-        <text x="48" y="279" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">HARNESS CLI</text>
+        <text x="48" y="279" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">ACH</text>
         <!-- Connectors (behind nodes) -->
         <path d="M 192,252 V 196 Q 192,188 200,188 H 256" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
         <path d="M 304,212 V 252" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
@@ -109,7 +109,7 @@
         <rect x="144" y="252" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="144" y="252" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="192" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Collect</text>
-        <text x="192" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness collect</text>
+        <text x="192" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ach collect</text>
         <rect x="256" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="256" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="304" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gate</text>
@@ -129,11 +129,11 @@
         <rect x="704" y="76" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="704" y="76" width="96" height="48" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
         <text x="752" y="97" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Approve</text>
-        <text x="752" y="112" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness approve</text>
+        <text x="752" y="112" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">main session</text>
         <rect x="816" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="816" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="864" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Submit</text>
-        <text x="864" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness submit</text>
+        <text x="864" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ach submit</text>
         <rect x="256" y="252" width="96" height="48" rx="20" fill="#f5f5f5"/>
         <rect x="256" y="252" width="96" height="48" rx="20" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
         <text x="304" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Rejected</text>

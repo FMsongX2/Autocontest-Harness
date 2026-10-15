@@ -1,4 +1,4 @@
-//! `harness init`: the files a new checkout needs, created once and never overwritten. The
+//! `ach init`: the files a new checkout needs, created once and never overwritten. The
 //! conversational part of setup (what to ask the user, how to apply it) is `INIT.md`, which an
 //! agent follows; this command is the part that must not depend on a model.
 
@@ -18,7 +18,7 @@ pub struct Report {
     pub kept: Vec<String>,
     /// Existing folders that other users could open, narrowed to 0700.
     pub tightened: Vec<String>,
-    /// `harness doctor` after the scaffolding.
+    /// `ach doctor` after the scaffolding.
     pub checks: Vec<doctor::Check>,
     /// The setup instructions an agent follows next.
     pub next: String,

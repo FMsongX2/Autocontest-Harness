@@ -117,10 +117,10 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         crate::bail!("{}: routed 상태만 실행한다(지금 {})", entry.id, entry.state);
     }
     let Some(folder) = entry.folder.clone().filter(|f| !f.is_empty()) else {
-        crate::bail!("{}: 폴더가 없다. 먼저 harness route를 실행한다", entry.id)
+        crate::bail!("{}: 폴더가 없다. 먼저 ach route를 실행한다", entry.id)
     };
     let Some(level) = entry.level.filter(|l| config.ram_gb_by_level.contains_key(l)) else {
-        crate::bail!("{}: 레벨이 없다. 게이트(harness gate)로 레벨을 먼저 기록한다", entry.id)
+        crate::bail!("{}: 레벨이 없다. 게이트(ach gate)로 레벨을 먼저 기록한다", entry.id)
     };
     let runner = runners::get(&config.runner)?;
     let workspace = workspaces::get(&config.workspace)?;
@@ -175,7 +175,7 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         extra_args: config.runner_args(runner.name()),
     };
     let argv = if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? };
-    let argv = with_session_env(&entry.id, argv);
+    let argv = session_env(Some(&entry.id), argv);
     let existing_id = (session_field(entry, "workspace") == Some(workspace.name()))
         .then(|| session_field(entry, "workspace_id").map(str::to_string))
         .flatten();
@@ -220,18 +220,24 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
     result["workspace_id"] = json!(workspace_id);
     result["handle"] = json!(handle);
     let note = json!({"runner": runner.name(), "workspace": workspace.name(), "preset": preset, "handle": handle});
-    transition(entry, "running", "harness launch", &note.to_string())?;
+    transition(entry, "running", "ach launch", &note.to_string())?;
     Ok(result)
 }
 
-/// Environment variable naming the contest a session was launched for. `harness approve` refuses to
+/// Environment variable naming the contest a session was launched for. `ach approve` refuses to
 /// run inside such a session and `profile show --for <id>` requires it to match.
-pub const SESSION_ENV: &str = "HARNESS_SESSION";
+pub const SESSION_ENV: &str = "ACH_SESSION";
 
-/// `env HARNESS_SESSION=<id> <argv>`: works for terminal shell lines and direct spawns alike.
-/// Only contest sessions get it; the main session (`chat`) and `autorun` do not.
-pub fn with_session_env(id: &str, argv: Vec<String>) -> Vec<String> {
-    let mut wrapped = vec!["env".to_string(), format!("{SESSION_ENV}={id}")];
+/// `env [ACH_SESSION=<id>] PATH=<clone>/bin:<PATH> <argv>`: works for terminal shell lines and
+/// direct spawns alike. Every session the harness starts gets `ach` on its PATH this way, because
+/// `ach` is not installed on the user's PATH. Only contest sessions get `ACH_SESSION`; the main
+/// session (`chat`) and `autorun` pass `None`.
+pub fn session_env(id: Option<&str>, argv: Vec<String>) -> Vec<String> {
+    let mut wrapped = vec!["env".to_string()];
+    if let Some(id) = id {
+        wrapped.push(format!("{SESSION_ENV}={id}"));
+    }
+    wrapped.push(format!("PATH={}", paths::session_path()));
     wrapped.extend(argv);
     wrapped
 }
@@ -250,7 +256,7 @@ fn dry_preset_path(runner: &dyn Runner, name: &str, meta: &Path) -> Result<PathB
 /// The tail of a running contest session.
 pub fn peek(entry: &Entry, lines: usize) -> Result<String> {
     let (Some(name), Some(handle)) = (session_field(entry, "workspace"), session_field(entry, "handle")) else {
-        crate::bail!("{}: 띄운 세션이 없다(harness launch 전이거나 세션 기록이 없다)", entry.id)
+        crate::bail!("{}: 띄운 세션이 없다(ach launch 전이거나 세션 기록이 없다)", entry.id)
     };
     workspaces::get(name)?.tail(handle, lines)
 }
@@ -289,7 +295,7 @@ pub fn main_system_prompt(config: &Config) -> Result<PathBuf> {
 fn main_start(config: &Config) -> Result<PathBuf> {
     let user = Some(config.persona.call_user.trim()).filter(|u| !u.is_empty()).unwrap_or("사용자");
     let text = format!(
-        "메인 인터페이스 세션을 시작한다. 먼저 `harness doctor --json`을 돌린다. `data/config.json`이 없거나 실패 항목이 있으면 저장소 루트의 `INIT.md` 절차로 {user}와 설정부터 마친다. 설정이 끝나 있으면 `harness board --json`과 `harness capacity --json`으로 진행 중·게이트 대기·승인 대기·마감 임박 공모전과 남은 용량을 짧게 요약하고, {user}에게 물을 것(게이트 질문, 제출 승인, 레벨 5 계획 검수)이 있으면 한 번에 묶어 물은 뒤 지시를 기다린다.\n"
+        "메인 인터페이스 세션을 시작한다. 먼저 `ach doctor --json`을 돌린다. `data/config.json`이 없거나 실패 항목이 있으면 저장소 루트의 `INIT.md` 절차로 {user}와 설정부터 마친다. 설정이 끝나 있으면 `ach board --json`과 `ach capacity --json`으로 진행 중·게이트 대기·승인 대기·마감 임박 공모전과 남은 용량을 짧게 요약하고, {user}에게 물을 것(게이트 질문, 제출 승인, 레벨 5 계획 검수)이 있으면 한 번에 묶어 물은 뒤 지시를 기다린다.\n"
     );
     let target = paths::data().join("main-start.md");
     std::fs::create_dir_all(paths::data())?;
@@ -321,7 +327,7 @@ pub fn chat(config: &Config, runner: Option<&str>, workspace: Option<&str>) -> R
         preset_file: None,
         extra_args: config.runner_args(runner.name()),
     };
-    let argv = runner.interactive(&spec)?;
+    let argv = session_env(None, runner.interactive(&spec)?);
     let command = shell_command(&root, &argv);
     let handle = workspace.open(&Open { cwd: root, title: "contest-harness-main", argv, workspace_id: None })?;
     Ok(json!({

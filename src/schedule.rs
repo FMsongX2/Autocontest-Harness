@@ -1,4 +1,4 @@
-//! Scheduled runs: the `schedule` config (cron, scheduler, ContestScout hours), `harness autorun`,
+//! Scheduled runs: the `schedule` config (cron, scheduler, ContestScout hours), `ach autorun`,
 //! and the three schedulers that start a run: an Orca automation, a macOS launchd job, or a
 //! crontab block (macOS and Linux).
 
@@ -218,7 +218,8 @@ pub fn autorun(config: &Config) -> Result<Value> {
         preset_file: None,
         extra_args: config.runner_args(runner.name()),
     };
-    let argv = runner.oneshot(&spec)?;
+    // `ach` is not on the user's PATH; the session gets it like every session the harness starts.
+    let argv = crate::launch::session_env(None, runner.oneshot(&spec)?);
     let logs = paths::data().join("logs");
     std::fs::create_dir_all(&logs)?;
     let stamp = chrono::Utc::now().with_timezone(&text::kst()).format("%Y%m%d-%H%M%S");
@@ -276,7 +277,7 @@ pub fn install(config: &Config, scheduler: Option<&str>) -> Result<Value> {
         .collect();
     if !others.is_empty() {
         let commands: Vec<String> =
-            others.iter().map(|other| format!("harness schedule remove --scheduler {other}")).collect();
+            others.iter().map(|other| format!("ach schedule remove --scheduler {other}")).collect();
         result["warning"] =
             json!(format!("{}에도 정기 실행이 있다. 한쪽만 두려면 {}", others.join(", "), commands.join(" ; ")));
     }
@@ -298,9 +299,10 @@ pub fn status(config: &Config) -> Result<Value> {
     let cron = Cron::parse(&schedule.cron);
     let wanted = cron.as_ref().map(|c| c.text.clone()).unwrap_or_default();
     let agent = runners::get(&config.runner).ok().and_then(|r| r.orca_agent());
+    let prompt = automation_file().ok().map(|file| orca_prompt(&file, &ach_path()));
     let root = checkout_root();
     let mut launchd = launchd_status(&wanted, &root);
-    let mut orca = orca_status(&wanted, agent);
+    let mut orca = orca_status(&wanted, agent, prompt.as_deref());
     let mut crontab = cron_status(&wanted, &root);
     for (name, value) in [("launchd", &mut launchd), ("orca", &mut orca), ("cron", &mut crontab)] {
         if name == schedule.scheduler {
@@ -372,7 +374,7 @@ pub fn status_text(status: &Value) -> String {
     lines.push(describe("launchd", &status["launchd"]));
     if let Some(legacy) = status["launchd"]["legacy"].as_object() {
         let hint = if legacy.get("this_checkout") == Some(&json!(true)) {
-            "이 체크아웃의 예전 작업이다. harness schedule install --scheduler launchd로 새 라벨로 옮긴다"
+            "이 체크아웃의 예전 작업이다. ach schedule install --scheduler launchd로 새 라벨로 옮긴다"
         } else {
             "다른 체크아웃의 작업이다"
         };
@@ -395,8 +397,20 @@ fn automation_file() -> Result<PathBuf> {
     std::fs::canonicalize(&file).map_err(|e| Error(format!("정기 실행 지시문이 없다: {}: {e}", file.display())))
 }
 
-pub fn orca_prompt(file: &Path) -> String {
-    format!("{} 파일을 읽고 그 절차를 그대로 실행해.", file.display())
+/// The `ach` this run is, which scheduled jobs and the Orca automation call. It is not on the
+/// user's PATH.
+fn ach_path() -> PathBuf {
+    paths::bin_dir().join("ach")
+}
+
+/// The Orca automation's prompt: the instructions file, and where `ach` is, because an agent
+/// that Orca starts does not get the harness's PATH.
+pub fn orca_prompt(file: &Path, ach: &Path) -> String {
+    format!(
+        "{} 파일을 읽고 그 절차를 그대로 실행해. 하네스 명령 `ach`는 PATH에 없으니 {}로 부른다.",
+        file.display(),
+        ach.display()
+    )
 }
 
 /// Orca automations whose prompt points at this checkout's `automation.md`.
@@ -436,8 +450,21 @@ fn orca_install(config: &Config, cron: &Cron) -> Result<Value> {
         crate::bail!("orca CLI가 PATH에 없다. schedule.scheduler를 launchd나 cron으로 두거나 Orca를 설치한다");
     }
     let found = orca_automations()?;
+    let prompt = orca_prompt(&automation_file()?, &ach_path());
     if let Some(id) = found.first().and_then(|a| a["id"].as_str()) {
-        orca_json(&["automations", "edit", "--id", id, "--trigger", &cron.text, "--provider", agent, "--enabled"])?;
+        orca_json(&[
+            "automations",
+            "edit",
+            "--id",
+            id,
+            "--trigger",
+            &cron.text,
+            "--provider",
+            agent,
+            "--prompt",
+            &prompt,
+            "--enabled",
+        ])?;
         return Ok(json!({
             "scheduler": "orca",
             "action": "updated",
@@ -457,9 +484,8 @@ fn orca_install(config: &Config, cron: &Cron) -> Result<Value> {
         ORCA_NAME,
         "--no-parent",
         "--comment",
-        "harness schedule",
+        "ach schedule",
     ])?)?;
-    let prompt = orca_prompt(&automation_file()?);
     let selector = format!("id:{workspace}");
     let timezone = local_timezone();
     let mut args = vec![
@@ -507,7 +533,9 @@ fn orca_remove() -> Result<Value> {
     Ok(json!({"scheduler": "orca", "removed": removed}))
 }
 
-fn orca_status(wanted: &str, agent: Option<&str>) -> Value {
+/// `prompt` is what [`orca_install`] would write now; an automation with another prompt (an older
+/// harness, or another `ach`) is not in sync.
+fn orca_status(wanted: &str, agent: Option<&str>, prompt: Option<&str>) -> Value {
     if which("orca").is_none() {
         return json!({"available": false, "automations": []});
     }
@@ -519,7 +547,10 @@ fn orca_status(wanted: &str, agent: Option<&str>) -> Value {
                 .map(|a| {
                     let cron = a["rrule"].as_str().unwrap_or_default();
                     let enabled = a["enabled"].as_bool().unwrap_or(false);
-                    let in_sync = enabled && cron == wanted && agent.is_some_and(|g| a["agentId"].as_str() == Some(g));
+                    let in_sync = enabled
+                        && cron == wanted
+                        && agent.is_some_and(|g| a["agentId"].as_str() == Some(g))
+                        && prompt.is_some_and(|p| a["prompt"].as_str() == Some(p));
                     json!({
                         "id": a["id"],
                         "name": a["name"],
@@ -590,7 +621,7 @@ pub fn plist(exe: &Path, root: &Path, cron: &Cron, path_env: &str) -> Result<Str
   <string>{root}</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HARNESS_HOME</key>
+    <key>ACH_HOME</key>
     <string>{root}</string>
     <key>PATH</key>
     <string>{path}</string>
@@ -626,9 +657,9 @@ fn unxml(text: &str) -> String {
     text.replace("&quot;", "\"").replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&")
 }
 
-/// The harness root (`HARNESS_HOME`) recorded in a plist.
+/// The harness root (`ACH_HOME`) recorded in a plist.
 pub fn plist_root(plist: &str) -> Option<String> {
-    let rest = plist.split("<key>HARNESS_HOME</key>").nth(1)?;
+    let rest = plist.split("<key>ACH_HOME</key>").nth(1)?;
     let value = rest.split_once("<string>")?.1.split_once("</string>")?.0;
     Some(unxml(value.trim()))
 }
@@ -741,7 +772,7 @@ fn launchd_remove() -> Result<Value> {
         } else {
             result["legacy"] = json!({"plist": path_text, "root": recorded, "removed": false});
             result["warning"] = json!(format!(
-                "예전 라벨 {LEGACY_LABEL}의 plist는 다른 체크아웃({})의 작업이라 남겼다. 그 체크아웃에서 harness schedule remove --scheduler launchd를 돌린다",
+                "예전 라벨 {LEGACY_LABEL}의 plist는 다른 체크아웃({})의 작업이라 남겼다. 그 체크아웃에서 ach schedule remove --scheduler launchd를 돌린다",
                 recorded.as_deref().unwrap_or("알 수 없음")
             ));
         }
@@ -756,7 +787,10 @@ fn launchd_status(wanted: &str, root: &Path) -> Value {
     let label = label(root);
     let target = plist_path(&label);
     let domain = domain();
-    let cron = std::fs::read_to_string(&target).ok().and_then(|text| plist_cron(&text));
+    let text = std::fs::read_to_string(&target).ok();
+    let cron = text.as_deref().and_then(plist_cron);
+    // A job written before `ach` (HARNESS_HOME, a `harness` binary) no longer runs: not in sync.
+    let current = text.as_deref().is_some_and(|t| plist_root(t).is_some());
     let print = launchctl(&["print", &format!("{domain}/{label}")]).ok();
     let details = print.as_ref().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
     let last_exit =
@@ -774,7 +808,7 @@ fn launchd_status(wanted: &str, root: &Path) -> Value {
         "installed": target.exists(),
         "loaded": print.is_some_and(|o| o.status.success()),
         "cron": cron,
-        "in_sync": cron.as_deref() == Some(wanted),
+        "in_sync": current && cron.as_deref() == Some(wanted),
         "next_run": cron.as_deref().and_then(next_run),
         "last_exit": last_exit,
         "last_log": last_log.map(|p| p.display().to_string()),
@@ -800,7 +834,7 @@ fn cron_markers(root: &Path) -> (String, String) {
     (format!("# BEGIN {CRON_TAG} {root}"), format!("# END {CRON_TAG} {root}"))
 }
 
-/// The crontab line: `<cron> cd <root> && HARNESS_HOME=<root> PATH=<path> <exe> autorun >> <log> 2>&1`.
+/// The crontab line: `<cron> cd <root> && ACH_HOME=<root> PATH=<path> <exe> autorun >> <log> 2>&1`.
 /// Every word is shell-quoted and `%` (a newline to cron) is escaped.
 pub fn cron_line(exe: &Path, root: &Path, cron: &Cron, path_env: &str) -> Result<String> {
     let log = root.join("data").join("logs").join("cron.log");
@@ -810,7 +844,7 @@ pub fn cron_line(exe: &Path, root: &Path, cron: &Cron, path_env: &str) -> Result
     }
     let q = |word: &str| shell_quote(word).replace('%', r"\%");
     Ok(format!(
-        "{} cd {root} && HARNESS_HOME={root} PATH={path} {exe} autorun >> {log} 2>&1",
+        "{} cd {root} && ACH_HOME={root} PATH={path} {exe} autorun >> {log} 2>&1",
         cron.text,
         root = q(&root),
         path = q(path_env),
@@ -955,12 +989,15 @@ fn cron_status(wanted: &str, root: &Path) -> Value {
     match read_crontab("crontab") {
         Err(e) => json!({"available": true, "error": e.0}),
         Ok(text) => {
-            let cron = cron_job(&text, root).map(|line| cron_job_schedule(&line));
+            let line = cron_job(&text, root);
+            let cron = line.as_deref().map(cron_job_schedule);
+            // A job written before `ach` (HARNESS_HOME, a `harness` binary) no longer runs.
+            let current = line.as_deref().is_some_and(|l| l.contains(" ACH_HOME="));
             json!({
                 "available": true,
                 "installed": cron.is_some(),
                 "cron": cron,
-                "in_sync": cron.as_deref() == Some(wanted),
+                "in_sync": current && cron.as_deref() == Some(wanted),
                 "next_run": cron.as_deref().and_then(next_run),
                 "log": root.join("data").join("logs").join("cron.log").display().to_string(),
             })

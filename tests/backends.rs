@@ -335,7 +335,7 @@ fn render_prompt_fills_placeholders_and_notes_missing_subagents() {
     assert!(omp.contains("data-analysis"));
     assert!(omp.contains("2026-11-30T23:59+09:00"));
     assert!(omp.contains("저장소: 없음"));
-    assert!(omp.contains("harness transition demo-contest awaiting_approval"));
+    assert!(omp.contains("ach transition demo-contest awaiting_approval"));
     let level = std::fs::read_to_string(root().join("harness/prompts/level_3.md")).unwrap();
     assert!(omp.contains(level.trim()));
     assert!(!omp.contains("서브에이전트 기능이 없으면"));
@@ -358,6 +358,14 @@ fn preset_overlay_from_omp_config() {
     assert!(omp::preset_overlay("Missing", &yml, &dir.join("m.yml")).unwrap_err().0.contains("Missing"));
 }
 
+/// The `PATH=` word every session command carries: the running binary's directory first, so the
+/// agents can call `ach`, which is not on the user's PATH.
+fn path_word() -> String {
+    let path = harness::paths::session_path();
+    assert!(path.starts_with(&format!("{}:", harness::paths::bin_dir().display())), "{path}");
+    shell_quote(&format!("PATH={path}"))
+}
+
 fn config_with(runner: &str, workspace: &str) -> Config {
     let mut value = config::defaults();
     value["runner"] = json!(runner);
@@ -372,14 +380,11 @@ fn launch_dry_run_per_workspace() {
     let dir = scratch("launch");
     let d = dir.display().to_string();
     let prompt = format!("{d}/.harness/launch-prompt.md");
+    let env = format!("env ACH_SESSION=demo-contest {}", path_word());
     for (runner, workspace, expect) in [
-        ("omp", "tmux", format!("cd {d} && env HARNESS_SESSION=demo-contest omp --cwd {d} --model opus @{prompt} ")),
-        ("omp", "orca", format!("cd {d} && env HARNESS_SESSION=demo-contest omp --cwd {d} --model opus @{prompt} ")),
-        (
-            "omp",
-            "headless",
-            format!("cd {d} && env HARNESS_SESSION=demo-contest omp --cwd {d} -p --model opus @{prompt} "),
-        ),
+        ("omp", "tmux", format!("cd {d} && {env} omp --cwd {d} --model opus @{prompt} ")),
+        ("omp", "orca", format!("cd {d} && {env} omp --cwd {d} --model opus @{prompt} ")),
+        ("omp", "headless", format!("cd {d} && {env} omp --cwd {d} -p --model opus @{prompt} ")),
     ] {
         let cfg = config_with(runner, workspace);
         let mut entry = routed_entry(&dir);
@@ -404,7 +409,8 @@ fn launch_dry_run_works_whether_the_adapter_mentions_or_inlines_the_instructions
     let result = launch::launch(&mut entry, &config_with("claude", "headless"), None, true).unwrap();
     let command = result["command"].as_str().unwrap();
     assert!(command.starts_with(&format!(
-        "cd {d} && env HARNESS_SESSION=demo-contest claude -p --model opus --permission-mode auto -- '@{d}/.harness/launch-prompt.md "
+        "cd {d} && env ACH_SESSION=demo-contest {} claude -p --model opus --permission-mode auto -- '@{d}/.harness/launch-prompt.md ",
+        path_word()
     )), "{command}");
     assert!(!dir.join(".harness").exists(), "a dry run writes nothing into the contest");
     // A folder with whitespace: the instructions go inline, read from a scratch copy, since the
@@ -568,12 +574,12 @@ fn scout_hours_pick_the_runs_that_search_the_web() {
 #[test]
 fn launchd_plist() {
     let cron = Cron::parse("0 */6 * * *").unwrap();
-    let xml = schedule::plist(Path::new("/opt/bin/harness"), Path::new("/repo & co"), &cron, "/usr/bin:/bin").unwrap();
+    let xml = schedule::plist(Path::new("/opt/bin/ach"), Path::new("/repo & co"), &cron, "/usr/bin:/bin").unwrap();
     let label = schedule::label(Path::new("/repo & co"));
     assert!(xml.contains(&format!("<key>Label</key>\n  <string>{label}</string>")));
     assert_eq!(schedule::plist_root(&xml).as_deref(), Some("/repo & co"));
-    assert!(xml.contains("<string>/opt/bin/harness</string>\n    <string>autorun</string>"));
-    assert!(xml.contains("<key>HARNESS_HOME</key>\n    <string>/repo &amp; co</string>"));
+    assert!(xml.contains("<string>/opt/bin/ach</string>\n    <string>autorun</string>"));
+    assert!(xml.contains("<key>ACH_HOME</key>\n    <string>/repo &amp; co</string>"));
     assert!(xml.contains(
         "<key>StartCalendarInterval</key>\n  <array>\n    <dict>\n      <key>Minute</key>\n      <integer>0</integer>\n      <key>Hour</key>\n      <integer>0</integer>\n    </dict>"
     ));

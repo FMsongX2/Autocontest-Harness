@@ -4,6 +4,20 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.6.0 - 2026-10-16
+
+You talk to the main session; the agents call the harness core, now named `ach`, which is no longer installed on your `PATH`.
+
+### Changed
+- **The binary is `ach`** (was `harness`). Release assets are `ach-<version>-<target>.tar.gz`. `scripts/install.sh` installs `bin/ach` in the clone and links nothing onto your `PATH`; it removes the `~/.local/bin/harness` link and `bin/harness` that earlier versions installed.
+- **Environment variables:** `HARNESS_HOME` is now `ACH_HOME`, `HARNESS_SESSION` is `ACH_SESSION`, and the omp extension's `HARNESS_BIN` is `ACH_BIN`.
+- **How agents find `ach`:** every session the harness starts (contest sessions, the main session `bin/ach chat`, scheduled runs) runs with the clone's `bin/` first on its `PATH`. The omp extension adds it to the omp sessions that load it, the Orca automation's prompt names the binary's path, and the skill tells any other session to call `<clone>/bin/ach`.
+- **Scheduled jobs:** `ach schedule status` and `ach doctor` report jobs written by 0.5 or earlier (they run `harness` with `HARNESS_HOME`) and an Orca automation with an older prompt as not in sync. `ach schedule install` rewrites them, and now also updates the prompt of an existing Orca automation.
+- **Documentation:** the README is agent-first: install, ask your agent to read `INIT.md`, open the main session with `bin/ach chat`, and talk to it. The CLI reference, configuration, sources, scheduling, routing, ledger, cleanup, profile, local rules, and project layout moved to `docs/reference.md` and `docs/reference_ko.md`. Figures are redrawn around the main session and `ach`.
+
+### Migration
+Run `git pull && scripts/install.sh`, then `bin/ach schedule install` once so the scheduled run calls `ach`. Contest sessions started by 0.5 still call `harness`, which is gone: launch them again, or tell their agent to use `<clone>/bin/ach`. Registry, ledger, and config files are unchanged.
+
 ## 0.5.2 - 2026-10-15
 
 ### Fixed

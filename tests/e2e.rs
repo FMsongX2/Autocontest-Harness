@@ -1,6 +1,6 @@
-//! One contest through the whole lifecycle with the real `harness` binary: add, gate, route, a
+//! One contest through the whole lifecycle with the real `ach` binary: add, gate, route, a
 //! headless session on a stand-in runner, approval, submission, cleanup. Offline: the runner is a
-//! script on PATH, the remote is a local bare repository, and HOME, git config and HARNESS_HOME
+//! script on PATH, the remote is a local bare repository, and HOME, git config and ACH_HOME
 //! are temporary.
 
 use std::os::unix::fs::PermissionsExt;
@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 
 use serde_json::{Value, json};
 
-const BIN: &str = env!("CARGO_BIN_EXE_harness");
+const BIN: &str = env!("CARGO_BIN_EXE_ach");
 
 struct World {
     base: PathBuf,
@@ -37,7 +37,7 @@ impl World {
         let bin = base.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let omp = bin.join("omp");
-        std::fs::write(&omp, "#!/bin/sh\necho \"stand-in runner session=$HARNESS_SESSION args=$*\"\n").unwrap();
+        std::fs::write(&omp, "#!/bin/sh\necho \"stand-in runner session=$ACH_SESSION args=$*\"\n").unwrap();
         std::fs::set_permissions(&omp, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let home = base.join("home");
@@ -54,7 +54,7 @@ impl World {
         cmd.env_clear()
             .env("PATH", &self.path)
             .env("HOME", &self.home)
-            .env("HARNESS_HOME", &self.root)
+            .env("ACH_HOME", &self.root)
             .env("GIT_CONFIG_GLOBAL", &self.gitconfig)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("LANG", "C.UTF-8");
@@ -65,7 +65,7 @@ impl World {
         self.cmd(BIN).args(args).output().unwrap()
     }
 
-    /// Run `harness <args> --json`, require success, return the JSON.
+    /// Run `ach <args> --json`, require success, return the JSON.
     fn ok(&self, args: &[&str]) -> Value {
         let mut all = args.to_vec();
         all.push("--json");
@@ -154,7 +154,7 @@ fn a_contest_goes_from_listing_to_cleaned_up_submission() {
         .unwrap();
     std::fs::set_permissions(w.root.join("data/profile.md"), std::fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(w.harness(&["profile", "show", "--for", &id]).status.code(), Some(1));
-    let in_session = w.cmd(BIN).env("HARNESS_SESSION", &id).args(["approve", &id, "--note", "승인"]).output().unwrap();
+    let in_session = w.cmd(BIN).env("ACH_SESSION", &id).args(["approve", &id, "--note", "승인"]).output().unwrap();
     assert_eq!(in_session.status.code(), Some(1), "a contest session must not approve itself");
     w.ok(&["approve", &id, "--note", "제출해도 좋다"]);
     let profile = w.ok(&["profile", "show", "--for", &id]);
@@ -183,11 +183,11 @@ fn a_contest_goes_from_listing_to_cleaned_up_submission() {
 fn a_moved_checkout_is_refused_instead_of_starting_an_empty_registry() {
     let w = World::new("moved");
     let gone = w.base.join("moved-away");
-    let out = w.cmd(BIN).env("HARNESS_HOME", &gone).args(["list"]).output().unwrap();
+    let out = w.cmd(BIN).env("ACH_HOME", &gone).args(["list"]).output().unwrap();
     assert_eq!(out.status.code(), Some(1));
     assert!(!gone.exists(), "nothing is created at a wrong root");
     // Doctor still runs and names the problem.
-    let doctor = w.cmd(BIN).env("HARNESS_HOME", &gone).args(["doctor", "--json"]).output().unwrap();
+    let doctor = w.cmd(BIN).env("ACH_HOME", &gone).args(["doctor", "--json"]).output().unwrap();
     assert_eq!(doctor.status.code(), Some(1));
     let report: Value = serde_json::from_slice(&doctor.stdout).unwrap();
     assert_eq!(report["checks"][0]["name"], "checkout");

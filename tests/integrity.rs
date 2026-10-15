@@ -37,8 +37,8 @@ fn home(tag: &str) -> PathBuf {
 }
 
 fn harness_cmd(home: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_harness"));
-    cmd.args(args).env("HARNESS_HOME", home).env_remove("HARNESS_SESSION").stdin(Stdio::null());
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ach"));
+    cmd.args(args).env("ACH_HOME", home).env_remove("ACH_SESSION").stdin(Stdio::null());
     cmd
 }
 
@@ -116,7 +116,7 @@ fn commands_refuse_a_root_that_is_not_a_checkout_and_create_nothing() {
     let out = harness(&empty, &["list"]);
     assert_eq!(code(&out), 1);
     let err = stderr(&out);
-    assert!(err.contains(&empty.display().to_string()) && err.contains("HARNESS_HOME"), "{err}");
+    assert!(err.contains(&empty.display().to_string()) && err.contains("ACH_HOME"), "{err}");
     assert!(!empty.join("data").exists(), "a refused command must not create data/");
     let out = harness(&empty, &["add", "--title", "Ghost", "--url", "https://example.com/ghost"]);
     assert_eq!(code(&out), 1);
@@ -330,10 +330,10 @@ fn submit_needs_a_current_approval_and_keeps_registry_and_ledger_together() {
 
     let out = harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R1"]);
     assert_eq!(code(&out), 1, "no approval yet");
-    assert!(stderr(&out).contains("harness approve"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("ach approve"), "{}", stderr(&out));
 
     let out = harness_cmd(&home, &["approve", "c-1", "--note", "제출해 10/15 10:00"])
-        .env("HARNESS_SESSION", "c-1")
+        .env("ACH_SESSION", "c-1")
         .output()
         .unwrap();
     assert_eq!(code(&out), 1, "a contest session cannot approve");
@@ -414,10 +414,9 @@ fn profile_show_needs_an_approved_submission_for_that_contest() {
     let out = harness(&home, &["profile", "show", "--for", "p-1"]);
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     assert!(String::from_utf8_lossy(&out.stdout).contains("홍길동"));
-    let other =
-        harness_cmd(&home, &["profile", "show", "--for", "p-1"]).env("HARNESS_SESSION", "p-2").output().unwrap();
+    let other = harness_cmd(&home, &["profile", "show", "--for", "p-1"]).env("ACH_SESSION", "p-2").output().unwrap();
     assert_eq!(code(&other), 1, "another contest's session");
-    let own = harness_cmd(&home, &["profile", "show", "--for", "p-1"]).env("HARNESS_SESSION", "p-1").output().unwrap();
+    let own = harness_cmd(&home, &["profile", "show", "--for", "p-1"]).env("ACH_SESSION", "p-1").output().unwrap();
     assert_eq!(code(&own), 0, "{}", stderr(&own));
 
     // Warnings: readable by others, placeholders left in.
@@ -556,7 +555,7 @@ fn merge_work_stores_only_onto_an_unchanged_entry_and_keeps_concurrent_edits() {
     let mut work = base.clone();
     work.folder = Some("/tmp/contests/M".into());
     work.repo = Some("me/M".into());
-    transition(&mut work, "routed", "harness route", "/tmp/contests/M").unwrap();
+    transition(&mut work, "routed", "ach route", "/tmp/contests/M").unwrap();
 
     // Meanwhile collect updated the deadline and a judge score arrived.
     let mut current = base.clone();

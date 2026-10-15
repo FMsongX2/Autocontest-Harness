@@ -8,11 +8,11 @@
 2. 대회 메타를 SPEC.md 맨 위 표에 적는다: 플랫폼, 대회 URL, 규칙 URL, 과제(분류·회귀·생성 등), id 열, 목표 열, 평가 지표와 방향(높을수록/낮을수록), 일일 제출 한도와 초기화 시각(시간대 포함), 최종 선택 수, 마감(KST), 제출 방식(csv / 코드 / 업로드), 채점 때 인터넷 허용, 외부 데이터·사전학습 모델 허용 범위, 코드 공유·팀 규정.
 3. 데이터를 내려받고 분할 명세(폴드 인덱스, 홀드아웃 id 목록, 시드)를 `data/splits/`에 고정한다. 한 번 고정하면 바꾸지 않는다. 바꿔야 하면 PLAN.md에 이유를 적고 이전 점수와 비교하지 않는다.
 4. 학습·추론은 원격 GPU 서버나 클라우드 GPU(끝나면 바로 삭제)에서 한다. 작업 맥에서는 EDA와 작은 검증만 한다.
-5. 점수표와 기획 채점(점수 루프): 최종 평가(리더보드 지표·순위, 코드 검증, 보고서·발표가 있으면 그 배점)를 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)에 풀어 쓴다. SPEC·PLAN 초안(검증 설계, 기준선, 갈래 후보)을 ContestJudge(stage `plan`)가 "이대로 완성하면"으로 예측 채점하고, 부족분을 PLAN에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `harness score <id> --stage plan --file <경로>`로 기록한다. 실험 중 체크포인트는 stage `draft`, 최종 선택·코드·보고서 제출 직전은 stage `final`로 같은 방식으로 기록한다.
+5. 점수표와 기획 채점(점수 루프): 최종 평가(리더보드 지표·순위, 코드 검증, 보고서·발표가 있으면 그 배점)를 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)에 풀어 쓴다. SPEC·PLAN 초안(검증 설계, 기준선, 갈래 후보)을 ContestJudge(stage `plan`)가 "이대로 완성하면"으로 예측 채점하고, 부족분을 PLAN에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한다. 실험 중 체크포인트는 stage `draft`, 최종 선택·코드·보고서 제출 직전은 stage `final`로 같은 방식으로 기록한다.
 
 ## 1. 반복 루프(한 바퀴)
 
-레벨 4에서는 갈래(branch)마다 워커 하나가 이 루프를 돈다(작업 환경이 orca면 Orca orchestration 워커, 그 밖에는 러너의 서브에이전트, 서브에이전트가 없으면 이 세션이 갈래를 차례로 돈다). 갈래는 `exp/<갈래 이름>` git 브랜치다. 동시에 여는 갈래 수는 `harness capacity --json`의 `recommended_workers` 안에서 정한다.
+레벨 4에서는 갈래(branch)마다 워커 하나가 이 루프를 돈다(작업 환경이 orca면 Orca orchestration 워커, 그 밖에는 러너의 서브에이전트, 서브에이전트가 없으면 이 세션이 갈래를 차례로 돈다). 갈래는 `exp/<갈래 이름>` git 브랜치다. 동시에 여는 갈래 수는 `ach capacity --json`의 `recommended_workers` 안에서 정한다.
 
 1. 조사: DomainResearcher·ArticleResearcher로 과제 유형의 최근 우승 해법, 도메인 지식을 모은다. 첫 바퀴 전(SPEC 초안 뒤, PLAN 전)에는 같은 웨이브에서 OpenSourceScout로 공개 베이스라인·이전 우승 해법 저장소(Kaggle·DACON 토론, GitHub), 사전학습 모델(Hugging Face), 학습·검증 라이브러리를 찾아 `research/oss.md`에 구성 요소별 `reuse`/`fork`/`reference`/`build`와 외부 데이터·사전학습 모델 규칙을 받는다. 기준선은 맞는 공개 해법·모델에서 시작하고 직접 만들지 않는다. 도전 과제는 5개 이하, 각각 "데이터 기반" 또는 "도메인 기반"으로 표시한다.
 2. 가설: 가설 → 비판(실현 가능성, 지표와의 정렬, 개선 방향) → 다시 쓰기. 정렬·영향·참신성을 1~10으로 매겨 고른다. 다른 갈래의 가설을 함께 보여 겹치지 않게 한다.
@@ -50,4 +50,4 @@
 
 ## 5. 마무리
 
-수상 후 코드 검증·발표 자료가 필요한 대회는 재현 스크립트(`scripts/reproduce.sh`), 환경 명세, 학습 로그, 모델 설명 보고서를 준비한다. 보고서는 `data-analysis.md`의 문서 규칙을 따른다. ContestJudge(stage `final`)로 채점해 `harness score <id> --stage final --file <경로>`로 기록한 뒤, 커밋·푸시 후 최종 후보·CV·공개 점수 요약을 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`(`plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).
+수상 후 코드 검증·발표 자료가 필요한 대회는 재현 스크립트(`scripts/reproduce.sh`), 환경 명세, 학습 로그, 모델 설명 보고서를 준비한다. 보고서는 `data-analysis.md`의 문서 규칙을 따른다. ContestJudge(stage `final`)로 채점해 `ach score <id> --stage final --file <경로>`로 기록한 뒤, 커밋·푸시 후 최종 후보·CV·공개 점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(`plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).

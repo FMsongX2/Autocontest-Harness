@@ -198,7 +198,7 @@ pub fn apply_models_at(home: &Path, models: &BTreeMap<String, Option<String>>) -
         }
         let path = dir.join(format!("{name}.md"));
         let Ok(file) = std::fs::read_to_string(&path) else {
-            crate::bail!("설치된 에이전트 파일이 없다: {} (harness install을 먼저 한다)", path.display());
+            crate::bail!("설치된 에이전트 파일이 없다: {} (ach install을 먼저 한다)", path.display());
         };
         let Some(updated) = set_model(&file, model) else {
             crate::bail!("{}에 model 줄이 없다", path.display());

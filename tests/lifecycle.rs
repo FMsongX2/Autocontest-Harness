@@ -56,7 +56,7 @@ echo '{"ok":true,"result":{"worktree":{"id":"wt-1"}}}'
 "#;
 
 /// `omp` stub: a session that reports which contest it was launched for.
-const OMP: &str = "#!/bin/sh\necho \"session=${HARNESS_SESSION:-none}\"\n";
+const OMP: &str = "#!/bin/sh\necho \"session=${ACH_SESSION:-none}\"\n";
 
 /// `tmux` stub: every session exists; `new-window` prints a window handle.
 const TMUX: &str = r#"#!/bin/sh
@@ -72,7 +72,7 @@ struct Stubs {
 
 /// Process-wide setup, forced by every test before it touches the environment: stub
 /// `gh`/`orca`/`omp`/`tmux` first on PATH, a git identity of their own, and a temporary
-/// `HARNESS_HOME` holding a copy of the prompts (so nothing reads or writes the real `data/`).
+/// `ACH_HOME` holding a copy of the prompts (so nothing reads or writes the real `data/`).
 static STUBS: LazyLock<Stubs> = LazyLock::new(|| {
     let dir = std::env::temp_dir().join(format!("harness-lifecycle-stubs-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -97,8 +97,8 @@ static STUBS: LazyLock<Stubs> = LazyLock::new(|| {
         std::env::set_var("PATH", path);
         std::env::set_var("GIT_CONFIG_GLOBAL", &gitconfig);
         std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
-        std::env::set_var("HARNESS_HOME", &home);
-        std::env::remove_var("HARNESS_SESSION");
+        std::env::set_var("ACH_HOME", &home);
+        std::env::remove_var("ACH_SESSION");
     }
     Stubs { dir }
 });
@@ -446,7 +446,7 @@ fn launch_dry_run_writes_nothing_and_shows_the_session_marker() {
     let target = cfg.contests_root().join("Dry-Run");
     let before = git(&target, &["status", "--porcelain", "--ignored"]);
     let result = launch::launch(&mut e, &cfg, None, true).unwrap();
-    assert!(result["command"].as_str().unwrap().contains("env HARNESS_SESSION=manual-dry "), "{result}");
+    assert!(result["command"].as_str().unwrap().contains("env ACH_SESSION=manual-dry "), "{result}");
     assert!(!result["prompt_text"].as_str().unwrap_or_default().is_empty());
     assert_eq!(result["warnings"], json!([]));
     assert!(!target.join(".harness/launch-prompt.md").exists());
@@ -477,6 +477,6 @@ fn launched_session_carries_its_contest_id_and_the_main_session_does_not() {
     let _ = Headless.close(result["handle"].as_str().unwrap());
 
     let main = launch::chat(&cfg, Some("omp"), Some("tmux")).unwrap();
-    assert!(!main["command"].as_str().unwrap().contains("HARNESS_SESSION"), "{main}");
+    assert!(!main["command"].as_str().unwrap().contains("ACH_SESSION"), "{main}");
     fs::remove_dir_all(&root).unwrap();
 }

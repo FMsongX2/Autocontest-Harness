@@ -1,5 +1,5 @@
 //! Persona guard. The persona talks to the user; it must never reach contest deliverables (code,
-//! comments, reports, slides, forms) or commit messages. `harness check` runs this scan and the
+//! comments, reports, slides, forms) or commit messages. `ach check` runs this scan and the
 //! move to `awaiting_approval` refuses while it finds anything.
 
 use std::fs;

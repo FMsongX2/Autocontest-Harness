@@ -77,8 +77,8 @@
 
 ## 용량·예산
 
-- `harness capacity --json` 기준 웨이브당 워커 수: [`recommended_workers`, `ram.budget_gb`, `ram.pressure` 값과 확인 시각]
-- 공급자 한도 메모(`harness budget --json`): [ ]
+- `ach capacity --json` 기준 웨이브당 워커 수: [`recommended_workers`, `ram.budget_gb`, `ram.pressure` 값과 확인 시각]
+- 공급자 한도 메모(`ach budget --json`): [ ]
 - GPU 사용 계획과 비용 상한: [서버, 예상 시간, 클라우드면 삭제 시점]
 - 무거운 맥 작업과 공유 자원 잠금은 `data/local-rules.md`(있으면)의 방법을 따른다.
 

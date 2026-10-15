@@ -1,4 +1,4 @@
-//! `harness`: the Autocontest-Harness CLI. Agents call it; it is the only writer of the registry.
+//! `ach`: the Autocontest-Harness CLI. Agents call it; it is the only writer of the registry.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -18,12 +18,12 @@ use harness::{
 };
 
 const EXIT_DUPLICATE: u8 = 3;
-/// `0.3.0 (<git sha>)`: the commit tells whether the binary matches the checkout (`harness doctor`).
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("HARNESS_GIT_SHA"), ")");
+/// `0.3.0 (<git sha>)`: the commit tells whether the binary matches the checkout (`ach doctor`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACH_GIT_SHA"), ")");
 const EXIT_PERSONA: u8 = 4;
 
 #[derive(Parser)]
-#[command(name = "harness", version = VERSION, about = "Contest automation harness (docs/CONTRACT.md)")]
+#[command(name = "ach", version = VERSION, about = "Autocontest-Harness core, called by its agents (docs/CONTRACT.md)")]
 struct Cli {
     /// Print JSON instead of text.
     #[arg(long, global = true)]
@@ -147,7 +147,7 @@ enum Command {
         score_ok: Option<String>,
     },
     /// Record the user's approval: ends a level 5 plan review (`plan_review → running`) or approves
-    /// the submission (`awaiting_approval`). Refused inside contest sessions (HARNESS_SESSION set).
+    /// the submission (`awaiting_approval`). Refused inside contest sessions (ACH_SESSION set).
     Approve {
         id: String,
         /// The user's approval message, verbatim, with its time.
@@ -336,7 +336,7 @@ enum ProfileAction {
     /// The `## 참가 자격` section only (what ContestGate reads; no personal details).
     Eligibility,
     /// The whole profile, personal details included: only for a contest whose submission the user
-    /// approved (`harness approve`) or that is already submitted.
+    /// approved (`ach approve`) or that is already submitted.
     Show {
         /// The contest id the details are for (inside a contest session: its own id).
         #[arg(long = "for")]
@@ -1239,7 +1239,7 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
     })?;
     report["needs_gate"] = json!(needs_gate);
     if auto_launch || cfg.auto_launch {
-        // One launch pass at a time (shared with `harness launch`), so the capacity measured here
+        // One launch pass at a time (shared with `ach launch`), so the capacity measured here
         // holds until every launch below is stored. The registry lock is taken only to read and to
         // store each result; route (gh/git push) and launch run on copies without it.
         let _guard = registry::launch_guard()?;

@@ -234,7 +234,7 @@ pub fn from_registry(entry: &Entry) -> Option<Submission> {
     })
 }
 
-/// The ledger item `harness submit` writes for a registry entry.
+/// The ledger item `ach submit` writes for a registry entry.
 pub fn from_submit(entry: &Entry, method: &str, receipt: &str, files: &[String], note: &str) -> Submission {
     Submission {
         key: entry.id.clone(),
@@ -254,7 +254,7 @@ pub fn from_submit(entry: &Entry, method: &str, receipt: &str, files: &[String],
     }
 }
 
-/// A contest submitted outside the harness (`harness submitted add`).
+/// A contest submitted outside the harness (`ach submitted add`).
 #[derive(Default)]
 pub struct Manual<'a> {
     pub title: &'a str,

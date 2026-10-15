@@ -88,7 +88,7 @@ pub fn render_on(registry: &Registry, today: NaiveDate) -> String {
     let mut lines = vec![
         "# 공모전 보드".to_string(),
         String::new(),
-        format!("갱신: {}. `harness board`가 레지스트리에서 만든다. 직접 고치지 않는다.", now()),
+        format!("갱신: {}. `ach board`가 레지스트리에서 만든다. 직접 고치지 않는다.", now()),
         String::new(),
     ];
     for &(state, label) in ORDER {

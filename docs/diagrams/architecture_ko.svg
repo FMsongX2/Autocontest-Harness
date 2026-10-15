@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 960 592" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture_ko-title architecture_ko-desc" id="architecture_ko-root">
+<svg viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture_ko-title architecture_ko-desc" id="architecture_ko-root">
         <title id="architecture_ko-title">Autocontest-Harness 구성</title>
-        <desc id="architecture_ko-desc">구성도: 사용자와 스케줄러가 harness CLI를 부르고, CLI만 data/를 쓰며 공고를 수집하고 공모전 폴더를 만들고 작업 환경에 에이전트 세션을 띄운다. 에이전트는 CLI를 다시 부르고 공모전 폴더에 커밋한다.</desc>
+        <desc id="architecture_ko-desc">구성도: 사용자는 메인 세션과 대화하고, 메인 세션이 하네스 코어 ach를 부른다. 스케줄러도 정기 실행을 띄운다. data/는 ach만 쓰고, ach가 HTTP로 공고를 수집하고, 공모전 폴더를 만들고, 작업 환경에 공모전 세션을 띄운다. 공모전 세션은 ach를 다시 부르고 자기 폴더에 커밋한다.</desc>
         <defs>
       <style>#architecture_ko-root { --color-paper:   #f5f5f5;
       --color-ink:     #2d3142;
@@ -20,105 +20,110 @@
 
         <rect width="100%" height="100%" fill="#f5f5f5"/>
 
-        <!-- Zone: the harness checkout (only the CLI writes data/) -->
-        <rect x="224" y="196" width="192" height="300" rx="8" fill="#2d3142" stroke="#2d3142" stroke-width="0.8" fill-opacity="0.02" stroke-opacity="0.10"/>
-        <rect x="232" y="200" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="248" y="212" fill="#5a6580" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">클론</text>
         <!-- Connectors (behind nodes) -->
-        <path d="M 184,152 H 196 Q 204,152 204,160 V 256 Q 204,264 212,264 H 240" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <path d="M 184,408 H 196 Q 204,408 204,400 V 304 Q 204,296 212,296 H 240" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <path d="M 296,232 V 120" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#architecture_ko-arrow-link)"/>
-        <path d="M 320,328 V 416" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <path d="M 400,264 H 480" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#architecture_ko-arrow-accent)"/>
-        <path d="M 624,264 H 704" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <path d="M 804,232 V 192 Q 804,184 796,184 H 352 Q 344,184 344,192 V 232" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <path d="M 400,296 H 440 Q 448,296 448,304 V 440 Q 448,448 456,448 H 704" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <path d="M 804,296 V 416" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 184,88 H 264" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 352,120 V 224" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 184,272 H 264" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 352,320 V 408" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 440,272 H 504" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#architecture_ko-arrow-accent)"/>
+        <path d="M 648,272 H 712" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 816,240 V 192 Q 816,184 808,184 H 408 Q 400,184 400,192 V 224" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 440,304 H 464 Q 472,304 472,312 V 432 Q 472,440 480,440 H 712" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 816,304 V 408" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <path d="M 264,312 H 120 Q 112,312 112,320 V 408" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#architecture_ko-arrow-link)"/>
         <!-- Connector labels -->
-        <rect x="164" y="206.0" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="180" y="218.0" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">승인</text>
-        <rect x="132" y="336.0" width="64" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="164" y="348.0" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">정기 실행</text>
-        <rect x="256" y="158.0" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="272" y="170.0" fill="#2e5aa8" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">수집</text>
-        <rect x="328" y="362.0" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="344" y="374.0" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">쓰기</text>
-        <rect x="424" y="240" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="440" y="252" fill="#bf4520" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">실행</text>
-        <rect x="648" y="240" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="664" y="252" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">구동</text>
-        <rect x="528" y="160" width="92" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="574" y="172" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">harness 호출</text>
-        <rect x="456" y="362.0" width="44" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="478" y="374.0" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">라우팅</text>
-        <rect x="812" y="348.0" width="32" height="16" rx="2" fill="#f5f5f5"/>
-        <text x="828" y="360.0" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">커밋</text>
+        <rect x="208" y="64" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="224" y="76" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">대화</text>
+        <rect x="360" y="164" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="376" y="176" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">호출</text>
+        <rect x="192" y="248" width="64" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="224" y="260" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">정기 실행</text>
+        <rect x="360" y="356" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="376" y="368" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">쓰기</text>
+        <rect x="456" y="248" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="472" y="260" fill="#bf4520" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">실행</text>
+        <rect x="664" y="248" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="680" y="260" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">구동</text>
+        <rect x="576" y="160" width="64" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="608" y="172" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">ach 호출</text>
+        <rect x="480" y="364" width="44" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="502" y="376" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">라우팅</text>
+        <rect x="824" y="348" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="840" y="360" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">커밋</text>
+        <rect x="120" y="356" width="32" height="16" rx="2" fill="#f5f5f5"/>
+        <text x="136" y="368" fill="#2e5aa8" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">수집</text>
         <!-- Nodes -->
-        <rect x="40" y="120" width="144" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="40" y="120" width="144" height="64" rx="6" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
-        <rect x="48" y="128" width="32" height="12" rx="2" fill="none" stroke="#5a6580" stroke-width="0.8" stroke-opacity="0.40"/>
-        <text x="64" y="137" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">USER</text>
-        <text x="112" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">사용자</text>
-        <text x="112" y="172" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">terminal · chat</text>
-        <rect x="40" y="376" width="144" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="40" y="376" width="144" height="64" rx="6" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
-        <rect x="48" y="384" width="32" height="12" rx="2" fill="none" stroke="#5a6580" stroke-width="0.8" stroke-opacity="0.40"/>
-        <text x="64" y="393" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">CRON</text>
-        <text x="112" y="412" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">스케줄러</text>
-        <text x="112" y="428" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">orca · launchd · cron</text>
-        <rect x="232" y="56" width="128" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="232" y="56" width="128" height="64" rx="6" fill="#2d3142" stroke="#2d3142" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
-        <rect x="240" y="64" width="28" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.22"/>
-        <text x="254" y="73" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">WEB</text>
-        <text x="296" y="92" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">공고 사이트</text>
-        <text x="296" y="108" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">11 sources</text>
-        <rect x="240" y="232" width="160" height="96" rx="6" fill="#f5f5f5"/>
-        <rect x="240" y="232" width="160" height="96" rx="6" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
-        <rect x="248" y="240" width="32" height="12" rx="2" fill="none" stroke="#bf4520" stroke-width="0.8" stroke-opacity="0.50"/>
-        <text x="264" y="249" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text>
-        <text x="320" y="284" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">harness CLI</text>
-        <text x="320" y="300" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">registry · gate · route</text>
-        <rect x="240" y="416" width="160" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="240" y="416" width="160" height="64" rx="6" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
-        <rect x="248" y="424" width="36" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-width="0.8" stroke-opacity="0.50"/>
-        <text x="266" y="433" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STATE</text>
-        <text x="320" y="452" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">data/</text>
-        <text x="320" y="468" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">registry · ledger</text>
-        <rect x="480" y="232" width="144" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="480" y="232" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-        <rect x="488" y="240" width="28" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
-        <text x="502" y="249" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">WS</text>
-        <text x="552" y="268" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">작업 환경</text>
-        <text x="552" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">orca · tmux · headless</text>
-        <rect x="704" y="232" width="200" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="704" y="232" width="200" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-        <rect x="712" y="240" width="36" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
-        <text x="730" y="249" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
-        <text x="804" y="268" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">에이전트 세션</text>
-        <text x="804" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">omp · claude + agents</text>
-        <rect x="704" y="416" width="200" height="64" rx="6" fill="#f5f5f5"/>
-        <rect x="704" y="416" width="200" height="64" rx="6" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
-        <rect x="712" y="424" width="32" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-width="0.8" stroke-opacity="0.50"/>
-        <text x="728" y="433" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">REPO</text>
-        <text x="804" y="452" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">공모전 폴더</text>
-        <text x="804" y="468" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">git · private GitHub repo</text>
+        <rect x="40" y="56" width="144" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="40" y="56" width="144" height="64" rx="6" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
+        <rect x="48" y="64" width="32" height="12" rx="2" fill="none" stroke="#5a6580" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="64" y="73" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">USER</text>
+        <text x="112" y="92" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">사용자</text>
+        <text x="112" y="108" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">talk, approve</text>
+        <rect x="264" y="56" width="176" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="264" y="56" width="176" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="272" y="64" width="36" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="290" y="73" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
+        <text x="352" y="92" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">메인 세션</text>
+        <text x="352" y="108" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">bin/ach chat</text>
+        <rect x="40" y="240" width="144" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="40" y="240" width="144" height="64" rx="6" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
+        <rect x="48" y="248" width="32" height="12" rx="2" fill="none" stroke="#5a6580" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="64" y="257" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">CRON</text>
+        <text x="112" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">스케줄러</text>
+        <text x="112" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">orca · launchd · cron</text>
+        <rect x="264" y="224" width="176" height="96" rx="6" fill="#f5f5f5"/>
+        <rect x="264" y="224" width="176" height="96" rx="6" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
+        <rect x="272" y="232" width="32" height="12" rx="2" fill="none" stroke="#bf4520" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="288" y="241" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text>
+        <text x="352" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">ach</text>
+        <text x="352" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">registry · gates · launch</text>
+        <rect x="264" y="408" width="176" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="264" y="408" width="176" height="64" rx="6" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
+        <rect x="272" y="416" width="36" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="290" y="425" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STATE</text>
+        <text x="352" y="444" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">data/</text>
+        <text x="352" y="460" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">registry · ledger</text>
+        <rect x="40" y="408" width="144" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="40" y="408" width="144" height="64" rx="6" fill="#2d3142" stroke="#2d3142" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <rect x="48" y="416" width="28" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.22"/>
+        <text x="62" y="425" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">WEB</text>
+        <text x="112" y="444" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">공고 사이트</text>
+        <text x="112" y="460" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">11 sources</text>
+        <rect x="504" y="240" width="144" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="504" y="240" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="512" y="248" width="28" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="526" y="257" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">WS</text>
+        <text x="576" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">작업 환경</text>
+        <text x="576" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">orca · tmux · headless</text>
+        <rect x="712" y="240" width="208" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="712" y="240" width="208" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="720" y="248" width="36" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="738" y="257" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
+        <text x="816" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">공모전 세션</text>
+        <text x="816" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">omp · claude + agents</text>
+        <rect x="712" y="408" width="208" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="712" y="408" width="208" height="64" rx="6" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
+        <rect x="720" y="416" width="32" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="736" y="425" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">REPO</text>
+        <text x="816" y="444" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">공모전 폴더</text>
+        <text x="816" y="460" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">git · private GitHub repo</text>
         <!-- Legend -->
-        <line x1="40" y1="516" x2="920" y2="516" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.10"/>
-        <text x="40" y="532" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
-        <rect x="40" y="545" width="14" height="10" rx="2" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
-        <text x="60" y="553" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">harness CLI</text>
-        <rect x="148" y="545" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-        <text x="168" y="555" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">프로세스</text>
-        <rect x="244" y="545" width="14" height="10" rx="2" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
-        <text x="264" y="555" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">파일</text>
-        <rect x="316" y="545" width="14" height="10" rx="2" fill="#2d3142" stroke="#2d3142" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
-        <text x="336" y="555" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">외부</text>
-        <rect x="388" y="545" width="14" height="10" rx="2" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
-        <text x="408" y="555" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">시작점</text>
-        <line x1="472" y1="550" x2="500" y2="550" stroke="#bf4520" stroke-width="1.4" marker-end="url(#architecture_ko-arrow-accent)"/>
-        <text x="508" y="555" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">실행 경로</text>
-        <line x1="592" y1="550" x2="620" y2="550" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#architecture_ko-arrow-link)"/>
-        <text x="628" y="553" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">HTTP</text>
-        <line x1="680" y1="550" x2="708" y2="550" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
-        <text x="716" y="555" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">호출·쓰기</text>
+        <line x1="40" y1="496" x2="920" y2="496" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.10"/>
+        <text x="40" y="512" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="525" width="14" height="10" rx="2" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
+        <text x="60" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">ach(코어)</text>
+        <rect x="148" y="525" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="168" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">에이전트·프로세스</text>
+        <rect x="300" y="525" width="14" height="10" rx="2" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
+        <text x="320" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">파일</text>
+        <rect x="372" y="525" width="14" height="10" rx="2" fill="#2d3142" stroke="#2d3142" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <text x="392" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">외부</text>
+        <rect x="444" y="525" width="14" height="10" rx="2" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
+        <text x="464" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">사용자·시작점</text>
+        <line x1="572" y1="530" x2="600" y2="530" stroke="#bf4520" stroke-width="1.4" marker-end="url(#architecture_ko-arrow-accent)"/>
+        <text x="608" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">실행 경로</text>
+        <line x1="692" y1="530" x2="720" y2="530" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#architecture_ko-arrow-link)"/>
+        <text x="728" y="533" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">HTTP</text>
+        <line x1="780" y1="530" x2="808" y2="530" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#architecture_ko-arrow)"/>
+        <text x="816" y="535" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">호출·쓰기</text>
       </svg>

@@ -1,8 +1,8 @@
 // Autocontest-Harness extension for omp.
 //
 // Commands: /contest (board + capacity summary), /contest <id> (one entry), /contest-chat
-// (how to open the main interface). All of them call the `harness` binary. The persona and main
-// interface role come from `harness chat` (--append-system-prompt), not from this extension.
+// (how to open the main interface). All of them call the `ach` binary. The persona and main
+// interface role come from `ach chat` (--append-system-prompt), not from this extension.
 //
 // Host types are declared locally, so the file loads without omp's packages installed.
 // Failures are reported to the UI and never block the session.
@@ -24,7 +24,7 @@ interface HostApi {
   registerCommand(name: string, options: { description?: string; handler: (args: string, ctx: HostContext) => Promise<void> }): void
 }
 
-// Display-only views of `harness --json` output; the binary owns these shapes.
+// Display-only views of `ach --json` output; the binary owns these shapes.
 interface Entry {
   id?: string
   title?: string
@@ -61,17 +61,23 @@ const ROOT = (() => {
   }
 })()
 
+// `ach` is not on the user's PATH: `scripts/install.sh` puts it in the checkout's `bin/`.
 function harnessBin(): string {
-  const candidates = [process.env.HARNESS_BIN, join(ROOT, 'target', 'release', 'harness'), join(ROOT, 'target', 'debug', 'harness')]
+  const candidates = [
+    process.env.ACH_BIN,
+    join(ROOT, 'bin', 'ach'),
+    join(ROOT, 'target', 'release', 'ach'),
+    join(ROOT, 'target', 'debug', 'ach'),
+  ]
   for (const c of candidates) if (c && existsSync(c)) return c
-  return 'harness'
+  return 'ach'
 }
 
 function errorText(err: unknown): string {
   const e = err as { stderr?: unknown; message?: unknown; code?: unknown }
   const stderr = typeof e?.stderr === 'string' ? e.stderr.trim() : ''
   if (stderr) return stderr.split('\n').slice(-5).join('\n')
-  if (e?.code === 'ENOENT') return '`harness` 실행 파일을 찾지 못했다(`cargo build --release` 또는 HARNESS_BIN 설정 필요)'
+  if (e?.code === 'ENOENT') return '`ach` 실행 파일을 찾지 못했다(클론에서 `scripts/install.sh` 또는 ACH_BIN 설정 필요)'
   return String(e?.message ?? err)
 }
 
@@ -80,7 +86,7 @@ function execHarness(args: string[]): Promise<string> {
   execFile(
     harnessBin(),
     args,
-    { cwd: ROOT, env: { ...process.env, HARNESS_HOME: process.env.HARNESS_HOME || ROOT }, maxBuffer: 32 * 1024 * 1024, timeout: 120_000 },
+    { cwd: ROOT, env: { ...process.env, ACH_HOME: process.env.ACH_HOME || ROOT }, maxBuffer: 32 * 1024 * 1024, timeout: 120_000 },
     (err, stdout, stderr) => (err ? fail(Object.assign(err, { stderr })) : done(stdout)),
   )
   return promise
@@ -91,7 +97,7 @@ async function runHarness(args: string[]): Promise<unknown> {
   try {
     return JSON.parse(stdout)
   } catch {
-    throw new Error(`harness ${args.join(' ')}: JSON이 아닌 출력`)
+    throw new Error(`ach ${args.join(' ')}: JSON이 아닌 출력`)
   }
 }
 
@@ -199,6 +205,11 @@ function entrySummary(e: Entry): string {
 }
 
 export default function (omp: HostApi): void {
+  // Why: agents in omp sessions call `ach`, which is not on the user's PATH. Shells the session
+  // starts inherit this process's environment, so put the checkout's `bin/` first.
+  const bin = join(ROOT, 'bin')
+  const path = process.env.PATH ?? ''
+  if (!path.split(':').includes(bin)) process.env.PATH = path ? `${bin}:${path}` : bin
   omp.registerCommand('contest', {
     description: '공모전 하네스: 인자 없으면 보드·용량 요약, <id>면 그 공모전',
     handler: async (args, ctx) => {
@@ -220,7 +231,7 @@ export default function (omp: HostApi): void {
         const errors = [board, cap].filter((r) => r.status === 'rejected').map((r) => errorText((r as PromiseRejectedResult).reason))
         show(ctx, errors.length ? `${text}\n오류: ${errors.join(' / ')}` : text, errors.length ? 'warning' : 'info')
       } catch (err) {
-        show(ctx, `harness 실패: ${errorText(err)}`, 'error')
+        show(ctx, `ach 실패: ${errorText(err)}`, 'error')
       }
     },
   })
@@ -230,12 +241,12 @@ export default function (omp: HostApi): void {
     handler: async (_args, ctx) => {
       const { promise, resolve: done } = Promise.withResolvers<string>()
       execFile(harnessBin(), ['--version'], { cwd: ROOT, timeout: 10_000 }, (err, stdout) =>
-        done(err ? `harness를 찾지 못했다: ${errorText(err)}` : stdout.trim()),
+        done(err ? `ach를 찾지 못했다: ${errorText(err)}` : stdout.trim()),
       )
       const version = await promise
       show(
         ctx,
-        `메인 인터페이스는 터미널에서 연다:\n  cd ${ROOT} && harness chat [--runner <러너>] [--workspace terminal|orca|tmux]\n` +
+        `메인 인터페이스는 터미널에서 연다:\n  cd ${ROOT} && bin/ach chat [--runner <러너>] [--workspace terminal|orca|tmux]\n` +
           `설정 러너(data/config.json runner)로 페르소나와 harness/prompts/main.md를 시스템 프롬프트에 덧붙여 저장소 루트에서 연다.\n${version}`,
       )
     },

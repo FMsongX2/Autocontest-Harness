@@ -20,7 +20,7 @@ use crate::workspaces;
 const CLEANABLE: &[&str] = &["submitted", "closed"];
 
 /// Folder for files that must outlive the contest folder but never go to git (receipts, form edit
-/// links, copies with personal details). `harness clean` archives it.
+/// links, copies with personal details). `ach clean` archives it.
 pub const PRIVATE_DIR: &str = ".private";
 
 /// What `clean` keeps and what it leaves behind with the folder.
@@ -58,7 +58,7 @@ pub struct Options {
     pub archive_dir: Option<PathBuf>,
 }
 
-/// Entries `harness clean --all` looks at: finished, with a folder that has not been cleaned yet.
+/// Entries `ach clean --all` looks at: finished, with a folder that has not been cleaned yet.
 pub fn candidate(entry: &Entry) -> bool {
     CLEANABLE.contains(&entry.state.as_str())
         && entry.folder.is_some()
@@ -136,7 +136,7 @@ pub fn problems(entry: &Entry, ledger: &Ledger) -> Vec<String> {
         out.push(format!("상태가 {}다(submitted·closed만 정리한다)", entry.state));
     }
     if ledger.get(&entry.id).is_none() {
-        out.push("제출 기록부에 이 공모전이 없다(harness submitted add 또는 import)".into());
+        out.push("제출 기록부에 이 공모전이 없다(ach submitted add 또는 import)".into());
     }
     let Some(folder) = entry.folder.as_deref().map(Path::new) else {
         out.push("폴더 기록이 없다".into());
@@ -412,7 +412,7 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
         note.push_str(&format!(" / 보관: {a}"));
     }
     let state = entry.state.clone();
-    entry.history.push(HistoryItem::new(at, Some(state.clone()), &state, "harness clean", &note));
+    entry.history.push(HistoryItem::new(at, Some(state.clone()), &state, "ach clean", &note));
     outcome.ok = true;
     Ok(outcome)
 }
@@ -422,7 +422,7 @@ fn failed(id: &str, err: Error) -> Outcome {
     Outcome { id: id.to_string(), problems: vec![err.0], ..Default::default() }
 }
 
-/// `harness clean [<id> | --all]` against the registry at `registry_path`. The network part
+/// `ach clean [<id> | --all]` against the registry at `registry_path`. The network part
 /// (`git fetch`) runs before the exclusive registry lock is taken; under the lock each entry is
 /// re-checked locally and cleaned. One entry's error becomes its failed outcome, so the entries
 /// that were cleaned are always saved.

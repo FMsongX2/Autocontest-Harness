@@ -50,7 +50,7 @@ fn psi_maps_some_avg10_to_pressure_levels() {
 }
 
 fn block(root: &str, cron: &str) -> String {
-    schedule::cron_block(Path::new("/opt/bin/harness"), Path::new(root), &Cron::parse(cron).unwrap(), "/usr/bin:/bin")
+    schedule::cron_block(Path::new("/opt/bin/ach"), Path::new(root), &Cron::parse(cron).unwrap(), "/usr/bin:/bin")
         .unwrap()
 }
 
@@ -58,7 +58,7 @@ fn block(root: &str, cron: &str) -> String {
 fn cron_line_quotes_paths_and_escapes_percent() {
     let cron = Cron::parse("0  */6 * * *").unwrap();
     let line = schedule::cron_line(
-        Path::new("/opt/my bin/harness"),
+        Path::new("/opt/my bin/ach"),
         Path::new("/home/a'b/50% repo"),
         &cron,
         "/usr/bin:/home/x y/bin",
@@ -66,7 +66,7 @@ fn cron_line_quotes_paths_and_escapes_percent() {
     .unwrap();
     assert_eq!(
         line,
-        r"0 */6 * * * cd '/home/a'\''b/50\% repo' && HARNESS_HOME='/home/a'\''b/50\% repo' PATH='/usr/bin:/home/x y/bin' '/opt/my bin/harness' autorun >> '/home/a'\''b/50\% repo/data/logs/cron.log' 2>&1"
+        r"0 */6 * * * cd '/home/a'\''b/50\% repo' && ACH_HOME='/home/a'\''b/50\% repo' PATH='/usr/bin:/home/x y/bin' '/opt/my bin/ach' autorun >> '/home/a'\''b/50\% repo/data/logs/cron.log' 2>&1"
     );
     assert_eq!(schedule::cron_job_schedule(&line), "0 */6 * * *");
     // A newline would end the crontab entry early and run the rest as another job.
@@ -156,7 +156,7 @@ fn cron_install_update_remove_through_crontab_command() {
     let dir = scratch("crontab");
     let program = stub_crontab(&dir);
     let root = dir.join("checkout");
-    let exe = Path::new("/opt/bin/harness");
+    let exe = Path::new("/opt/bin/ach");
     let table = dir.join("table");
 
     // No crontab yet reads as empty.

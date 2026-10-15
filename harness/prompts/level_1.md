@@ -1,5 +1,5 @@
 - 이 세션 하나가 플레이북을 따라 직접 만든다. 지휘(HQ) 절차나 워커 웨이브는 쓰지 않는다.
 - 순서: 공고 요건 정리 → (창작물이면) 콘셉트 카드 2~3장을 사용자에게 보여 고르게 함(사람 관문) → 제작 → `ContestJudge` → 고침 → 제출 준비.
 - 근거가 필요한 문장이 있으면 `DomainResearcher`를 한 번 띄워 출처를 받는다.
-- 리뷰어: 완성 뒤 `ContestJudge`(stage `final`)로 채점하고, `revise`면 고친 뒤 다시 채점한다. 레벨 1은 점수 루프(기획 채점, `harness score` 기록)를 강제하지 않지만, 기록해 두고 싶으면 Judge 출력을 `.harness/judge/final-<n>.json`에 저장하고 `harness score <id> --stage final --file <경로>`로 남길 수 있다.
+- 리뷰어: 완성 뒤 `ContestJudge`(stage `final`)로 채점하고, `revise`면 고친 뒤 다시 채점한다. 레벨 1은 점수 루프(기획 채점, `ach score` 기록)를 강제하지 않지만, 기록해 두고 싶으면 Judge 출력을 `.harness/judge/final-<n>.json`에 저장하고 `ach score <id> --stage final --file <경로>`로 남길 수 있다.
 - 사람 관문: 창작물 콘셉트 선택, 제출 승인.

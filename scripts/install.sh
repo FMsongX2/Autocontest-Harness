@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
-# Install the `harness` binary for this checkout.
+# Install `ach`, the harness core that its agents call, into this checkout.
 #
 #   scripts/install.sh                 prebuilt binary from the GitHub release matching Cargo.toml's
 #                                      version, checked against SHA256SUMS (falls back to building)
 #   scripts/install.sh --from-source   build with cargo instead
 #
-# The binary goes to <checkout>/bin/harness and a symlink to it is placed in $BIN_DIR
-# (default ~/.local/bin). Through that symlink the binary finds this checkout, so prompts,
-# agents and data/ are read from here. Run it again after `git pull` to upgrade.
+# The binary goes to <checkout>/bin/ach and nowhere else: it is not put on your PATH. Sessions
+# the harness starts get it on theirs. Run it again after `git pull` to upgrade.
 set -euo pipefail
 
 REPO="FMsongX2/Autocontest-Harness"
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
+BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"   # only to remove the PATH link older versions made
 FROM_SOURCE=0
 case "${1:-}" in
   --from-source) FROM_SOURCE=1 ;;
   "") ;;
-  -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
   *) echo "unknown option: $1" >&2; exit 2 ;;
 esac
 
@@ -47,7 +46,7 @@ trap 'rm -rf "$TMP"' EXIT
 download() {
   local tgt asset base want got
   tgt="$(target)" || { echo "no prebuilt binary for $(uname -s)/$(uname -m)"; return 1; }
-  asset="harness-$VERSION-$tgt.tar.gz"
+  asset="ach-$VERSION-$tgt.tar.gz"
   base="https://github.com/$REPO/releases/download/v$VERSION"
   echo "downloading $asset (v$VERSION)"
   curl -fsSL --retry 2 -o "$TMP/$asset" "$base/$asset" || { echo "no release asset $base/$asset"; return 1; }
@@ -60,7 +59,7 @@ download() {
   fi
   tar -xzf "$TMP/$asset" -C "$TMP"
   mkdir -p "$ROOT/bin"
-  install -m 0755 "$TMP/harness" "$ROOT/bin/harness"
+  install -m 0755 "$TMP/ach" "$ROOT/bin/ach"
 }
 
 build() {
@@ -68,7 +67,7 @@ build() {
   echo "building from source"
   (cd "$ROOT" && cargo build --release --locked)
   mkdir -p "$ROOT/bin"
-  install -m 0755 "$ROOT/target/release/harness" "$ROOT/bin/harness"
+  install -m 0755 "$ROOT/target/release/ach" "$ROOT/bin/ach"
 }
 
 if [ "$FROM_SOURCE" = 1 ]; then
@@ -78,12 +77,13 @@ elif ! download; then
   build
 fi
 
-mkdir -p "$BIN_DIR"
-ln -sfn "$ROOT/bin/harness" "$BIN_DIR/harness"
-echo "installed: $BIN_DIR/harness -> $ROOT/bin/harness"
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *) echo "note: $BIN_DIR is not on PATH; add it to your shell profile" ;;
-esac
-"$BIN_DIR/harness" --version
-echo "next: harness doctor"
+# Up to 0.5 the binary was `bin/harness`, linked as $BIN_DIR/harness. Remove both if they are ours.
+if [ -L "$BIN_DIR/harness" ] && [ "$(readlink "$BIN_DIR/harness")" = "$ROOT/bin/harness" ]; then
+  rm "$BIN_DIR/harness"
+  echo "removed the old link $BIN_DIR/harness"
+fi
+rm -f "$ROOT/bin/harness"
+
+echo "installed: $ROOT/bin/ach"
+"$ROOT/bin/ach" --version
+echo "next: open your coding agent in $ROOT and ask it to read INIT.md and set up the harness"

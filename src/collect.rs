@@ -184,7 +184,7 @@ pub fn collect_from(
                 } else {
                     format!("기존 폴더와 같음: {}", hit["id"].as_str().unwrap_or_default())
                 };
-                transition(&mut entry, "duplicate", "harness collect", &note)?;
+                transition(&mut entry, "duplicate", "ach collect", &note)?;
                 report.duplicates.push(entry.id.clone());
             } else {
                 report.added.push(entry.id.clone());

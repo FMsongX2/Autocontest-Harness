@@ -1,7 +1,7 @@
-//! Where the harness keeps its files. The repository root is `HARNESS_HOME` when set, otherwise the
-//! checkout that holds the running binary (`<clone>/target/release/harness`, `<clone>/bin/harness`),
-//! otherwise the checkout the binary was built from (so `cargo install --path .` keeps working from
-//! the clone). `main` refuses to run when that root is not a harness checkout ([`checkout_ok`]).
+//! Where the harness keeps its files. The repository root is `ACH_HOME` when set, otherwise the
+//! checkout that holds the running binary (`<clone>/bin/ach`, `<clone>/target/release/ach`),
+//! otherwise the checkout the binary was built from. `main` refuses to run when that root is not a
+//! harness checkout ([`checkout_ok`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -16,7 +16,7 @@ static BINARY_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
 });
 
 pub fn root() -> PathBuf {
-    match std::env::var_os("HARNESS_HOME").filter(|home| !home.is_empty()) {
+    match std::env::var_os("ACH_HOME").filter(|home| !home.is_empty()) {
         Some(home) => PathBuf::from(home),
         None => BINARY_ROOT.clone(),
     }
@@ -28,21 +28,41 @@ pub fn checkout_ok(root: &Path) -> bool {
 }
 
 /// The root, or an error naming it when it is not a harness checkout (moved or deleted clone, typo
-/// in `HARNESS_HOME`), so no command silently starts an empty registry somewhere else.
+/// in `ACH_HOME`), so no command silently starts an empty registry somewhere else.
 pub fn checked_root() -> crate::error::Result<PathBuf> {
     let root = root();
     if checkout_ok(&root) {
         return Ok(root);
     }
-    let source = if std::env::var_os("HARNESS_HOME").is_some_and(|h| !h.is_empty()) {
-        "HARNESS_HOME"
+    let source = if std::env::var_os("ACH_HOME").is_some_and(|h| !h.is_empty()) {
+        "ACH_HOME"
     } else {
         "실행 파일 위치나 빌드한 클론"
     };
     crate::bail!(
-        "하네스 클론을 찾지 못했다: {}에 {MARKER}가 없다({source} 기준). HARNESS_HOME을 클론 경로로 지정하거나 클론에서 다시 설치한다(cargo install --path . --root ~/.local --force)",
+        "하네스 클론을 찾지 못했다: {}에 {MARKER}가 없다({source} 기준). ACH_HOME을 클론 경로로 지정하거나 클론에서 scripts/install.sh로 다시 설치한다",
         root.display()
     )
+}
+
+/// The directory of the running `ach` (`<clone>/bin`). It is not on the user's PATH; sessions the
+/// harness starts get it through [`session_path`].
+pub fn bin_dir() -> PathBuf {
+    std::env::current_exe()
+        .and_then(|exe| exe.canonicalize())
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| root().join("bin"))
+}
+
+/// `PATH` for a session the harness starts: [`bin_dir`] first, so its agents can call `ach`.
+pub fn session_path() -> String {
+    let bin = bin_dir().display().to_string();
+    match std::env::var("PATH") {
+        Ok(path) if path.split(':').next() == Some(bin.as_str()) => path,
+        Ok(path) if !path.is_empty() => format!("{bin}:{path}"),
+        _ => bin,
+    }
 }
 
 pub fn home() -> PathBuf {

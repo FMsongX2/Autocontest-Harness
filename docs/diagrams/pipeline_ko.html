@@ -66,7 +66,7 @@
     <div class="diagram-container">
       <svg viewBox="0 0 960 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pipeline_ko-title pipeline_ko-desc">
         <title id="pipeline_ko-title">공모전 하나가 하네스를 거치는 과정</title>
-        <desc id="pipeline_ko-desc">스윔레인 다이어그램: harness CLI가 공고를 수집하고, 에이전트가 게이트를 판정하고, CLI가 라우팅하고 실행하며, 에이전트가 레벨대로 작업하고, CLI가 점수와 페르소나 흔적을 검사하고, 사용자가 승인하면 에이전트가 제출한다. 레벨 5는 계획 검토에서 한 번 더 멈춘다.</desc>
+        <desc id="pipeline_ko-desc">스윔레인 다이어그램: 하네스 코어 ach가 공고를 수집하고, 에이전트가 게이트를 판정하고, ach가 라우팅하고 실행하며, 에이전트가 레벨대로 작업하고, ach가 점수와 페르소나 흔적을 검사하고, 사용자가 메인 세션에 승인을 말하면 에이전트가 제출한다. 레벨 5는 계획 검토에서 한 번 더 멈춘다.</desc>
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
           <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
@@ -83,7 +83,7 @@
         <line x1="128" y1="56" x2="128" y2="320" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
         <text x="48" y="104" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">사용자</text>
         <text x="48" y="192" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">에이전트</text>
-        <text x="48" y="279" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">HARNESS CLI</text>
+        <text x="48" y="279" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">ACH</text>
         <!-- Connectors (behind nodes) -->
         <path d="M 192,252 V 196 Q 192,188 200,188 H 256" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
         <path d="M 304,212 V 252" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
@@ -109,7 +109,7 @@
         <rect x="144" y="252" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="144" y="252" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="192" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">수집</text>
-        <text x="192" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness collect</text>
+        <text x="192" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ach collect</text>
         <rect x="256" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="256" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="304" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">게이트</text>
@@ -129,11 +129,11 @@
         <rect x="704" y="76" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="704" y="76" width="96" height="48" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
         <text x="752" y="97" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">승인</text>
-        <text x="752" y="112" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness approve</text>
+        <text x="752" y="112" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">main session</text>
         <rect x="816" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="816" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="864" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">제출</text>
-        <text x="864" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness submit</text>
+        <text x="864" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ach submit</text>
         <rect x="256" y="252" width="96" height="48" rx="20" fill="#f5f5f5"/>
         <rect x="256" y="252" width="96" height="48" rx="20" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
         <text x="304" y="280" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">탈락·보류</text>

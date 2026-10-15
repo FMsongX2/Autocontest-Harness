@@ -4,7 +4,7 @@
 
 ## 취약점 신고
 
-GitHub의 비공개 취약점 신고를 쓴다. https://github.com/FMsongX2/Autocontest-Harness 에서 **Security → Report a vulnerability**로 보낸다. 취약점은 공개 이슈로 올리지 않는다. 버전(`harness --version`), 재현 단계나 입력, 공격자가 얻는 것을 적는다. 7일 안에 답한다.
+GitHub의 비공개 취약점 신고를 쓴다. https://github.com/FMsongX2/Autocontest-Harness 에서 **Security → Report a vulnerability**로 보낸다. 취약점은 공개 이슈로 올리지 않는다. 버전(`ach --version`), 재현 단계나 입력, 공격자가 얻는 것을 적는다. 7일 안에 답한다.
 
 ## 위협 모델
 
@@ -14,7 +14,7 @@ GitHub의 비공개 취약점 신고를 쓴다. https://github.com/FMsongX2/Auto
 |---|---|---|
 | 수집한 제목·메모·접수 증빙을 통한 셸 주입 | 에이전트는 가져온 글을 파일로 CLI에 넘긴다(`add --from-file`, `--note-file`, `--receipt-file`). 명령줄에는 id(`[a-z0-9-]+`)만 쓴다. id가 소문자·숫자·하이픈이 아닌 수집 항목은 건너뛴다. 제목은 제어 문자를 지운 한 줄로 줄인다. CLI는 `git`, `gh`, `orca`, `tmux`를 셸 없이 인자 목록으로 실행한다 | 에이전트가 지시를 어길 수는 있다 |
 | 가져온 페이지를 통한 프롬프트 주입 | 모든 지시문이 가져온 페이지·공고·메일·레지스트리의 글을 지시가 아닌 데이터로 다루고, 그 안의 지시는 따르지 않고 사용자에게 알리게 한다. 실행 지시문의 항목 값은 데이터 블록 안에 둔다 | 모델은 여전히 조종될 수 있다. 아래 CLI 검사가 마지막 방어선이다 |
-| 사용자 동의 없는 제출·개인정보 읽기 | `harness submit`과 `harness profile show --for <id>`는 `harness approve <id>` 기록이 있어야 동작한다. `approve`는 공모전 세션 안에서 거절되므로(`harness launch`가 `HARNESS_SESSION`을 넣는다) 공모전 세션은 스스로 승인할 수 없다. 레벨 5 계획 검수도 `approve`로만 넘어간다 | 환경 변수를 지운 세션은 검사를 피할 수 있다. 승인은 안전장치이지 격리 환경이 아니다. 세션은 하네스 자체의 권한 설정과 함께 돌린다 |
+| 사용자 동의 없는 제출·개인정보 읽기 | `ach submit`과 `ach profile show --for <id>`는 `ach approve <id>` 기록이 있어야 동작한다. `approve`는 공모전 세션 안에서 거절되므로(`ach launch`가 `ACH_SESSION`을 넣는다) 공모전 세션은 스스로 승인할 수 없다. 레벨 5 계획 검수도 `approve`로만 넘어간다 | 환경 변수를 지운 세션은 검사를 피할 수 있다. 승인은 안전장치이지 격리 환경이 아니다. 세션은 하네스 자체의 권한 설정과 함께 돌린다 |
 | 비공개 작업 공개 | 공모전 저장소는 private로 만들고 Actions를 끈다. `route`는 이미 있는 저장소가 public이거나 다른 공모전 것이면 거절한다. 세션 로그, 실행 지시문, `.private/`는 공모전 폴더에서 git 제외다 | 제출을 위해 저장소를 공개하는 일은 사람이 직접 한다 |
 | 하네스 클론에서 개인 상태 유출 | 개인 상태는 git 제외인 `data/`에 두고, 폴더는 0700, 파일은 0600으로 만든다. 배포 바이너리는 로컬 경로를 지우고 빌드한다 | `data/` 백업은 사용자가 한다 |
 | 정리 단계의 경로 탈출 | `clean`은 공모전 폴더 안의 경로만 보관하고, `route`가 만든 폴더만 옮긴다 | |

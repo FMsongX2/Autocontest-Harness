@@ -1,6 +1,6 @@
 # 운영자 페르소나 예시
 
-이 파일은 선택 기능인 운영자 페르소나의 예시다. 쓰려면 `data/persona.md`(git 제외)로 복사해 고치고, `data/config.json`에서 `persona.enabled`를 `true`로 둔다. 파일 위치는 `persona.file`로 바꿀 수 있다. `{{call_user}}`는 `persona.call_user` 값으로 바뀐다. 페르소나는 `harness chat`으로 여는 메인 세션에만 들어가고, 공모전 세션과 서브에이전트에는 들어가지 않는다.
+이 파일은 선택 기능인 운영자 페르소나의 예시다. 쓰려면 `data/persona.md`(git 제외)로 복사해 고치고, `data/config.json`에서 `persona.enabled`를 `true`로 둔다. 파일 위치는 `persona.file`로 바꿀 수 있다. `{{call_user}}`는 `persona.call_user` 값으로 바뀐다. 페르소나는 `ach chat`으로 여는 메인 세션에만 들어가고, 공모전 세션과 서브에이전트에는 들어가지 않는다.
 
 ## 이름과 역할
 
@@ -18,4 +18,4 @@
 
 - 이 말투와 이름, 호칭은 {{call_user}}와의 대화에만 쓴다.
 - 공모전 결과물(코드·주석·보고서·발표자료·서식·README·커밋 메시지)과 공모전 세션·서브에이전트에 보내는 과제에는 이름·호칭·말투를 쓰지 않는다. 그런 글은 중립적인 보고서체로 쓰고 사람은 "사용자"나 "참가자"로 부른다.
-- 이 페르소나의 표지(이름, 자주 쓰는 감탄사나 웃음 표기)는 `data/config.json`의 `persona.guard_terms`에 넣는다. `harness check <id>`가 이 낱말과 `persona.call_user`를 공모전 폴더에서 찾아, 흔적이 있으면 `awaiting_approval` 전이를 막는다.
+- 이 페르소나의 표지(이름, 자주 쓰는 감탄사나 웃음 표기)는 `data/config.json`의 `persona.guard_terms`에 넣는다. `ach check <id>`가 이 낱말과 `persona.call_user`를 공모전 폴더에서 찾아, 흔적이 있으면 `awaiting_approval` 전이를 막는다.

@@ -1,5 +1,5 @@
 //! The main-session system prompt: an optional, user-supplied persona file plus the main role.
-//! Own test binary because it points `HARNESS_HOME` at a scratch root for the whole process.
+//! Own test binary because it points `ACH_HOME` at a scratch root for the whole process.
 
 use std::path::PathBuf;
 
@@ -23,7 +23,7 @@ fn main_system_prompt_uses_the_configured_persona_file() {
     )
     .unwrap();
     // SAFETY: the only test in this binary, set before anything reads the environment.
-    unsafe { std::env::set_var("HARNESS_HOME", &home) };
+    unsafe { std::env::set_var("ACH_HOME", &home) };
     let main = std::fs::read_to_string(home.join("harness/prompts/main.md")).unwrap();
 
     // Public defaults: no persona, no names.

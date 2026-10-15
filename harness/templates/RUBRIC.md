@@ -4,7 +4,7 @@
 - 기준 원문: `.harness/gate.json` `criteria`(심사 단계·기준 이름·배점), 공고 [파일·쪽·조항]
 - 배점 공개 여부: [공개 / 미공개 — [가정] 같은 심사 단계 안에서 균등 배분]
 - 목표 총점: [90] / 100 (SPEC.md와 같게. 다르게 잡으면 이유: [ ])
-- 채점: ContestJudge가 이 표를 잣대로 기획(`plan`)·중간(`draft`)·최종(`final`) 채점을 한다. 결과 JSON은 `.harness/judge/<stage>-<n>.json`, 기록은 `harness score <id> --stage <stage> --file <경로>`.
+- 채점: ContestJudge가 이 표를 잣대로 기획(`plan`)·중간(`draft`)·최종(`final`) 채점을 한다. 결과 JSON은 `.harness/judge/<stage>-<n>.json`, 기록은 `ach score <id> --stage <stage> --file <경로>`.
 
 ## 1. 기준별 풀이
 
@@ -37,7 +37,7 @@
 | 3 | | draft | [D1 초안] | | | | |
 | 4 | | final | [제출본] | | | | |
 
-<p>표 3. 단계별 총점 추이(`harness score <id>`와 같아야 한다)</p>
+<p>표 3. 단계별 총점 추이(`ach score <id>`와 같아야 한다)</p>
 
 - 기획 채점은 예측 총점이 목표 이상이 되거나 3회를 돌면 멈추고 만들기 시작한다.
 - 레벨 2 이상은 `awaiting_approval` 전에 `plan` 점수가 하나 이상, 가장 최근 `final` 점수가 `ready`이고 목표 이상이어야 한다. 마감 때문에 목표에 못 미친 채 내면 `--score-ok "<사유>"`와 그 사유를 여기에 적는다: [ ]

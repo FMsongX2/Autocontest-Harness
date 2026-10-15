@@ -1,4 +1,4 @@
-//! `harness doctor`: whether this checkout is ready to run, one check per thing that commonly goes
+//! `ach doctor`: whether this checkout is ready to run, one check per thing that commonly goes
 //! wrong on a new machine, each with the fix. Read-only: it never changes files or settings.
 
 use std::path::Path;
@@ -55,7 +55,7 @@ pub fn run() -> Vec<Check> {
         out.push(fail(
             "checkout",
             format!("{}에 {}가 없다", root.display(), paths::MARKER),
-            "HARNESS_HOME을 클론 경로로 지정하거나 클론에서 scripts/install.sh를 다시 실행한다",
+            "ACH_HOME을 클론 경로로 지정하거나 클론에서 scripts/install.sh를 다시 실행한다",
         ));
         return out;
     }
@@ -67,7 +67,7 @@ pub fn run() -> Vec<Check> {
     let config = match config::load() {
         Ok(config) => config,
         Err(err) => {
-            out.push(fail("config", err.0, "data/config.example.json과 README_ko.md의 설정 표를 보고 고친다"));
+            out.push(fail("config", err.0, "data/config.example.json과 docs/reference_ko.md의 설정 표를 보고 고친다"));
             return out;
         }
     };
@@ -104,7 +104,7 @@ const DOCS_ONLY: [&str; 7] = [
 ];
 
 fn version(root: &Path) -> Check {
-    let built = env!("HARNESS_GIT_SHA");
+    let built = env!("ACH_GIT_SHA");
     let release = env!("CARGO_PKG_VERSION");
     match stdout_of("git", &["rev-parse", "--short=12", "HEAD"], Some(root)) {
         Some(head) if head == built => ok("version", format!("{release} ({built})")),
@@ -206,7 +206,7 @@ fn runner_and_workspace(config: &Config, root: &Path) -> Vec<Check> {
             Some(false) => out.push(warn(
                 "runner",
                 format!("{}에 이 클론의 에이전트·스킬·확장이 설치돼 있지 않다", runner.name()),
-                "harness install",
+                "ach install",
             )),
             _ => out.push(ok("runner", runner.name())),
         },
@@ -250,7 +250,7 @@ fn agent_models(config: &Config, root: &Path) -> Check {
             return fail(
                 "agent_models",
                 format!("없는 에이전트: {}", unknown.join(", ")),
-                "harness agents로 이름을 확인하고 harness config unset agent_models.<이름>",
+                "ach agents로 이름을 확인하고 ach config unset agent_models.<이름>",
             );
         }
         Ok(_) => {}
@@ -273,7 +273,7 @@ fn agent_models(config: &Config, root: &Path) -> Check {
     if stale.is_empty() {
         ok("agent_models", format!("{}개 적용됨", config.agent_models.len()))
     } else {
-        warn("agent_models", format!("설정과 러너가 다르다: {}", stale.join(", ")), "harness install")
+        warn("agent_models", format!("설정과 러너가 다르다: {}", stale.join(", ")), "ach install")
     }
 }
 
@@ -333,7 +333,7 @@ fn status_key(scheduler: &str) -> &str {
 fn scheduled_run(config: &Config) -> Vec<Check> {
     let status = match schedule::status(config) {
         Ok(status) => status,
-        Err(err) => return vec![warn("schedule", err.0, "harness schedule status로 자세히 본다")],
+        Err(err) => return vec![warn("schedule", err.0, "ach schedule status로 자세히 본다")],
     };
     let installed = |name: &str| -> bool {
         let part = &status[name];
@@ -355,13 +355,13 @@ fn scheduled_run(config: &Config) -> Vec<Check> {
         out.push(warn(
             "schedule",
             format!("{wanted}에 정기 실행이 없다. 수집·게이트는 손으로 돌릴 때만 된다"),
-            "harness schedule install",
+            "ach schedule install",
         ));
     } else if !in_sync(status_key(wanted)) {
         out.push(warn(
             "schedule",
             format!("{wanted}의 정기 실행이 설정(schedule.cron, runner)과 다르다"),
-            "harness schedule install",
+            "ach schedule install",
         ));
     } else {
         out.push(ok("schedule", format!("{wanted} {}", config.schedule.cron)));
@@ -371,7 +371,7 @@ fn scheduled_run(config: &Config) -> Vec<Check> {
             out.push(warn(
                 "schedule",
                 format!("{other}에도 정기 실행이 있어 한 회차가 두 번 돈다"),
-                format!("harness schedule remove --scheduler {other}"),
+                format!("ach schedule remove --scheduler {other}"),
             ));
         }
     }

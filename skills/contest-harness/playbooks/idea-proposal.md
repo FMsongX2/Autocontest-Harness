@@ -4,7 +4,7 @@
 
 ## 레벨별 흐름
 
-- 레벨 2: 메인 세션 하나가 이 플레이북 순서대로 직접 쓴다. 지휘(HQ) 절차와 워커 웨이브는 쓰지 않는다. 조사는 조사 에이전트 하나에 맡긴다(DomainResearcher, 기술·논문 근거가 중심이면 ArticleResearcher). 점수 루프(점수표 → 기획 채점 반복 → 쓰기 → 중간·최종 채점 → `harness score` 기록)를 따른다(3절·6절). 원고가 서면 평가표(`gate.json` `criteria`)가 있을 때 최종 채점 전에 ContestEditor에게 결과물 경로를 넘겨 평가표 항목별로 문체·어투·문장을 점검하고 다듬게 한다. ContestEditor가 넘긴 내용 문제(`content_issues`)는 이 세션이 고친다. 평가표가 없으면 건너뛰고 최종 채점한다.
+- 레벨 2: 메인 세션 하나가 이 플레이북 순서대로 직접 쓴다. 지휘(HQ) 절차와 워커 웨이브는 쓰지 않는다. 조사는 조사 에이전트 하나에 맡긴다(DomainResearcher, 기술·논문 근거가 중심이면 ArticleResearcher). 점수 루프(점수표 → 기획 채점 반복 → 쓰기 → 중간·최종 채점 → `ach score` 기록)를 따른다(3절·6절). 원고가 서면 평가표(`gate.json` `criteria`)가 있을 때 최종 채점 전에 ContestEditor에게 결과물 경로를 넘겨 평가표 항목별로 문체·어투·문장을 점검하고 다듬게 한다. ContestEditor가 넘긴 내용 문제(`content_issues`)는 이 세션이 고친다. 평가표가 없으면 건너뛰고 최종 채점한다.
 - 레벨 3: ContestHQ가 이 순서로 SPEC·PLAN·TASKS를 만들고 워커 웨이브로 나눠 쓴다. 체크포인트마다 ContestJudge, 글 마무리는 ContestEditor, PoC 코드는 러너의 기본 `reviewer`.
 
 ## 0. 첫 단계
@@ -26,7 +26,7 @@
 
 ## 3. 이길 주제 고르기(기획 채점)
 
-후보 2~3개를 만들어 각각 개요(핵심 주장, 서식 항목별 내용, 근거, PoC 계획)로 쓴다. ContestJudge(stage `plan`)가 `RUBRIC.md`로 후보마다 "이대로 완성하면" 예측 채점하고 기준별로 점수를 올릴 기획 변경을 낸다. 가장 높은 후보를 고르고 부족분을 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 반복한 뒤 쓰기 시작한다. 매번 결과를 `.harness/judge/plan-<n>.json`에 저장하고 `harness score <id> --stage plan --file <경로>`로 기록한다. 비교표와 고른 이유를 `research/research.md`에 남긴다. 레벨 1처럼 점수 루프를 강제하지 않는 경우에도 후보 비교는 한다.
+후보 2~3개를 만들어 각각 개요(핵심 주장, 서식 항목별 내용, 근거, PoC 계획)로 쓴다. ContestJudge(stage `plan`)가 `RUBRIC.md`로 후보마다 "이대로 완성하면" 예측 채점하고 기준별로 점수를 올릴 기획 변경을 낸다. 가장 높은 후보를 고르고 부족분을 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 반복한 뒤 쓰기 시작한다. 매번 결과를 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한다. 비교표와 고른 이유를 `research/research.md`에 남긴다. 레벨 1처럼 점수 루프를 강제하지 않는 경우에도 후보 비교는 한다.
 
 ## 4. PoC로 주장 강화
 
@@ -45,16 +45,16 @@
 
 ## 6. 채점 반복
 
-초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `harness score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. 목표 점수와 `ready`가 나올 때까지 배점이 큰 기준의 감점과 CRITICAL·HIGH부터 고친다. 레벨 2는 초안 완성 뒤 ContestEditor(평가표가 있을 때) → 최종 채점 순서로 마무리한다.
+초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. 목표 점수와 `ready`가 나올 때까지 배점이 큰 기준의 감점과 CRITICAL·HIGH부터 고친다. 레벨 2는 초안 완성 뒤 ContestEditor(평가표가 있을 때) → 최종 채점 순서로 마무리한다.
 
 ## 7. HWP 서식 마무리
 
 - hwpx 서식은 스크립트로 채운다(XML을 직접 고치는 채우기·빌드 스크립트와 형식 점검 스크립트). 운영자의 선례 스크립트가 있으면 `data/local-rules.md`에 있다.
-- 바이너리 hwp만 있거나 스크립트로 정렬이 맞지 않으면 한컴독스 웹에서 직접 편집한다. 한컴독스는 작업 환경의 브라우저(orca면 Orca 내장 브라우저)에서 연다. 로그인 계정이 맞는지는 제출 승인이 `harness approve`로 기록된 뒤 `harness profile show --for <id> --json`의 한컴독스 계정과 대조하고, 계정 값을 어디에도 옮겨 적지 않는다.
+- 바이너리 hwp만 있거나 스크립트로 정렬이 맞지 않으면 한컴독스 웹에서 직접 편집한다. 한컴독스는 작업 환경의 브라우저(orca면 Orca 내장 브라우저)에서 연다. 로그인 계정이 맞는지는 제출 승인이 `ach approve`로 기록된 뒤 `ach profile show --for <id> --json`의 한컴독스 계정과 대조하고, 계정 값을 어디에도 옮겨 적지 않는다.
 - 표 칸 넘침, 쪽 나뉨, 캡션과 표가 다른 쪽에 갈린 곳을 화면으로 확인한다.
 - PDF가 필요하면 한컴독스 웹으로만 변환한다. 변환 뒤 모든 쪽을 그림으로 렌더해 깨진 글리프가 없는지 본다.
 
 ## 8. 제출 준비
 
-- 생성형 AI 활용 공개 요구, 표절·유사도 검사 요구, 서약서·개인정보 동의서를 확인해 SUBMISSION.md에 적는다. 개인 값은 제출 승인이 `harness approve`로 기록된 뒤 `harness profile show --for <id> --json`에서 꺼내 그 서식에만 넣고, 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.
-- 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다(목표 미달로 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `harness approve <id>`로 승인해 달라고 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다).
+- 생성형 AI 활용 공개 요구, 표절·유사도 검사 요구, 서약서·개인정보 동의서를 확인해 SUBMISSION.md에 적는다. 개인 값은 제출 승인이 `ach approve`로 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 그 서식에만 넣고, 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.
+- 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다(목표 미달로 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `ach approve <id>`로 승인해 달라고 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다).

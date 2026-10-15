@@ -31,7 +31,7 @@ SPEC.md `FR-###`으로 옮길 것:
 
 ## 3-1. 기획 채점(레벨 2 이상)
 
-연구 설계를 확정하기 전에 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`)를 쓴다. 연구 질문·설계 후보 2~3개를 ContestJudge(stage `plan`)가 "이대로 완성하면" 예측 채점하고, 가장 높은 안의 기준별 부족분을 설계에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `harness score <id> --stage plan --file <경로>`로 기록한다. 그 뒤에 집필과 실험을 시작한다.
+연구 설계를 확정하기 전에 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`)를 쓴다. 연구 질문·설계 후보 2~3개를 ContestJudge(stage `plan`)가 "이대로 완성하면" 예측 채점하고, 가장 높은 안의 기준별 부족분을 설계에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한다. 그 뒤에 집필과 실험을 시작한다.
 
 ## 4. 근거
 
@@ -49,7 +49,7 @@ SPEC.md `FR-###`으로 옮길 것:
 
 ## 6. 리뷰 반복
 
-1. ContestJudge로 심사기준 채점(체크포인트: 초고는 stage `draft`, 서식 반영 뒤 제출 전은 stage `final`). 매번 `.harness/judge/<stage>-<n>.json`에 저장하고 `harness score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다.
+1. ContestJudge로 심사기준 채점(체크포인트: 초고는 stage `draft`, 서식 반영 뒤 제출 전은 stage `final`). 매번 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다.
 2. 독립 리뷰 1회 이상: 방법론·인과 해석·통계 검정을 다른 에이전트가 읽기 전용으로 검토한다(연구 도구의 독립 검토 기능이나 과학적 비판 관점의 리뷰어).
 3. 문체·어투·문장은 ContestEditor가 평가표(`gate.json` `criteria`) 기준으로 점검하고 다듬는다(내용·수치는 바꾸지 않는다).
 4. 지적을 고치고 JUDGE.md에 기록한다. 목표 점수와 `ready`까지 반복한다.
@@ -57,9 +57,9 @@ SPEC.md `FR-###`으로 옮길 것:
 ## 7. 서식과 PDF
 
 - md → hwpx는 스크립트로 빌드하고 형식 점검 스크립트로 확인한다(선례 스크립트가 있으면 `data/local-rules.md`에 있다).
-- 한컴독스 웹(작업 환경이 orca면 Orca 내장 브라우저)에서 열어 2단 흐름, 표·그림 위치, 캡션과 표가 같은 쪽에 있는지, 수식 개체를 눈으로 확인한다. 로그인 계정이 맞는지는 제출 승인이 `harness approve`로 기록된 뒤 `harness profile show --for <id> --json`의 한컴독스 계정과 대조하고, 계정 값을 어디에도 옮겨 적지 않는다.
+- 한컴독스 웹(작업 환경이 orca면 Orca 내장 브라우저)에서 열어 2단 흐름, 표·그림 위치, 캡션과 표가 같은 쪽에 있는지, 수식 개체를 눈으로 확인한다. 로그인 계정이 맞는지는 제출 승인이 `ach approve`로 기록된 뒤 `ach profile show --for <id> --json`의 한컴독스 계정과 대조하고, 계정 값을 어디에도 옮겨 적지 않는다.
 - PDF는 한컴독스 웹으로만 만든다. 변환 뒤 모든 쪽을 렌더해 확인한다.
 
 ## 8. 제출 준비
 
-SUBMISSION.md에 생성형 AI 활용 공개 문구, 유사도 검사 결과 파일, 저자 정보·서약서(항목 이름만. 값은 제출 승인이 기록된 뒤 `harness profile show --for <id> --json`에서 꺼내 그 서식에만 넣는다), 블라인드 분리본 여부를 적는다. 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 못 미친 채 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `harness approve <id>`로 제출 승인을 요청하고 멈춘다.
+SUBMISSION.md에 생성형 AI 활용 공개 문구, 유사도 검사 결과 파일, 저자 정보·서약서(항목 이름만. 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 그 서식에만 넣는다), 블라인드 분리본 여부를 적는다. 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 못 미친 채 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다.

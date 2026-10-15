@@ -15,7 +15,7 @@
 - 도메인 지식(재료·의료·환경 등 대상의 물리적 의미, 클래스가 무엇인지, 어떤 오류가 실제로 중요한지)은 DomainResearcher, 같은 과제의 선행 연구(소량 데이터 전이학습, 손실 함수, 증강, 기반 모델)는 ArticleResearcher에 맡기고 `research/`에 정리한다.
 - 실험 코드를 쓰기 전에 같은 웨이브에서 OpenSourceScout로 같은 과제의 공개 구현·사전학습 기반 모델(Hugging Face)·학습 프레임워크·이전 우승 해법을 찾아 `research/oss.md`에 구성 요소별 `reuse`/`fork`/`reference`/`build`를 받는다(필수). 외부 데이터·사전학습 모델 허용 범위(대회 메타)와 라이선스를 함께 대조하고, 맞는 것이 없는 부분만 만든다. 사용한 모델·코드는 결과서에 고지한다.
 - 심사기준(`gate.json` `criteria`)이 점수 외에 방법의 타당성, 재현성, 도메인 해석, 발표를 보면 SPEC.md `SC-###`에 그 증거(어떤 실험·그림·표)를 함께 적는다.
-- 점수 루프: 심사기준을 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)에 풀어 쓴다. 실험 설계·검증 설계 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge(stage `plan`)가 "이대로 완성하면" 예측 채점하고, 가장 높은 안의 부족분을 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `harness score <id> --stage plan --file <경로>`로 기록한 뒤 실험을 시작한다. 결과서 초안은 stage `draft`, 제출 직전은 stage `final`로 같은 방식으로 기록한다.
+- 점수 루프: 심사기준을 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)에 풀어 쓴다. 실험 설계·검증 설계 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge(stage `plan`)가 "이대로 완성하면" 예측 채점하고, 가장 높은 안의 부족분을 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한 뒤 실험을 시작한다. 결과서 초안은 stage `draft`, 제출 직전은 stage `final`로 같은 방식으로 기록한다.
 
 ## 2. 오프라인 검증 설계(리더보드 없음)
 
@@ -54,11 +54,11 @@
 3. 패키지를 새 폴더에 풀고, 새로 만든 환경에서 README의 명령만으로 test 예측을 다시 만든다. 다시 만든 결과와 제출 결과를 비교한다(파일 집합, 크기·형식, 픽셀·값 차이 비율, 가중치 해시). 차이가 있으면 크기를 숫자로 적고(예: 전체 픽셀 중 다른 픽셀 수) 원인을 확인한다.
 4. 형식 관문: 파일 개수·이름 규칙·이미지 크기·클래스 값 집합·압축 용량을 스크립트로 검사한다. 용량 제한을 넘는 가중치는 공고가 안내한 별도 방법(메일 등)을 SUBMISSION.md에 적는다.
 5. 제출 사본에서 내부 호칭·개인 경로·비밀 키를 지운다(저장소 원본은 그대로 둔다).
-6. ContestJudge(stage `final`)로 결과서·패키지를 판정해 `ready`와 목표 이상 점수를 받고 `harness score <id> --stage final --file <경로>`로 기록한다. SUBMISSION.md를 채우고 커밋·푸시 후 후보 run id·검증 점수·재현 결과 요약을 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`(목표 미달로 내야 하면 `--score-ok "<사유>"`). 제출은 사용자 승인 뒤에만 한다.
+6. ContestJudge(stage `final`)로 결과서·패키지를 판정해 `ready`와 목표 이상 점수를 받고 `ach score <id> --stage final --file <경로>`로 기록한다. SUBMISSION.md를 채우고 커밋·푸시 후 후보 run id·검증 점수·재현 결과 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(목표 미달로 내야 하면 `--score-ok "<사유>"`). 제출은 사용자 승인 뒤에만 한다.
 
 ## 6. 본선 발표와 보고서
 
 - 결과서(모델링 보고서)는 `paper.md` 5절 집필 규칙을 따른다: 한국어 학술 문체, 용어 정의, [가정]/[문헌]/[계산] 표시, 표 캡션은 표 아래 `<p>표 n. …</p>`. 구성은 서식 순서를 따르고, 서식이 없으면 문제 정의 → 데이터와 검증 설계 → 방법 → 실험 결과(기준 모델 대비, 실패한 시도 포함) → 도메인 해석 → 한계(검증 데이터 사용, 비결정성) → 재현 방법.
 - 수치는 모두 LEDGER와 `docs/changes/`의 실행으로 거슬러 올라가야 한다. 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬고, 코드는 러너의 기본 `reviewer`로 검토한다.
 - 본선이 오프라인이면 일시·장소·참석 확인을 SUBMISSION.md와 사용자 묶음 질문에 넣는다. 발표 자료는 심사기준 순서로 만들고, 예상 질문(검증 데이터 사용, 일반화, 도메인 의미, 실패 사례)과 답을 `docs/presentation/QA.md`에 준비한다. 시연이 필요하면 맥에서 돌릴 수 있는 가벼운 추론 경로를 미리 확인한다.
-- 대회가 끝나면 데이터 활용 서약대로 로컬·서버·저장소(검증 이미지가 든 그림 포함)의 데이터 사본을 파기하고, 파기한 곳과 시각을 README에 적는다. 결과 발표 뒤 `harness transition <id> closed --note won|lost|ended|withdrawn`.
+- 대회가 끝나면 데이터 활용 서약대로 로컬·서버·저장소(검증 이미지가 든 그림 포함)의 데이터 사본을 파기하고, 파기한 곳과 시각을 README에 적는다. 결과 발표 뒤 `ach transition <id> closed --note won|lost|ended|withdrawn`.

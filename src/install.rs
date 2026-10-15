@@ -22,7 +22,7 @@ pub fn install(config: &Config, runners: &[String]) -> Result<Vec<String>> {
     let root = paths::root();
     let unknown = unknown_agents(config, &root)?;
     if !unknown.is_empty() {
-        crate::bail!("agent_models에 없는 에이전트가 있다: {} (harness agents로 이름을 확인한다)", unknown.join(", "));
+        crate::bail!("agent_models에 없는 에이전트가 있다: {} (ach agents로 이름을 확인한다)", unknown.join(", "));
     }
     let mut done = Vec::new();
     for runner in chosen {

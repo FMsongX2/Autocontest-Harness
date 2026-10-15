@@ -16,7 +16,7 @@
 
 - 주최 기관이 풀고 싶어 하는 문제(업무계획, 보도자료, 이전 수상작)를 DomainResearcher로 확인한다.
 - 분석 파이프라인·예측 모델·시각화 도구를 만들기 전에 OpenSourceScout로 쓸 수 있는 라이브러리·공개 분석 코드·사전학습 모델을 찾아 `research/oss.md`에 구성 요소별 `reuse`/`fork`/`reference`/`build`를 받는다(코드·모델을 쓰는 분석이면 필수, DomainResearcher와 같은 웨이브). 분석 도구 제한·외부 데이터 규칙과 대조하고, 맞는 것이 없는 부분만 만든다.
-- 분석 질문 후보 2~3개를 만들어 데이터로 답할 수 있는지(변수·기간·단위가 맞는지) 확인하고, ContestJudge(stage `plan`)가 `RUBRIC.md`로 후보마다 "이대로 완성하면" 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 분석 계획에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `harness score <id> --stage plan --file <경로>`로 기록한다. 근거를 `research/research.md`에 남긴다.
+- 분석 질문 후보 2~3개를 만들어 데이터로 답할 수 있는지(변수·기간·단위가 맞는지) 확인하고, ContestJudge(stage `plan`)가 `RUBRIC.md`로 후보마다 "이대로 완성하면" 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 분석 계획에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한다. 근거를 `research/research.md`에 남긴다.
 
 ## 3. 분석
 
@@ -35,4 +35,4 @@
 
 ## 5. 채점과 제출 준비
 
-핵심 결과와 보고서 초안이 나오면 ContestJudge(stage `draft`), 제출 전 ContestJudge(stage `final`)로 채점하고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `harness score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다. 보고서 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬는다. 코드 제출이 있으면 `scripts/`가 처음부터 끝까지 돌아가는지 깨끗한 환경에서 한 번 확인하고 러너의 기본 `reviewer`(없으면 세션이 직접)로 코드를 검토한다. SUBMISSION.md를 채우고 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).
+핵심 결과와 보고서 초안이 나오면 ContestJudge(stage `draft`), 제출 전 ContestJudge(stage `final`)로 채점하고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다. 보고서 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬는다. 코드 제출이 있으면 `scripts/`가 처음부터 끝까지 돌아가는지 깨끗한 환경에서 한 번 확인하고 러너의 기본 `reviewer`(없으면 세션이 직접)로 코드를 검토한다. SUBMISSION.md를 채우고 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).

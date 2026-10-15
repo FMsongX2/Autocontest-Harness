@@ -1,7 +1,7 @@
 # 심사 기록: [공모전 공식 명칭]
 
 - 기준: `.harness/gate.json` `criteria`, `RUBRIC.md`, `SPEC.md` FR·SC · 목표 점수: [90]
-- ContestJudge 결과를 체크포인트마다 아래에 덧붙인다. 이전 기록은 지우지 않는다. 원본 JSON은 `.harness/judge/<stage>-<n>.json`에 두고 `harness score <id> --stage <stage> --file <경로>`로 기록한다.
+- ContestJudge 결과를 체크포인트마다 아래에 덧붙인다. 이전 기록은 지우지 않는다. 원본 JSON은 `.harness/judge/<stage>-<n>.json`에 두고 `ach score <id> --stage <stage> --file <경로>`로 기록한다.
 
 ## 판정 기록
 

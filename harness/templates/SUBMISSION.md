@@ -2,7 +2,7 @@
 
 - 하네스 id: `[id]` · 마감: `[YYYY-MM-DDTHH:MM+09:00]`
 - 제출 방법: [폼/메일/사이트/우편] · 제출처: [URL 또는 주소]
-- 이 파일에는 개인정보 값을 쓰지 않는다. 항목 이름과 프로필(`data/profile.md`)의 항목 이름만 적는다. 값은 제출 승인이 `harness approve`로 기록된 뒤 제출 단계에서만 `harness profile show --for <id> --json`으로 꺼내 그 제출 서식에 바로 넣고, 저장소 파일·커밋 메시지·로그·메모·대화에 옮기지 않는다.
+- 이 파일에는 개인정보 값을 쓰지 않는다. 항목 이름과 프로필(`data/profile.md`)의 항목 이름만 적는다. 값은 제출 승인이 `ach approve`로 기록된 뒤 제출 단계에서만 `ach profile show --for <id> --json`으로 꺼내 그 제출 서식에 바로 넣고, 저장소 파일·커밋 메시지·로그·메모·대화에 옮기지 않는다.
 
 ## 1. 형식·제한
 
@@ -43,7 +43,7 @@
 | [재학증명서] | | 재학증명서 파일(경로) |
 | [그 밖에 프로필에 없는 항목] | | 없음: 승인 단계에서 사용자에게 묻는다(파일에 남기지 않는다) |
 
-<p>표 2. 개인정보 항목(값은 제출 승인이 기록된 뒤 제출 단계에서만 `harness profile show --for <id> --json`으로 채운다. 비어 있으면 사용자에게 `data/profile.md`를 직접 채워 달라고 요청한다)</p>
+<p>표 2. 개인정보 항목(값은 제출 승인이 기록된 뒤 제출 단계에서만 `ach profile show --for <id> --json`으로 채운다. 비어 있으면 사용자에게 `data/profile.md`를 직접 채워 달라고 요청한다)</p>
 
 ## 5. 제출 입력값
 
@@ -55,23 +55,23 @@
 
 ## 6. 최종 판정
 
-- ContestJudge(stage `final`): [ready] · 총점: [ ] / 목표 [ ] · 기록: `.harness/judge/final-[n].json`, `harness score <id> --stage final --file <경로>` [시각], `JUDGE.md`
+- ContestJudge(stage `final`): [ready] · 총점: [ ] / 목표 [ ] · 기록: `.harness/judge/final-[n].json`, `ach score <id> --stage final --file <경로>` [시각], `JUDGE.md`
 - 기획 채점(stage `plan`) 기록: [있음, 예측 총점 [ ] / 목표 [ ]] · 목표 미달로 내면 `--score-ok` 사유: [ ]
 
 ## 7. 승인
 
-- [ ] `harness check <id>` 깨끗함(결과물·커밋 메시지에 페르소나 흔적 없음): [시각]
-- [ ] 요약을 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt` 실행(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수 필요): [시각]
-- 사용자 승인(메인 세션이나 터미널의 `harness approve <id>`로 기록, `harness show <id> --json`의 기록에서 옮긴다): [메시지 원문] — [YYYY-MM-DD HH:MM]
+- [ ] `ach check <id>` 깨끗함(결과물·커밋 메시지에 페르소나 흔적 없음): [시각]
+- [ ] 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt` 실행(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수 필요): [시각]
+- 사용자 승인(메인 세션이나 터미널의 `ach approve <id>`로 기록, `ach show <id> --json`의 기록에서 옮긴다): [메시지 원문] — [YYYY-MM-DD HH:MM]
 
 ## 8. 접수 증빙
 
 - 제출 시각: [ ]
 - 접수 번호·확인 메일·화면 캡처: [경로]
-- 기록: 증빙을 `.private/receipt.txt`에 쓰고 `harness submit <id> --method <폼|메일|사이트|우편> --receipt-file .private/receipt.txt --files <파일...>` 실행 [시각](제출 기록부에도 남는다)
+- 기록: 증빙을 `.private/receipt.txt`에 쓰고 `ach submit <id> --method <폼|메일|사이트|우편> --receipt-file .private/receipt.txt --files <파일...>` 실행 [시각](제출 기록부에도 남는다)
 
 ## 9. 정리
 
 - [ ] 제출본을 포함한 모든 파일을 커밋·push했다(제출본이 `.gitignore`에 걸려 있지 않다)
-- [ ] `harness clean <id> --dry-run`에 막는 이유가 없다: [시각]
-- [ ] `harness clean <id>` 실행(세션 닫기, 로컬 폴더를 휴지통으로): [휴지통 경로] · 본선·발표 등 남은 일이 있으면 정리하지 않고 `running`으로 돌아간다
+- [ ] `ach clean <id> --dry-run`에 막는 이유가 없다: [시각]
+- [ ] `ach clean <id>` 실행(세션 닫기, 로컬 폴더를 휴지통으로): [휴지통 경로] · 본선·발표 등 남은 일이 있으면 정리하지 않고 `running`으로 돌아간다
