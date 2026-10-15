@@ -29,12 +29,13 @@
 |---|---|
 | 하네스 저장소 | clone 위치(공개 저장소 https://github.com/FMsongX2/Autocontest-Harness, GitHub Actions 없음) |
 | CLI | `harness`. `scripts/install.sh`가 버전 태그(`v<Cargo.toml 버전>`) 릴리스의 바이너리를 `SHA256SUMS`로 확인해 저장소 `bin/harness`에 두고(맞는 바이너리가 없거나 `--from-source`면 `cargo build --release --locked`로 빌드), `$BIN_DIR/harness`(기본 `~/.local/bin/harness`)에 심볼릭 링크를 건다. 소스 설치 대안은 `cargo install --path . --root ~/.local --locked` |
-| 설정(git 제외) | 저장소 `data/config.json` (6절). 예시 `data/config.example.json`을 `data/config.json`으로 복사해 시작한다 |
+| 설정(git 제외) | 저장소 `data/config.json` (6절). `harness init`이 예시 `data/config.example.json`을 복사해 만들고, `harness config`로 읽고 바꾼다 |
+| 설정 절차 | 저장소 `INIT.md`. 에이전트가 읽고 따르는 첫 설정 절차(6절 `harness init`, 12절 메인 세션 시작, 14절 사용자 정보) |
 | 운영자 환경 규칙(git 제외) | 저장소 `data/local-rules.md` (예시 `data/local-rules.example.md`). 운영자 전용 장비·도구·연구 환경 규칙을 둔다. 있으면 에이전트와 스킬이 먼저 읽고 따른다 |
 | 레지스트리(git 제외) | 저장소 `data/registry.json`, 잠금 파일 `data/registry.lock`. 용량 검사와 실행을 직렬화하는 잠금 파일 `data/launch.lock` |
 | 개인 상태 권한 | `data/`는 0700으로 만들고, CLI가 쓰는 파일은 0600 임시 파일을 바꿔치기해 저장한다(3절). `harness doctor`는 그룹·다른 사용자가 읽을 수 있으면 경고한다 |
 | 상태 보드(git 제외) | 저장소 `BOARD.md` |
-| 사용자 정보(자격 판정·제출용, git 제외) | 저장소 `data/profile.md`(사용자가 직접 쓰는 마크다운, 14절, 예시 `data/profile.example.md`). 서명·도장·재학증명서 같은 파일은 사용자가 둔 곳(예: `data/profile/`)의 경로만 적는다. 0600 권한 권장 |
+| 사용자 정보(자격 판정·제출용, git 제외) | 저장소 `data/profile.md`(마크다운, 14절, `harness init`이 예시 `data/profile.example.md`를 0600으로 복사한다). 서명·도장·재학증명서 같은 파일은 사용자가 둔 곳(예: `data/profile/`)의 경로만 적는다. 0600 권한 |
 | 제출 기록부(git 제외) | 저장소 `data/submissions.json`, 잠금 파일 `data/submissions.lock` (13절) |
 | 메인 세션 시스템 프롬프트(git 제외) | 저장소 `data/main-system.md` (`harness chat`이 실행할 때마다 다시 쓴다, 12절) |
 | 메인 세션 첫 지시(git 제외) | 저장소 `data/main-start.md` (`harness chat`이 실행할 때마다 다시 쓴다) |
@@ -45,7 +46,7 @@
 | 수집 모듈 | 저장소 `src/sources/<출처>.rs` (출처 하나가 모듈 하나, 모듈 계약은 `src/sources/mod.rs` 머리 주석) |
 | 실행 지시문 | 저장소 `harness/prompts/launch.md`, `level_1.md` ~ `level_5.md`, 정기 실행 `automation.md`, 메인 인터페이스 역할 `main.md` |
 | 운영자 페르소나(선택, git 제외) | 설정 `persona.file`(기본 저장소 `data/persona.md`, 예시 `data/persona.example.md`). 메인 세션 전용, 12절 |
-| 확장 패키지 | 저장소 `package.json`, `extensions/contest-harness.ts`, 프롬프트 템플릿 `commands/contest-gate.md` (11절) |
+| 확장 패키지 | 저장소 `package.json`, `extensions/contest-harness.ts`, 프롬프트 템플릿 `commands/contest-gate.md`, `commands/contest-init.md` (11절) |
 | 문서 템플릿 | 저장소 `harness/templates/` (`SPEC.md`, `PLAN.md`, `TASKS.md`, `JUDGE.md`, `RUBRIC.md`(점수표, 15절), `SUBMISSION.md`, `LEDGER.md`) |
 | 에이전트·스킬 원본 | 저장소 `agents/*.md`, `skills/contest-harness/` (러너별 설치 위치는 10절) |
 | 공모전 루트 | 설정 `contests_root` (기본 `~/contests`) |
@@ -160,7 +161,9 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 
 ### 설정
 
-`data/config.json`(git 제외, 개인 설정)을 `src/config.rs`의 기본값 위에 덮어 읽는다. 처음에는 `data/config.example.json`을 `data/config.json`으로 복사해 고친다. 파일이 없으면 기본값을 쓴다. 적지 않은 키는 기본값을 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`)는 적은 키만 덮는다. 예: `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
+`data/config.json`(git 제외, 개인 설정)을 `src/config.rs`의 기본값 위에 덮어 읽는다. 처음에는 `harness init`이 `data/config.example.json`을 `data/config.json`으로 복사한다. 파일이 없으면 기본값을 쓴다. 적지 않은 키는 기본값을 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`, `agent_models`)는 적은 키만 덮는다. 예: `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
+
+바꾸기: `harness config set <키> <값>`·`unset <키>`(아래 CLI 표). 키는 점으로 이은 경로(`schedule.cron`, `agent_models.ContestJudge`, `model_by_level.3`)다. `set`은 값이 JSON으로 읽히면(숫자, `true`/`false`, `null`, `"..."`, `[...]`, `{...}`) JSON으로, 아니면 문자열로 넣고, 가는 길에 없는 객체는 만든다. 쓰기 전에 기본값과 합친 설정 전체를 아래 검사로 확인하고, 통과할 때만 원자적으로 0600으로 쓴다. 통과하지 못하면 거절하고 파일은 그대로다. `unset`은 파일에서 키를 지워 기본값이 다시 적용되게 한다(파일에 없는 키면 오류).
 
 검사: 모르는 키는 `unknown field ...`로 거절한다(`persona`, `schedule` 안도 같다). 값은 읽을 때 검사한다. `runner`는 코어에 들어 있는 어댑터 이름, `workspace`는 `orca`·`tmux`·`headless`·`terminal`, `schedule.scheduler`는 `orca`·`launchd`·`cron`, `schedule.cron`은 아래 정기 실행 절의 문법, `schedule.scout_hours`는 0~23의 cron 시 필드(빈 값 허용)여야 한다. 레벨별 사전 키는 `1`~`5`만 받는다. 메모리 값은 유한한 0 이상의 수, `ram_gb_per_worker`는 0보다 커야 하고, `collect_pages`는 1 이상이다. 설정 오류는 모두 설정 파일 경로로 시작한다.
 
@@ -192,15 +195,22 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `schedule.cron` | `"0 */6 * * *"` | 정기 실행(`automation.md`) 주기. 5필드 cron, 이 컴퓨터의 현지 시각(6절 정기 실행) |
 | `schedule.scheduler` | `"orca"` | 정기 실행을 맡길 스케줄러. `orca`(Orca automation), `launchd`(macOS 전용), `cron`(사용자 crontab) 중 하나. `harness schedule install`·`remove`의 기본값 |
 | `schedule.scout_hours` | `"0-5"` | 정기 실행이 ContestScout 웹 검색을 함께 하는 시(cron 시 필드 문법, 현지 시각). 빈 값이면 하지 않는다 |
+| `agent_models` | `{}` | 하네스 에이전트 이름(`agents/<이름>.md`) → 러너 문법의 모델 지정(omp: `provider/model:effort` 또는 `@역할`). `harness install`이 설정 러너에 적용한다(10절 `apply_agent_models`). `null`은 하네스가 전에 적용한 선택을 지운다. 파일에서 키를 지우기만 하면(`config unset`) 러너에 적용된 값은 그대로 남는다. 없는 에이전트 이름은 `install`이 거절하고 `doctor`가 실패로 알린다 |
 
 <p>표 2. 설정 키</p>
 
 ### CLI
 
-모든 명령은 전역 플래그 `--json`을 받는다(사람용 텍스트 대신 JSON). CLI 메시지와 `BOARD.md`는 한국어다. `harness --version`은 `0.3.0 (<12자리 git sha>)` 형식으로 버전과 빌드 커밋을 낸다.
+모든 명령은 전역 플래그 `--json`을 받는다(사람용 텍스트 대신 JSON). CLI 메시지와 `BOARD.md`는 한국어다. `harness --version`은 `0.4.0 (<12자리 git sha>)` 형식으로 버전과 빌드 커밋을 낸다.
 
 | 명령 | 하는 일 |
 |---|---|
+| `harness init` | 새 체크아웃에 필요한 파일을 만든다: `data/`(0700), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 이미 있는 파일은 그대로 둔다. 이어서 `doctor`를 돌린다. 텍스트는 만든 것·둔 것·점검 결과와 다음 단계(`INIT.md`), JSON은 `{created:[...], kept:[...], checks:[...], next:"<루트>/INIT.md"}`. 점검 결과와 관계없이 종료 코드 0. 대화가 필요한 설정은 `INIT.md`를 따르는 에이전트가 한다 |
+| `harness config path` | 설정 파일 경로(`data/config.json`) |
+| `harness config get [키]` | 점으로 이은 키의 적용 값(기본값 + 파일). 키가 없으면 설정 전체. 없는 키는 오류 |
+| `harness config set <키> <값>` | 키를 정한다. 값 해석·검사·쓰기 규칙은 위 설정 절. 틀린 값은 거절하고 파일은 바뀌지 않는다 |
+| `harness config unset <키>` | 파일에서 키를 지워 기본값으로 되돌린다. 파일에 없는 키면 오류 |
+| `harness agents` | `agents/*.md`의 에이전트마다 이름, 설명, 기본 모델(앞머리 `model`, 예: `@task`, `@slow`, `@plan`), `agent_models`의 선택, 러너가 지금 적용한 모델(10절 `agent_models()`, 알 수 없으면 비어 있다). JSON은 `[{name, description, default_model:[...], configured, applied}]` |
 | `harness collect [--source <출처>\|all] [--pages N]` | 수집 출처(아래)에서 새 공고를 모아 `discovered`로 넣고 새 항목을 출력한다. 사이트 간 중복은 `alt_urls`로 합친다. `--pages`는 1 이상이고 기본은 설정 `collect_pages`, `all`은 `collect_skip`에 든 출처를 뺀다 |
 | `harness add --title T --url U [--org O] [--deadline D] [--source scout\|manual] [--note N] [--force]` | 공고 한 건을 넣는다. 제목과 URL은 필수이고 URL은 http(s)여야 한다. `--deadline`은 `YYYY-MM-DD`(`YYYY-MM-DDT23:59+09:00`으로 저장) 또는 `YYYY-MM-DDTHH:MM[:SS]+09:00`이다(`24:00`은 23:59로 읽고 다른 오프셋은 거절한다. `submitted add --date`, `gate.json` `deadline`과 같은 파서). 이미 쓰인 id면 `-2`, `-3`, …을 붙인다. 중복이면 새로 만들지 않고 후보를 알려 준다(`--force`로 강제) |
 | `harness add --from-file <json> [--force]` | JSON 객체 하나 또는 배열로 여러 건을 넣는다. 항목 형식은 `{title, url, org?, deadline?, source?("scout"\|"manual"), note?, categories?}`다. 쓰기 전에 모든 항목을 검사하고, 하나라도 틀리면 `<경로>: [i] ...`로 파일 전체를 거절한다. `--json`은 `{"added":[...],"duplicates":[{title,url,matches}]}`다. `--force` 없이 중복 후보로 보류한 항목이 하나라도 있으면 종료 코드 3 |
@@ -229,11 +239,11 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `harness capacity` | 한도·메모리·진행 중 세션 수를 합쳐 지금 새로 띄울 수 있는 세션 수를 낸다(필드는 아래) |
 | `harness board` | 상태별 보드 `BOARD.md`를 쓴다 |
 | `harness tick [--no-collect] [--auto-launch]` | 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). 끝에 `BOARD.md`를 갱신한다. 오류가 있어도 종료 코드는 0이다(정기 실행이 JSON을 읽는다). 텍스트는 오류 건수로 시작한다. JSON은 `collect`, `scout`, `needs_gate`, `launched`, `waiting`, `errors`, `warnings`다. `scout`는 수집했을 때 지금 현지 시가 `schedule.scout_hours` 안이면 `true`(수집하지 않으면 `false`), 텍스트 출력은 `웹 검색(ContestScout) 이번 회차: 실행\|안 함` 줄이다 |
-| `harness install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장을 설치한다(10절). 기본은 설정 `runner`, `--runner`는 여러 번 줄 수 있고, `--all`은 코어에 들어 있는 어댑터 중 실행 파일이 PATH에 있는 것 전부 |
+| `harness install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장을 설치한다(10절). 기본은 설정 `runner`, `--runner`는 여러 번 줄 수 있고, `--all`은 코어에 들어 있는 어댑터 중 실행 파일이 PATH에 있는 것 전부. 이어서 설정 러너에만 `agent_models`를 적용한다(`apply_agent_models`, 모델 지정은 설정 러너의 문법이므로). `agent_models`에 `agents/`에 없는 이름이 있으면 아무것도 하기 전에 거절한다 |
 | `harness chat [--runner R] [--workspace terminal\|orca\|tmux]` | 저장소 루트에서 메인 인터페이스 세션을 연다(12절). 기본 러너는 설정 `runner`, 기본 작업 환경은 `terminal` |
 | `harness autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
-| `harness doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
-| `harness --version` | `0.3.0 (<12자리 git sha>)` |
+| `harness doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `harness install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
+| `harness --version` | `0.4.0 (<12자리 git sha>)` |
 | `harness schedule install [--scheduler orca\|launchd\|cron]` | 설정 `schedule.cron` 주기로 정기 실행을 등록하거나, 이미 있으면 갱신한다. 기본 스케줄러는 설정 `schedule.scheduler`. 다른 스케줄러에도 정기 실행이 있으면 결과에 `warning`을 낸다(6절 정기 실행) |
 | `harness schedule remove [--scheduler orca\|launchd\|cron]` | `orca`는 하네스 automation을 지운다(그 worktree는 남기고 id를 알려 준다). `launchd`는 작업을 내리고 plist를 지운다. `cron`은 이 체크아웃의 crontab 블록만 지운다 |
 | `harness schedule status` | 설정 주기와 세 스케줄러의 실제 상태. 텍스트는 설정 줄 다음에 orca·launchd·cron마다 설치 여부, 설정과 일치 여부, 다음 실행을 짧게 낸다(JSON 필드는 아래 정기 실행 절) |
@@ -361,7 +371,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 <p>표 7. 에이전트</p>
 
-에이전트 원본은 omp 형식(`agents/*.md`, 앞머리에 이름·설명·도구·모델 역할)이다. omp는 `harness install`(`omp plugin link`)로 그대로 읽는다. 형식이 다른 러너의 어댑터는 `install`에서 변환하거나 연결한다(10절). 모델 역할(`@task` 등)은 omp에서만 뜻이 있다. 에이전트·스킬·템플릿·실행 지시문은 사용자를 "사용자"로 부른다. 이 문서들이 공모전 세션의 문서로 그대로 옮겨지기 때문이다.
+에이전트 원본은 omp 형식(`agents/*.md`, 앞머리에 이름·설명·도구·모델 역할)이다. omp는 `harness install`(`omp plugin link`)로 그대로 읽는다. 형식이 다른 러너의 어댑터는 `install`에서 변환하거나 연결한다(10절). 모델 역할(`@task` 등)은 omp에서만 뜻이 있다. 앞머리 `model`이 에이전트의 기본 모델이고, 설정 `agent_models`(6절)가 에이전트마다 이를 바꾼다(`harness agents`로 확인, `harness install`이 적용). 에이전트·스킬·템플릿·실행 지시문은 사용자를 "사용자"로 부른다. 이 문서들이 공모전 세션의 문서로 그대로 옮겨지기 때문이다.
 
 논문 근거는 기존 `ArticleResearcher` 에이전트(이 저장소 밖)를 쓴다. 논문 대회의 연구 도구는 운영자 환경 규칙(`data/local-rules.md`)을 따른다.
 
@@ -401,6 +411,8 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | `oneshot(spec)` | 없음 | 터미널 없이 지시문을 한 번 수행하고 끝나는 명령 |
 | `install(root)` | 없음 | 에이전트(`agents/*.md`, 러너 형식이 다르면 변환), 스킬(`skills/contest-harness`), 지원하면 확장 패키지를 설치한다. 여러 번 돌려도 결과가 같아야 한다 |
 | `installed(root)` | `None`(알 수 없음) | 이 체크아웃용으로 설치돼 있는지(`Some(true)`/`Some(false)`). `harness doctor`가 본다. omp는 `omp plugin list --json`에 켜진 `contest-harness`가 있고 그것이 이 체크아웃을 가리키는지 본다 |
+| `apply_agent_models(models)` | 값이 하나라도 `Some`이면 거절(에이전트별 모델 미지원), 모두 `None`이면 할 일 없음 | `harness install`이 설정 러너에 부른다. `models`는 `agent_models`(에이전트 이름 → `Some(모델 지정)` 또는 지우라는 `None`)다. 하네스가 읽는 곳에 적용하고 동작마다 사람이 읽을 줄 하나를 돌려준다. `models`에 없는 에이전트와 하네스 밖의 설정은 건드리지 않는다. 여러 번 돌려도 결과가 같아야 한다 |
+| `agent_models()` | `None`(알 수 없음) | 러너가 지금 하네스 에이전트에 쓰는 모델(에이전트 이름 → 모델 지정). `harness agents`와 `harness doctor`가 본다 |
 
 <p>표 8. 러너 어댑터 인터페이스(`Runner`)</p>
 
@@ -435,6 +447,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | 시스템 프롬프트 덧붙이기(메인 세션) | `--append-system-prompt <파일>` |
 | Orca 에이전트 | `omp` |
 | `harness install` | `omp plugin link <저장소>`(확장·스킬·명령·에이전트를 패키지로 읽는다, 11절). 예전 방식으로 `~/.omp/agent/agents/`·`~/.omp/agent/skills/contest-harness`에 걸었던, 저장소를 가리키는 심볼릭 링크는 지운다 |
+| 에이전트별 모델(`agent_models`) | omp 전역 설정 `task.agentModelOverrides`. `apply_agent_models`는 `omp config get`으로 읽은 맵에 `agent_models`에 적힌 하네스 에이전트만 합쳐(값이면 넣고 `None`이면 지운다) `omp config set`으로 쓴다. 다른 에이전트의 덮어쓰기는 그대로 둔다. `agent_models()`는 같은 설정을 읽는다 |
 
 <p>표 9. omp 어댑터</p>
 
@@ -459,12 +472,13 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | `/contest <id>` | 명령 | 공모전 하나의 요약 |
 | `/contest-chat` | 명령 | 메인 세션 여는 법(`harness chat`)과 바이너리 버전 |
 | `/contest-gate <id>` | 프롬프트 템플릿(`commands/contest-gate.md`) | 레지스트리 항목 하나를 ContestGate로 거르고 결과를 요약한다 |
+| `/contest-init` | 프롬프트 템플릿(`commands/contest-init.md`) | 저장소 루트의 `INIT.md` 절차대로 설정을 마치고 `harness doctor` 결과와 남은 할 일을 알린다. 저장소 위치는 `harness doctor --json`의 `checkout` 항목에서 찾는다 |
 
 <p>표 11. 확장이 등록하는 명령</p>
 
 - 확장은 모든 정보를 `harness ... --json` 출력에서 얻는다. 바이너리는 `HARNESS_BIN` → 저장소 `target/release/harness` → `target/debug/harness` → `PATH`의 `harness` 순으로 찾는다.
 - 확장은 페르소나를 넣지 않는다. 페르소나와 메인 역할은 `harness chat`만 넣는다.
-- 등록 확인(토큰을 쓰지 않는다): `omp --mode rpc --no-session --no-extensions -e <저장소>`의 명령 목록에 `/contest`, `/contest-chat`, `/contest-gate`가 있다.
+- 등록 확인(토큰을 쓰지 않는다): `omp --mode rpc --no-session --no-extensions -e <저장소>`의 명령 목록에 `/contest`, `/contest-chat`, `/contest-gate`, `/contest-init`이 있다.
 
 ## 12. 메인 인터페이스와 페르소나
 
@@ -473,10 +487,10 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 `harness chat [--runner R] [--workspace terminal|orca|tmux]`가 저장소 루트를 작업 디렉터리로 메인 세션을 연다.
 
 1. `data/main-system.md`를 쓴다: `persona.enabled`가 `true`면 `persona.file`(`{{call_user}}`를 `persona.call_user`로 바꾼 것), 이어서 `harness/prompts/main.md`(메인 인터페이스 역할).
-2. `data/main-start.md`에 첫 지시(보드·용량 요약, 사용자에게 물을 것 묶기)를 쓴다.
+2. `data/main-start.md`에 첫 지시를 쓴다. 먼저 `harness doctor --json`을 실행하고, `data/config.json`이 없거나 `fail` 항목이 있으면 요약 대신 저장소 `INIT.md` 절차로 사용자와 설정부터 마친다. 설정이 끝나 있으면 보드·용량을 요약하고 사용자에게 물을 것을 묶는다.
 3. 러너의 대화형 명령에 `data/main-system.md`를 시스템 프롬프트 덧붙이기(10절 `Spec.system_append`, omp는 `--append-system-prompt`)로, `data/main-start.md`를 첫 지시로 넘긴다. `headless`처럼 대화형이 아닌 작업 환경은 거절한다.
 
-메인 세션은 사용자의 말을 하네스 명령과 에이전트 작업으로 옮기고 결과를 요약한다. 공모전 결과물(코드·주석·보고서·발표자료·서식·커밋 메시지)은 직접 쓰거나 고치지 않는다. 그 일은 페르소나 없는 공모전 세션(`harness launch`)이 한다.
+메인 세션은 사용자의 말을 하네스 명령과 에이전트 작업으로 옮기고 결과를 요약한다. 설정 바꾸기도 명령으로 한다(`harness config get`·`set`·`unset`, 에이전트별 모델은 `harness agents`로 보여 주고 `agent_models.<에이전트>`를 바꾼 뒤 `harness install`). 공모전 결과물(코드·주석·보고서·발표자료·서식·커밋 메시지)은 직접 쓰거나 고치지 않는다. 그 일은 페르소나 없는 공모전 세션(`harness launch`)이 한다.
 
 ### 선택 기능: 운영자 페르소나
 
@@ -530,7 +544,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 게이트의 자격 판정과 제출 양식 작성에 쓰는 참가자 정보다. 값은 이 컴퓨터에만 둔다.
 
-- 파일: 저장소 `data/profile.md`(git 제외). 사용자가 직접 쓰는 마크다운 파일이고, 공개 저장소의 빈 칸 예시 `data/profile.example.md`를 복사해 채운다. 권한은 0600을 권장한다. 서명·도장·재학증명서 같은 파일은 사용자가 원하는 곳(예: git 제외인 `data/profile/`)에 두고 경로만 적는다. 하네스는 이 파일을 읽기만 하고 고치지 않는다.
+- 파일: 저장소 `data/profile.md`(git 제외). 마크다운 파일이고, `harness init`이 공개 저장소의 빈 칸 예시 `data/profile.example.md`를 0600으로 복사한다. 권한은 0600으로 둔다. 서명·도장·재학증명서 같은 파일은 사용자가 직접 원하는 곳(예: git 제외인 `data/profile/`)에 두고 경로만 적는다. 하네스 명령은 이 파일을 읽기만 하고 고치지 않는다.
 - 절 두 개(`## ` 제목. 영어 제목도 된다):
   - `## 참가 자격`(`## Eligibility`): 게이트의 자격 판정에 쓴다. 참가 형태(개인·팀), 학생 여부, 학교, 학과, 과정, 학년, 출생 연도(나이 제한 판정용), 거주 지역, 국적, 재학증명서 보유 여부, 강점, 피하는 조건. 이름·전화·이메일 같은 식별 값은 쓰지 않고, 나이는 생년월일 대신 출생 연도로 쓴다.
   - `## 제출용 개인정보`(`## Submission details`): 사용자가 제출을 승인한 뒤에만 읽는다. 이름, 영문·한자 이름, 생년월일, 전화, 이메일, 학교·학과 정식 명칭, 서명·도장 이미지와 재학증명서 파일 경로, 한컴독스 계정.
@@ -545,8 +559,11 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 - 파일이 없으면 `eligibility`·`show`가, `## 참가 자격` 절이 없거나 비어 있으면 `eligibility`가 `data/profile.example.md`를 가리키는 오류를 낸다.
 - 경고: `show`와 `eligibility`는 파일을 그룹·다른 사용자가 읽을 수 있거나 참가 자격 절에 예시 자리표시자가 남아 있으면 표준 오류에 경고를 낸다.
-- 읽기 규칙: ContestGate는 `harness profile eligibility --json`만 읽는다(`eligibility`는 승인 없이 열려 있다). 개인 식별 값은 사용자 승인이 `harness approve`로 기록된 뒤 `harness profile show --for <id> --json`으로만 읽는다. 에이전트는 `data/profile.md`를 직접 읽거나 고치지 않는다.
-- 처음 설정: 사용자가 `cp data/profile.example.md data/profile.md`로 복사한 뒤 직접 채운다. 하네스와 에이전트는 값을 대신 쓰지 않는다.
+- 읽기 규칙: ContestGate는 `harness profile eligibility --json`만 읽는다(`eligibility`는 승인 없이 열려 있다). 개인 식별 값은 사용자 승인이 `harness approve`로 기록된 뒤 `harness profile show --for <id> --json`으로만 읽는다. 에이전트는 `data/profile.md`를 직접 읽지 않고, 아래 처음 설정의 예외 말고는 고치지 않는다.
+- 처음 설정(`INIT.md` 4단계): 사용자가 고른다.
+  - 직접 쓰기(권장, 제출용 개인정보 절은 특히): 사용자가 파일을 채우고, 에이전트는 `harness profile eligibility`로 참가 자격 절만 확인한다.
+  - 대화로 알려 주기(예외): 에이전트는 사용자가 준 값만 그대로 해당 절에 쓴다. 참가 자격 절은 바로 쓰고, 제출용 개인정보 절은 먼저 "대화로 준 값은 모델 제공자와 세션 기록을 거친다"고 알리고 직접 쓰기를 권한 뒤 사용자가 그래도 주면 쓴다. 예시 자리표시자는 남기지 않는다. 쓴 뒤 `chmod 600 data/profile.md`를 실행한다. 값을 화면에 다시 읊지 않고, 다른 파일·커밋·로그·`--note`·메모에 옮기지 않는다.
+  - 서명·도장·증명서 같은 파일은 사용자가 `data/profile/`에 직접 두고, 프로필에는 경로만 적는다.
 
 ## 15. 점수 루프
 

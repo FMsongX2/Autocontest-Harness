@@ -39,6 +39,8 @@ Create `src/runners/<name>.rs` with a unit struct and `impl Runner for <Struct>`
 | `oneshot(spec)` | none | A command that runs the instructions once without a TTY and exits. The `headless` workspace and `harness autorun` use it |
 | `install(root)` | none | Install the agents, the skill, and, where the harness has one, an extension package from the checkout at `root`. Idempotent. One human-readable line per action |
 | `installed(root)` | `None` | Whether the harness agents, skill, and extension are installed for the checkout at `root`: `Some(true)` or `Some(false)`, or `None` when the adapter cannot tell. `harness doctor` reports it. The omp adapter checks that `omp plugin list --json` has an enabled `contest-harness` package that resolves to `root` |
+| `apply_agent_models(models)` | refuses any `Some`; all `None` is a no-op | Apply `agent_models` from the config (agent name to `Some(selector)` in this harness's model syntax, or `None` to remove a choice the harness applied before) where the harness reads per-agent models. `harness install` calls it for the configured runner only. Touch only the agents named in `models`, leave every other setting alone, and return one human-readable line per action. Idempotent. The omp adapter merges the names into omp's global `task.agentModelOverrides` (`omp config get`, then `omp config set`) |
+| `agent_models()` | `None` | The per-agent models the harness applies now (agent name to selector), or `None` when the adapter cannot tell. `harness agents` shows it and `harness doctor` compares it with `agent_models` |
 
 <p>Table 1. The <code>Runner</code> trait</p>
 
@@ -62,7 +64,7 @@ In `src/runners/mod.rs`, add `pub mod <name>;` and append `&<name>::<Struct>` to
 
 ### 3. Agents, skill, and extension
 
-- The agents in `agents/*.md` are omp task-agent files: YAML frontmatter (`name`, `description`, `tools`, a model role, an optional `output` schema in JSON Type Definition) and a Korean body. `runners::agent_docs(root)` parses all of them, and `AgentDoc::instructions()` returns the body with a closing section that asks for the output schema. Map omp tool names to the harness's own and drop tools it lacks.
+- The agents in `agents/*.md` are omp task-agent files: YAML frontmatter (`name`, `description`, `tools`, a model role in `model`, an optional `output` schema in JSON Type Definition) and a Korean body. `runners::agent_docs(root)` parses all of them (`AgentDoc::model` holds the default model selectors), and `AgentDoc::instructions()` returns the body with a closing section that asks for the output schema. Map omp tool names to the harness's own and drop tools it lacks.
 - The skill `skills/contest-harness` is a plain Agent Skills directory. Link it where the harness looks for skills.
 - Use `runners::link` and `runners::write_file`: they are idempotent and refuse to overwrite a real file. Remove agent files your previous install wrote that no longer exist in `agents/`.
 - An extension package for the harness (commands like `/contest`) goes next to the adapter. It must get every value from `harness ... --json` and must not add the persona.
@@ -78,6 +80,7 @@ In `src/runners/mod.rs`, add `pub mod <name>;` and append `&<name>::<Struct>` to
   - `preset_file()` refuses when `presets()` is `false`.
 - Add a test with the exact interactive and one-shot command lines for a full and a bare `Spec`, like `omp_commands`.
 - If `install` writes files, test it against a scratch home directory: a second run changes nothing, and a stale agent file is removed.
+- If you implement `apply_agent_models`, keep the merge in a pure function and test it without the harness CLI, like `merge_overrides` in [tests/setup.rs](tests/setup.rs): named agents are set or removed, every other entry stays.
 - Tests never start the real harness and never touch the network.
 - [tests/e2e.rs](tests/e2e.rs) drives the real binary through one whole lifecycle offline (add, gate, route, a headless session on a stand-in runner, approval, submission, cleanup) with a temporary home, git config, and `HARNESS_HOME`. If your change touches that path, keep it passing and extend it rather than adding a second end-to-end test.
 
@@ -138,6 +141,8 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 | `oneshot(spec)` | 없음 | TTY 없이 지시문을 한 번 수행하고 끝나는 명령. `headless` 작업 환경과 `harness autorun`이 쓴다 |
 | `install(root)` | 없음 | `root` 클론에서 에이전트, 스킬, 하네스에 있으면 확장 패키지를 설치한다. 여러 번 돌려도 결과가 같아야 하고, 한 일마다 한 줄을 돌려준다 |
 | `installed(root)` | `None` | `root` 클론의 에이전트·스킬·확장이 설치되어 있는지. `Some(true)`나 `Some(false)`, 어댑터가 알 수 없으면 `None`을 돌려준다. `harness doctor`가 알린다. omp 어댑터는 `omp plugin list --json`에 `root`를 가리키는 켜진 `contest-harness` 패키지가 있는지 본다 |
+| `apply_agent_models(models)` | `Some`가 하나라도 있으면 거절, 모두 `None`이면 할 일 없음 | 설정 `agent_models`(에이전트 이름 → 이 하네스 모델 문법의 `Some(모델 지정)`, 또는 하네스가 전에 적용한 선택을 지우라는 `None`)를 하네스가 에이전트별 모델을 읽는 곳에 적용한다. `harness install`이 설정 러너에만 부른다. `models`에 적힌 에이전트만 건드리고 다른 설정은 그대로 두며, 한 일마다 한 줄을 돌려준다. 여러 번 돌려도 결과가 같아야 한다. omp 어댑터는 omp 전역 설정 `task.agentModelOverrides`에 이름을 합친다(`omp config get` 뒤 `omp config set`) |
+| `agent_models()` | `None` | 하네스가 지금 적용하는 에이전트별 모델(에이전트 이름 → 모델 지정). 어댑터가 알 수 없으면 `None`. `harness agents`가 보여 주고 `harness doctor`가 `agent_models`와 비교한다 |
 
 <p>표 1. <code>Runner</code> trait</p>
 
@@ -161,7 +166,7 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 
 #### 3. 에이전트·스킬·확장
 
-- `agents/*.md`는 omp task agent 파일이다. YAML 앞머리(`name`, `description`, `tools`, 모델 역할, 선택 사항인 JSON Type Definition `output` 스키마)와 한국어 본문으로 되어 있다. `runners::agent_docs(root)`가 모두 읽고, `AgentDoc::instructions()`가 출력 스키마를 요구하는 마지막 절을 붙인 본문을 돌려준다. omp 도구 이름은 그 하네스의 이름으로 바꾸고, 없는 도구는 뺀다.
+- `agents/*.md`는 omp task agent 파일이다. YAML 앞머리(`name`, `description`, `tools`, `model`의 모델 역할, 선택 사항인 JSON Type Definition `output` 스키마)와 한국어 본문으로 되어 있다. `runners::agent_docs(root)`가 모두 읽고(`AgentDoc::model`이 기본 모델 지정 목록), `AgentDoc::instructions()`가 출력 스키마를 요구하는 마지막 절을 붙인 본문을 돌려준다. omp 도구 이름은 그 하네스의 이름으로 바꾸고, 없는 도구는 뺀다.
 - 스킬 `skills/contest-harness`는 일반 Agent Skills 폴더다. 하네스가 스킬을 찾는 곳에 링크한다.
 - `runners::link`와 `runners::write_file`을 쓴다. 둘 다 여러 번 돌려도 같고, 실제 파일은 덮지 않는다. 이전 설치가 쓴 에이전트 파일 가운데 `agents/`에서 사라진 것은 지운다.
 - 그 하네스용 확장 패키지(`/contest` 같은 명령)는 어댑터와 함께 더한다. 모든 값은 `harness ... --json`에서 얻고, 페르소나를 넣지 않는다.
@@ -177,6 +182,7 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
   - `presets()`가 `false`면 `preset_file()`이 거절한다.
 - `omp_commands`처럼, 값을 다 채운 `Spec`과 빈 `Spec`의 대화형·한 번 실행 명령줄을 그대로 비교하는 테스트를 더한다.
 - `install`이 파일을 쓰면 임시 홈 폴더로 테스트한다. 두 번째 실행은 아무것도 바꾸지 않고, 낡은 에이전트 파일은 지워져야 한다.
+- `apply_agent_models`를 구현하면 합치는 부분을 순수 함수로 두고, [tests/setup.rs](tests/setup.rs)의 `merge_overrides` 테스트처럼 하네스 CLI 없이 시험한다. 이름을 적은 에이전트는 정해지거나 지워지고, 나머지 항목은 그대로여야 한다.
 - 테스트는 실제 하네스를 띄우지 않고 네트워크에 닿지 않는다.
 - [tests/e2e.rs](tests/e2e.rs)는 실제 바이너리로 수명주기 하나 전체(추가, 게이트, 라우팅, 대역 러너로 띄운 headless 세션, 승인, 제출, 정리)를 임시 홈·git 설정·`HARNESS_HOME`에서 오프라인으로 돌린다. 이 경로를 건드리는 변경이면 이 테스트가 통과하게 두고, 종단 간 테스트를 따로 만들기보다 이 테스트를 늘린다.
 

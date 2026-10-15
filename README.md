@@ -26,12 +26,13 @@ The harness automates these steps: collecting, deduplicating, gating, sizing, sc
 - Admission control. New sessions start only when the global limit, the per-level limit, and the memory budget all allow it, and when the token-usage pace of your model provider leaves room.
 - A configurable schedule. One cron expression (`schedule.cron`) drives the scheduled run, on an Orca automation, a launchd job, or a user crontab entry, and `schedule.scout_hours` picks which runs also search the web.
 - Pluggable backends. Pick the agent harness (`runner`) and where sessions run (`workspace`) in the config. Other agent harnesses plug in through the runner adapter interface ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- Agent-driven setup. Ask any coding agent with a shell to follow [INIT.md](INIT.md) (in omp, `/contest-init`): it creates the local files with `harness init`, asks you the settings in one batch, and applies them with `harness config set`, which validates every change before writing. `agent_models` picks a model for each harness agent, and `harness install` applies the choices to the runner.
 - A main interface session (`harness chat`) from which you watch and direct every contest, with an optional persona that never reaches contest sessions.
 - A persona guard that blocks the move to submission approval while a contest folder or its commit messages contain persona traces.
 - Human-in-the-loop gates for creative concepts, Level 5 plans, and final submission. Plan and submission approvals are recorded with `harness approve`, which contest sessions cannot run.
 - A score loop from Level 2 up: the contest's scoring criteria become a rubric, `ContestJudge` scores the plan before anything is built and the deliverable afterward, and every score is recorded with `harness score`. Submission approval waits until the final score reaches the target.
 - A submission ledger (`harness submitted`) that remembers every contest you have already entered, including ones entered outside the harness, so the same contest is never gated, routed, or submitted twice.
-- A local user profile you write yourself (`data/profile.md`, read with `harness profile`) with your eligibility facts and the personal details forms ask for. The gate sees only the eligibility section; personal details are read only at an approved submission step.
+- A local user profile (`data/profile.md`, read with `harness profile`) with your eligibility facts and the personal details forms ask for. You write it yourself, or dictate it to the agent during setup. The gate sees only the eligibility section; personal details are read only at an approved submission step.
 - A board (`BOARD.md`) that lists every contest by state.
 
 ## How it works
@@ -83,28 +84,26 @@ cd ~/contests/Contest-Harness
 scripts/install.sh       # prebuilt binary, checksum-verified; links ~/.local/bin/harness, which must be on PATH
 ```
 
-`scripts/install.sh` downloads the binary for your platform from the GitHub release whose tag matches the version in `Cargo.toml` (`v0.3.0`), checks it against the release's `SHA256SUMS`, installs it to `bin/harness` in the clone (git-ignored), and links `$BIN_DIR/harness` to it (default `~/.local/bin`). Prebuilt targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, and `aarch64-unknown-linux-musl`. When no asset fits, the script builds from source with `cargo build --release --locked`; `scripts/install.sh --from-source` forces that. It ends by printing `harness --version`. To build from source without the script, run `cargo install --path . --root ~/.local --locked`.
+`scripts/install.sh` downloads the binary for your platform from the GitHub release whose tag matches the version in `Cargo.toml` (`v0.4.0`), checks it against the release's `SHA256SUMS`, installs it to `bin/harness` in the clone (git-ignored), and links `$BIN_DIR/harness` to it (default `~/.local/bin`). Prebuilt targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, and `aarch64-unknown-linux-musl`. When no asset fits, the script builds from source with `cargo build --release --locked`; `scripts/install.sh --from-source` forces that. It ends by printing `harness --version`. To build from source without the script, run `cargo install --path . --root ~/.local --locked`.
 
 The binary works on one checkout: `HARNESS_HOME` when it is set, otherwise the nearest directory above the real binary path (symlinks resolved) that contains `harness/prompts/launch.md`, otherwise the checkout it was built from. It reads `data/`, prompts, agents, and the skill from there. Every command except `doctor`, `--help`, and `--version` refuses to run when that directory has no `harness/prompts/launch.md`, and creates nothing there.
 
-Create your settings from the committed example and edit them:
+Next, set up your settings and profile. The easiest way is to let an agent do it: open your coding agent in the clone and ask it to "Read INIT.md and set up the harness." [INIT.md](INIT.md) is the setup procedure written for agents. The agent runs `harness init`, asks you the settings in one batch with a recommended default for each, applies your answers with `harness config set`, helps you fill in your profile (see [User profile](#user-profile)), picks models per level and per agent if you want, runs `harness install` and, if you want a schedule, `harness schedule install`, and repeats `harness doctor` until no check fails. In omp, the prompt template `/contest-init` starts the same procedure once `harness install` has linked the package. Any agent that can run shell commands can do the setup; running contest sessions still needs a runner adapter, and the core has the omp one (see [Adding a runner adapter](#adding-a-runner-adapter)). `harness chat` also starts with this procedure when `data/config.json` is missing or a doctor check fails.
+
+To set up by hand instead:
 
 ```bash
-cp data/config.example.json data/config.json   # personal settings; git-ignored
-$EDITOR data/config.json                        # contests_root, github_org, runner, workspace; see Configuration
-```
-
-Then write your user profile (eligibility facts and the details submission forms ask for). It is a Markdown file you fill in yourself:
-
-```bash
-cp data/profile.example.md data/profile.md   # git-ignored; fill it in by hand
-chmod 600 data/profile.md
-harness profile path                         # path and whether it exists
+harness init                                     # data/ (0700), data/config.json and data/profile.md from the examples (0600), data/logs/; existing files are kept; then the doctor
+harness config set workspace tmux                # dotted keys; the whole config is validated before writing
+harness config set schedule.cron '0 9,21 * * *'
+harness config get                               # the effective config (defaults + file); see Configuration
+$EDITOR data/profile.md                          # your profile: eligibility facts and the details submission forms ask for
+harness profile path                             # path and whether it exists
 ```
 
 Optionally copy `data/local-rules.example.md` to `data/local-rules.md` and write rules for your own environment there (see [Local rules](#local-rules)).
 
-With the default `orca` workspace, contest workspaces are created as worktrees of `orca_repo_path` (default: `contests_root`, which defaults to `~/contests`). That directory must be a git repository added to Orca. Set `"workspace": "tmux"` or `"headless"` to run without Orca.
+With the default `orca` workspace, contest workspaces are created as worktrees of `orca_repo_path` (default: `contests_root`, which defaults to `~/contests`). That directory must be a git repository added to Orca. Set `workspace` to `tmux` or `headless` to run without Orca.
 
 Check the setup before anything else (see [Setup check](#setup-check-harness-doctor)):
 
@@ -115,7 +114,7 @@ harness doctor             # fix every [실패] (failure) line; [경고] (warnin
 Install the agents, skill, and extension for your runner, collect listings, and open the main session:
 
 ```bash
-harness install            # agents, skill and extension for the configured runner (omp: omp plugin link)
+harness install            # agents, skill and extension for the configured runner (omp: omp plugin link), plus agent_models
 harness collect            # all sources; or: harness collect --source dacon --pages 1
 harness chat               # main interface session at the repository root, in this terminal
 ```
@@ -161,7 +160,7 @@ Then delete the clone.
 
 ## Setup check (harness doctor)
 
-`harness doctor [--json]` checks that this checkout, its configuration, the tools it calls, and the scheduled run are ready. It only reads, and it runs even where other commands refuse because no checkout was found. Every problem comes with a fix.
+`harness doctor [--json]` checks that this checkout, its configuration, the tools it calls, and the scheduled run are ready. It only reads, and it runs even where other commands refuse because no checkout was found. Every problem comes with a fix. `harness init` runs it at the end, and the main session runs it at the start.
 
 - **checkout**: the checkout root and its `harness/prompts/launch.md`.
 - **version**: the commit the binary was built from against the checkout's `HEAD`.
@@ -173,6 +172,7 @@ Then delete the clone.
 - **gh**: on `PATH`, and `gh auth status` succeeds (warning).
 - **runner**: its binary is on `PATH` (failure), and it is installed for this checkout (for omp, `omp plugin list --json`; warning).
 - **workspace**: its binary is on `PATH` (failure). For `orca`, `orca_repo_path` must be an Orca project in `orca repo list` (failure; the fix is `orca repo add --path <path>`).
+- **agent_models**: every name in `agent_models` is an agent in `agents/` (failure otherwise; the fix is `harness config unset agent_models.<name>`). When the runner reports the models it applies, a difference from the config is a warning whose fix is `harness install`. An empty map is ok: every agent uses its default role model.
 - **contests_root**: exists and is writable.
 - **profile**: exists, has mode 0600, and has no example placeholders left (warning).
 - **memory**: available memory can be read (warning).
@@ -186,7 +186,7 @@ Text output has one `[ok]`, `[경고]` (warning), or `[실패]` (failure) line p
 
 | Adapter | Subagents | Model presets | System prompt (main session) | One-shot command | Orca automation agent | `harness install` |
 |---|---|---|---|---|---|---|
-| `omp` | Yes (`task` tool) | `preset_by_level`: omp `modelPresets` as a per-run `--config` overlay | `--append-system-prompt` | `omp -p` | `omp` | `omp plugin link <repo>`; removes symlinks left by the old per-file install |
+| `omp` | Yes (`task` tool) | `preset_by_level`: omp `modelPresets` as a per-run `--config` overlay | `--append-system-prompt` | `omp -p` | `omp` | `omp plugin link <repo>`; removes symlinks left by the old per-file install; merges `agent_models` into omp's `task.agentModelOverrides` |
 
 <p>Table 1. Runner adapters in the core</p>
 
@@ -203,6 +203,19 @@ On a harness without subagents, `harness launch` appends a section to the launch
 
 The registry records where each session runs in the entry's `session` field: `{workspace, workspace_id, runner, handle}`.
 
+### Per-agent models
+
+Each harness agent has a default model in its frontmatter (`model` in `agents/*.md`, such as `@task`, `@slow`, or `@plan`, which are omp role aliases). The config key `agent_models` overrides it per agent: agent name to a model selector in the runner's syntax (for omp, `provider/model:effort` or `@role`).
+
+```bash
+harness agents                                                   # name, default model, configured choice, what the runner applies now
+harness config set agent_models.ContestJudge '<provider>/<model>:<effort>'
+harness install                                                  # applies agent_models to the configured runner
+harness config set agent_models.ContestJudge null                # then harness install removes the choice from the runner
+```
+
+`harness install` refuses names that are not agents in `agents/` and applies the map only to the configured runner. The omp adapter merges the named agents into omp's global setting `task.agentModelOverrides` (read with `omp config get`, written with `omp config set`). It touches only the harness agents named in `agent_models`, set or removed with `null`; other overrides stay. `harness config unset agent_models.<name>` only removes the key from the config, so set it to `null` and run `harness install` first to take an applied choice back. An adapter without per-agent models refuses any value other than `null`. `harness agents --json` is `[{name, description, default_model: [...], configured, applied}]`.
+
 ### Adding a runner adapter
 
 The core ships only the omp adapter, the one that has run contests end to end. To drive another agent harness (Claude Code, Codex, pi, or your own), implement the `Runner` trait in `src/runners/<name>.rs`, add it to `runners::ALL`, and open a pull request. The contract test `every_adapter_keeps_the_runner_contract` in `tests/backends.rs` runs against every registered adapter. [CONTRIBUTING.md](CONTRIBUTING.md) lists the trait methods, the rules an adapter keeps, and what the pull request needs. Earlier versions carried unverified adapters for pi, Claude Code, Codex, and dsh; their code is at commit `bf05366` under `src/runners/` and can be a starting point.
@@ -217,6 +230,7 @@ The repository is an omp extension package. `harness install` with the `omp` run
 | `/contest <id>` | Command | Summary of one contest |
 | `/contest-chat` | Command | How to open the main interface session, and the binary version |
 | `/contest-gate <id>` | Prompt template (`commands/contest-gate.md`) | Runs `ContestGate` on one registry entry and summarizes the result |
+| `/contest-init` | Prompt template (`commands/contest-init.md`) | Follows [INIT.md](INIT.md) to set up the harness with you, then reports the `harness doctor` result and what is left to do |
 
 <p>Table 3. Commands registered by the extension</p>
 
@@ -224,7 +238,7 @@ The extension gets all data from `harness ... --json`. It looks for the binary a
 
 ## Main interface and persona
 
-`harness chat [--runner R] [--workspace terminal|orca|tmux]` opens the main session at the repository root. It writes `data/main-system.md` from the persona (when enabled) and [harness/prompts/main.md](harness/prompts/main.md), passes it to the runner as an appended system prompt, and starts with `data/main-start.md`: summarize the board and capacity, then ask you any pending questions in one batch. From there you ask in plain language and the session runs `harness` commands and agents for you. The main session does not write or edit contest deliverables; contest sessions started by `harness launch` do that.
+`harness chat [--runner R] [--workspace terminal|orca|tmux]` opens the main session at the repository root. It writes `data/main-system.md` from the persona (when enabled) and [harness/prompts/main.md](harness/prompts/main.md), passes it to the runner as an appended system prompt, and starts with `data/main-start.md`. The session first runs `harness doctor --json`. When `data/config.json` is missing or a check fails, it goes through the [INIT.md](INIT.md) setup with you first. Otherwise it summarizes the board and capacity, then asks you any pending questions in one batch. From there you ask in plain language and the session runs `harness` commands and agents for you, including setting changes (`harness config get` and `set`, `harness agents`, `harness install`). The main session does not write or edit contest deliverables; contest sessions started by `harness launch` do that.
 
 The operator persona is an optional feature, off by default. It sets the conversational tone of the main session only. To use one, write it in `data/persona.md` (git-ignored; start from the committed `data/persona.example.md`), point `persona.file` at it if you keep it elsewhere, set `persona.call_user` to how it should address you, and turn it on:
 
@@ -328,7 +342,17 @@ Collection rules:
 
 ## Configuration
 
-Settings are read from `data/config.json` on top of the defaults in [`src/config.rs`](src/config.rs). Any key you leave out keeps its default. For map-valued keys (`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`), only the entries you list are overridden; `{"max_running_by_level": {"5": 0}}` changes Level 5 alone. Level keys are the strings `"1"` to `"5"`.
+Settings are read from `data/config.json` on top of the defaults in [`src/config.rs`](src/config.rs). Any key you leave out keeps its default. For map-valued keys (`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`, `agent_models`), only the entries you list are overridden; `{"max_running_by_level": {"5": 0}}` changes Level 5 alone. Level keys are the strings `"1"` to `"5"`.
+
+`harness config` reads and changes the file without opening it. Keys are dotted paths (`schedule.cron`, `agent_models.ContestJudge`, `model_by_level.3`). `set` reads the value as JSON when it parses (numbers, `true`/`false`, `null`, `"..."`, `[...]`, `{...}`) and as a string otherwise, validates the whole config, and only then writes the file (atomically, mode 0600); an invalid value is refused and the file stays as it was. `unset` removes the key from the file so its default applies again. `get` shows the effective value (defaults plus file), or the whole config without a key.
+
+```bash
+harness config path                          # the config file path
+harness config get schedule                  # effective value
+harness config set max_running_by_level.5 0  # read as the number 0
+harness config set github_org my-org         # not JSON, so read as a string
+harness config unset max_running_by_level.5  # back to the default
+```
 
 The file is validated when it is loaded, and every config error starts with its path. Unknown keys are rejected (`unknown field ...`), also inside `persona` and `schedule`. `runner` must name a compiled-in adapter; `workspace` must be `orca`, `tmux`, `headless`, or `terminal`; `schedule.scheduler` must be `orca`, `launchd`, or `cron`; `schedule.cron` and `schedule.scout_hours` (a cron hour field, 0-23, empty allowed) must parse; by-level keys must be `"1"` to `"5"`; memory values must be finite and 0 or more, `ram_gb_per_worker` above 0, and `collect_pages` 1 or more.
 
@@ -360,6 +384,7 @@ The file is validated when it is loaded, and every config error starts with its 
 | `schedule.cron` | `"0 */6 * * *"` | When the scheduled run starts: a 5-field cron expression (minute hour day month weekday) in the machine's local time. Applied by `harness schedule install` |
 | `schedule.scheduler` | `"orca"` | What starts the scheduled run: `orca` (an Orca automation running the runner's Orca agent), `launchd` (a launchd job running `harness autorun`, macOS only), or `cron` (a user crontab entry running `harness autorun`) |
 | `schedule.scout_hours` | `"0-5"` | Local hours in which a scheduled run also runs the `ContestScout` web search, written as a cron hour field (`0-5`, `0,12`, `*`). Empty means never. `harness tick` reports the decision as `scout` |
+| `agent_models` | `{}` | Model per harness agent, keyed by agent name (`agents/<Name>.md`), in the runner's selector syntax (omp: `provider/model:effort` or `@role`). Applied to the runner by `harness install`; `null` removes a choice the harness applied before. Unknown agent names are refused by `install` and fail `doctor`. See [Per-agent models](#per-agent-models) |
 
 <p>Table 6. Configuration keys</p>
 
@@ -375,8 +400,14 @@ Every command accepts `--json`. CLI messages and `BOARD.md` are in Korean. Exit 
 
 | Command | What it does |
 |---|---|
-| `harness --version` | Prints the version and the commit the binary was built from: `0.3.0 (<12-character sha>)` |
+| `harness --version` | Prints the version and the commit the binary was built from: `0.4.0 (<12-character sha>)` |
 | `harness doctor` | Checks the checkout, config, tools, and scheduled run. Exit 1 if any check fails. See [Setup check](#setup-check-harness-doctor) |
+| `harness init` | Creates what a new checkout needs: `data/` (0700), `data/config.json` and `data/profile.md` from the committed examples (0600), and `data/logs/`. Existing files are kept. Then runs the doctor. JSON is `{created: [...], kept: [...], checks: [...], next: "<root>/INIT.md"}`. Exit 0 |
+| `harness config path` | Prints the config file path (`data/config.json`) |
+| `harness config get [KEY]` | Prints the effective value of a dotted key (defaults + file), or the whole config |
+| `harness config set <KEY> <VALUE>` | Sets a dotted key. The value is read as JSON when it parses, otherwise as a string. The whole config is validated before the file is written (atomic, 0600); an invalid value is refused and the file is unchanged |
+| `harness config unset <KEY>` | Removes a key from the file so its default applies again. A key that is not in the file is an error |
+| `harness agents` | Lists the agents in `agents/*.md`: name, description, default model (frontmatter `model`), the `agent_models` choice, and what the runner applies now. JSON is `[{name, description, default_model: [...], configured, applied}]` |
 | `harness collect [--source <name>\|all] [--pages N]` | Collects new listings, merges cross-site duplicates, and adds new contests as `discovered`. `--pages` (default `collect_pages`) must be 1 or more |
 | `harness add --title T --url U [--org O] [--deadline D] [--source scout\|manual] [--note N] [--force]` | Adds one contest. The URL must be http(s). `--deadline` takes `YYYY-MM-DD` (stored as `YYYY-MM-DDT23:59+09:00`) or `YYYY-MM-DDTHH:MM[:SS]+09:00` (`24:00` is read as 23:59; other offsets are rejected). An id already taken gets `-2`, `-3`, and so on. If the contest looks like a duplicate, prints the candidates instead |
 | `harness add --from-file <json> [--source scout\|manual] [--force]` | Adds a JSON object or an array of `{title, url, org?, deadline?, source?, note?, categories?}`. Every item is validated before anything is written; a bad item fails the file with `<path>: [i] ...`. JSON output is `{"added": [...], "duplicates": [{title, url, matches}]}`. Exit 3 if any item was held back as a possible duplicate |
@@ -404,7 +435,7 @@ Every command accepts `--json`. CLI messages and `BOARD.md` are in Korean. Exit 
 | `harness capacity` | Shows how many sessions can start now. JSON fields: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram` (`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `harness board` | Writes `BOARD.md` |
 | `harness tick [--no-collect] [--auto-launch]` | Runs one control loop: collect, list contests waiting for the gate, optionally route and launch within capacity, then update `BOARD.md`. Exits 0 so the scheduled run can read its JSON; the text starts with the error count, and JSON adds `warnings` and `scout` (whether the current local hour is in `schedule.scout_hours`) |
-| `harness install [--runner R ...] [--all]` | Installs agents, the skill, and the extension for the configured runner, the given runners, or every compiled-in adapter whose CLI is on `PATH` |
+| `harness install [--runner R ...] [--all]` | Installs agents, the skill, and the extension for the configured runner, the given runners, or every compiled-in adapter whose CLI is on `PATH`, and applies `agent_models` to the configured runner. Refuses unknown agent names in `agent_models` |
 | `harness chat [--runner R] [--workspace W]` | Opens the main interface session at the repository root |
 | `harness autorun` | Runs the scheduled automation once with the configured runner's one-shot command (what the launchd and cron jobs start) |
 | `harness schedule install [--scheduler orca\|launchd\|cron]` | Creates or updates the scheduled run with `schedule.cron` on the scheduler (default `schedule.scheduler`). Warns if any other scheduler also has the job |
@@ -524,7 +555,13 @@ Then it:
 
 ## User profile
 
-`data/profile.md` (git-ignored) is a Markdown file you write yourself. Copy the committed `data/profile.example.md`, which has empty fields only, and fill it in. The harness only reads it and never changes it. Keep it at 0600 permissions. It has two sections:
+`data/profile.md` (git-ignored) is a Markdown file with your details. `harness init` copies it from the committed `data/profile.example.md`, which has empty fields only, with mode 0600; keep it at 0600. Harness commands only read it and never change it. You fill it in yourself, or, during setup ([INIT.md](INIT.md) step 4), you dictate the values to your agent:
+
+- Writing it yourself is recommended, especially for the personal details section.
+- If you dictate, the agent writes exactly the values you give into the matching section. For the personal details section it first warns you that dictated values pass through the model provider and the session transcript and recommends editing the file directly. It runs `chmod 600 data/profile.md`, does not repeat the values back to you, and does not copy them anywhere else (other files, commits, logs, notes). Outside that step agents do not edit the file.
+- Files such as a signature, seal, or certificate are put in `data/profile/` by you; the profile only holds their paths.
+
+The file has two sections:
 
 - `## 참가 자격` (or `## Eligibility`): the facts the gate checks, such as participation (individual or team), student status, school, department, level, year, birth year (for age limits, instead of a birth date), region of residence, nationality, whether you have proof of enrollment, strengths, and conditions you avoid. No identifying values go here.
 - `## 제출용 개인정보` (or `## Submission details`): the details submission forms ask for: name (Korean, English, hanja), birth date, phone, email, the official name of your school and department, paths to signature, seal, and enrollment certificate files (for example under `data/profile/`, git-ignored), and your Hancom Docs account. It is read only after you approve a submission.
@@ -578,7 +615,8 @@ Contest-Harness/
 │   ├── guard.rs                persona guard
 │   ├── doctor.rs               harness doctor checks
 │   ├── process.rs              external commands with timeouts and process groups
-│   ├── install.rs, schedule.rs adapter installs; cron, Orca automation, launchd, crontab, autorun
+│   ├── install.rs, schedule.rs adapter installs, agent_models; cron, Orca automation, launchd, crontab, autorun
+│   ├── init.rs                 harness init
 │   ├── runners/                runner adapter interface (mod.rs) and the omp adapter
 │   ├── workspaces/             orca, tmux, headless, terminal
 │   └── sources/                one module per listing site
@@ -586,7 +624,7 @@ Contest-Harness/
 ├── bin/                        binary installed by scripts/install.sh (git-ignored)
 ├── package.json                omp extension package manifest
 ├── extensions/contest-harness.ts  /contest commands for omp
-├── commands/contest-gate.md    /contest-gate prompt template
+├── commands/                   /contest-gate and /contest-init prompt templates
 ├── agents/                     agents (ContestScout, ContestGate, ContestHQ, DomainResearcher,
 │                               OpenSourceScout, ContestJudge, ContestEditor, ReferenceScout,
 │                               UxReviewer)
@@ -595,17 +633,19 @@ Contest-Harness/
 │   ├── prompts/                launch.md, level_1.md … level_5.md, automation.md, main.md
 │   └── templates/              SPEC, PLAN, TASKS, JUDGE, RUBRIC, SUBMISSION, LEDGER
 ├── data/
-│   ├── config.example.json     settings example (copy to config.json)
+│   ├── config.example.json     settings example (harness init copies it to config.json)
 │   ├── config.json             your settings (git-ignored)
-│   ├── profile.example.md      user profile example (copy to profile.md)
+│   ├── profile.example.md      user profile example (harness init copies it to profile.md)
 │   ├── profile.md              your profile (git-ignored)
 │   ├── profile/                signature, seal, and proof files (git-ignored)
+│   ├── logs/                   scheduled-run logs (git-ignored)
 │   ├── local-rules.example.md  local rules example
 │   ├── local-rules.md          your local rules (git-ignored)
 │   ├── persona.example.md      optional operator persona example
 │   ├── persona.md              your persona (git-ignored)
 │   ├── submissions.json        submission ledger (git-ignored)
 │   └── registry.json           contest registry (git-ignored)
+├── INIT.md                     setup procedure an agent follows
 ├── docs/CONTRACT.md            commands, states, file formats, backends
 ├── CONTRIBUTING.md             adding a runner adapter or a source
 ├── SECURITY.md                 threat model, vulnerability reporting
@@ -618,7 +658,7 @@ Contest-Harness/
 ## Limitations
 
 - **Written in Korean for Korean contests.** The agent prompts, skill, playbooks, templates, persona, and contract are in Korean and target Korean contests, and CLI messages and `BOARD.md` are in Korean too. They assume a tool that can edit HWP files, such as Hancom Docs. Operator-specific rules (helper scripts, compute servers, folder conventions) are not in the repository; put yours in `data/local-rules.md`, which agents read first when it exists.
-- **One runner adapter in the core.** Only the omp adapter ships and has run contests end to end. Agents are written for omp, and model roles (`@task`, `@slow`, …) and `preset_by_level` are omp features. Another harness needs an adapter, added by pull request ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **One runner adapter in the core.** Only the omp adapter ships and has run contests end to end. Agents are written for omp, and model roles (`@task`, `@slow`, …), `preset_by_level`, and applying `agent_models` are omp features. Any agent with a shell can follow [INIT.md](INIT.md) to set up the harness, but running contest sessions needs an adapter for that harness, added by pull request ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **Token pace comes from omp.** `budget` and `capacity` read `omp usage --json`. Without omp, only the memory and count limits apply.
 - **Headless sessions cannot be answered.** `headless` runs the runner's one-shot command with no TTY. Use `orca` or `tmux` for contests that need concept or plan approval in the session.
 - **The persona guard reads text only.** It does not look inside HWP, PDF, or other binary formats, and it skips data and build directories and files over 4 MB. `ContestJudge` checks the text of the final deliverables separately.
@@ -680,12 +720,13 @@ Rust 바이너리 하나(`harness`)와 에이전트 지시문 묶음으로 이�
 - 실행 수 조절. 전체 상한, 레벨별 상한, 메모리 예산이 모두 허용하고 모델 공급자의 토큰 사용 속도에 여유가 있을 때만 새 세션을 띄운다.
 - 조절할 수 있는 정기 실행 시각. cron 식 하나(`schedule.cron`)가 Orca automation, launchd 작업, 사용자 crontab 항목 가운데 하나로 도는 정기 실행의 시각을 정하고, `schedule.scout_hours`가 웹 검색까지 하는 회차를 고른다.
 - 바꿔 끼우는 백엔드. 에이전트 하네스(`runner`)와 세션을 돌릴 곳(`workspace`)을 설정에서 고른다. 다른 에이전트 하네스는 러너 어댑터 인터페이스로 붙인다([CONTRIBUTING.md](CONTRIBUTING.md)).
+- 에이전트가 해 주는 설정. 셸을 쓰는 코딩 에이전트에게 [INIT.md](INIT.md)를 따르게 하면(omp에서는 `/contest-init`) `harness init`으로 로컬 파일을 만들고, 설정을 한 번에 묶어 묻고, 바꾸는 값을 모두 검사한 뒤에 쓰는 `harness config set`으로 적용한다. `agent_models`로 하네스 에이전트마다 모델을 고르고, `harness install`이 그 선택을 러너에 적용한다.
 - 모든 공모전을 보고 지휘하는 메인 인터페이스 세션(`harness chat`). 선택 사항인 페르소나를 붙일 수 있고, 페르소나는 공모전 세션에 들어가지 않는다.
 - 페르소나 차단 검사. 공모전 폴더나 커밋 메시지에 페르소나 흔적이 있으면 제출 승인 단계로 넘어가지 않는다.
 - 사람이 판단하는 관문: 창작 콘셉트, 레벨 5 계획, 최종 제출. 계획 승인과 제출 승인은 `harness approve`로 기록하며, 공모전 세션은 이 명령을 실행할 수 없다.
 - 레벨 2 이상의 점수 루프. 공모전 평가기준을 점수표로 바꾸고, 만들기 전에 기획을, 만든 뒤에 결과물을 `ContestJudge`가 채점해 `harness score`로 남긴다. 최종 점수가 목표에 닿아야 제출 승인 단계로 넘어간다.
 - 제출 기록부(`harness submitted`). 하네스 밖에서 낸 것까지 이미 제출한 공모전을 모두 기억해, 같은 공모전을 다시 게이트·라우팅·제출하지 않는다.
-- 사용자가 직접 쓰는 로컬 사용자 정보(`data/profile.md`, `harness profile`로 읽는다). 참가 자격과 제출 양식에 들어갈 개인 정보를 둔다. 게이트는 참가 자격 절만 보고, 개인정보는 승인된 제출 단계에서만 읽는다.
+- 로컬 사용자 정보(`data/profile.md`, `harness profile`로 읽는다). 참가 자격과 제출 양식에 들어갈 개인 정보를 둔다. 사용자가 직접 쓰거나, 설정할 때 에이전트에게 대화로 알려 준다. 게이트는 참가 자격 절만 보고, 개인정보는 승인된 제출 단계에서만 읽는다.
 - 모든 공모전을 상태별로 보여 주는 보드(`BOARD.md`).
 
 ### 동작 방식
@@ -737,28 +778,26 @@ cd ~/contests/Contest-Harness
 scripts/install.sh       # 미리 빌드한 바이너리를 체크섬으로 확인해 설치하고 ~/.local/bin/harness로 링크한다. ~/.local/bin이 PATH에 있어야 한다
 ```
 
-`scripts/install.sh`는 `Cargo.toml`의 버전과 태그가 같은 GitHub 릴리스(`v0.3.0`)에서 이 플랫폼용 바이너리를 내려받아 릴리스의 `SHA256SUMS`로 확인하고, 클론의 `bin/harness`(git 제외)에 설치한 뒤 `$BIN_DIR/harness`(기본 `~/.local/bin`)로 링크한다. 미리 빌드한 대상은 `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`이다. 맞는 파일이 없으면 `cargo build --release --locked`로 소스에서 빌드하고, `scripts/install.sh --from-source`는 소스 빌드를 강제한다. 끝에 `harness --version`을 출력한다. 스크립트 없이 소스에서 빌드하려면 `cargo install --path . --root ~/.local --locked`를 쓴다.
+`scripts/install.sh`는 `Cargo.toml`의 버전과 태그가 같은 GitHub 릴리스(`v0.4.0`)에서 이 플랫폼용 바이너리를 내려받아 릴리스의 `SHA256SUMS`로 확인하고, 클론의 `bin/harness`(git 제외)에 설치한 뒤 `$BIN_DIR/harness`(기본 `~/.local/bin`)로 링크한다. 미리 빌드한 대상은 `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`이다. 맞는 파일이 없으면 `cargo build --release --locked`로 소스에서 빌드하고, `scripts/install.sh --from-source`는 소스 빌드를 강제한다. 끝에 `harness --version`을 출력한다. 스크립트 없이 소스에서 빌드하려면 `cargo install --path . --root ~/.local --locked`를 쓴다.
 
 바이너리가 다루는 클론은 하나다. `HARNESS_HOME`이 있으면 그곳, 없으면 실제 바이너리 경로(심볼릭 링크를 풀어서)의 위쪽 폴더 가운데 `harness/prompts/launch.md`가 있는 가장 가까운 곳, 그것도 없으면 빌드한 클론이다. `data/`, 지시문, 에이전트, 스킬을 그곳에서 읽는다. 그 폴더에 `harness/prompts/launch.md`가 없으면 `doctor`, `--help`, `--version`을 뺀 모든 명령이 실행을 거절하고, 그곳에 아무것도 만들지 않는다.
 
-커밋된 예시로 설정 파일을 만들고 고친다:
+그다음 설정과 사용자 정보를 채운다. 가장 쉬운 방법은 에이전트에게 맡기는 것이다. 클론 폴더에서 코딩 에이전트를 열고 "INIT.md를 읽고 설정해 줘"라고 말한다. [INIT.md](INIT.md)는 에이전트가 따르도록 쓴 설정 절차다. 에이전트는 `harness init`을 실행하고, 설정을 항목마다 추천 기본값을 붙여 한 번에 묻고, 답을 `harness config set`으로 적용하고, 사용자 정보 채우기를 돕고([사용자 정보](#사용자-정보) 참고), 원하면 레벨별·에이전트별 모델을 고르고, `harness install`과(정기 실행을 원하면) `harness schedule install`을 실행한 뒤, 실패가 없어질 때까지 `harness doctor`를 되풀이한다. omp에서는 `harness install`로 패키지를 연결한 뒤라면 프롬프트 템플릿 `/contest-init`이 같은 절차를 시작한다. 셸 명령을 실행할 수 있는 에이전트라면 어느 것이든 설정을 할 수 있다. 다만 공모전 세션을 띄우려면 러너 어댑터가 있어야 하고, 코어에는 omp 어댑터가 있다([러너 어댑터 추가](#러너-어댑터-추가) 참고). `harness chat`도 `data/config.json`이 없거나 점검에 실패가 있으면 이 절차부터 시작한다.
+
+직접 설정하려면:
 
 ```bash
-cp data/config.example.json data/config.json   # 개인 설정, git 제외
-$EDITOR data/config.json                        # contests_root, github_org, runner, workspace. 설정 절 참고
-```
-
-그다음 사용자 정보(참가 자격과 제출 양식에 들어갈 정보)를 쓴다. 사용자가 직접 채우는 마크다운 파일이다:
-
-```bash
-cp data/profile.example.md data/profile.md   # git 제외. 직접 채운다
-chmod 600 data/profile.md
-harness profile path                         # 경로와 파일이 있는지
+harness init                                     # data/(0700), 예시에서 data/config.json과 data/profile.md(0600), data/logs/를 만든다. 있는 파일은 그대로 두고, 끝에 점검을 돌린다
+harness config set workspace tmux                # 점으로 이은 키. 쓰기 전에 설정 전체를 검사한다
+harness config set schedule.cron '0 9,21 * * *'
+harness config get                               # 적용된 설정 전체(기본값 + 파일). 설정 절 참고
+$EDITOR data/profile.md                          # 사용자 정보: 참가 자격과 제출 양식에 들어갈 정보
+harness profile path                             # 경로와 파일이 있는지
 ```
 
 필요하면 `data/local-rules.example.md`를 `data/local-rules.md`로 복사해 자기 환경 규칙을 적는다([로컬 규칙](#로컬-규칙) 참고).
 
-기본 작업 환경 `orca`는 공모전 작업 공간을 `orca_repo_path`(기본값은 `contests_root`, 그 기본값은 `~/contests`)의 worktree로 만든다. 그래서 이 폴더는 Orca에 추가된 git 저장소여야 한다. Orca 없이 돌리려면 `"workspace": "tmux"`나 `"headless"`로 둔다.
+기본 작업 환경 `orca`는 공모전 작업 공간을 `orca_repo_path`(기본값은 `contests_root`, 그 기본값은 `~/contests`)의 worktree로 만든다. 그래서 이 폴더는 Orca에 추가된 git 저장소여야 한다. Orca 없이 돌리려면 `workspace`를 `tmux`나 `headless`로 둔다.
 
 다른 일보다 먼저 설치 상태를 점검한다([설치 점검](#설치-점검harness-doctor) 참고):
 
@@ -769,7 +808,7 @@ harness doctor             # [실패] 줄은 모두 고친다. [경고] 줄은 �
 러너에 에이전트·스킬·확장을 설치하고, 공고를 수집하고, 메인 세션을 연다:
 
 ```bash
-harness install            # 설정한 러너에 에이전트·스킬·확장 설치(omp: omp plugin link)
+harness install            # 설정한 러너에 에이전트·스킬·확장 설치(omp: omp plugin link)와 agent_models 적용
 harness collect            # 모든 출처. 또는: harness collect --source dacon --pages 1
 harness chat               # 저장소 루트에서 이 터미널로 메인 인터페이스 세션을 연다
 ```
@@ -815,7 +854,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 
 ### 설치 점검(harness doctor)
 
-`harness doctor [--json]`은 이 클론, 설정, 부르는 도구, 정기 실행이 준비되었는지 확인한다. 읽기만 하고, 클론을 찾지 못해 다른 명령이 거절하는 곳에서도 돈다. 문제마다 고치는 법을 함께 낸다.
+`harness doctor [--json]`은 이 클론, 설정, 부르는 도구, 정기 실행이 준비되었는지 확인한다. 읽기만 하고, 클론을 찾지 못해 다른 명령이 거절하는 곳에서도 돈다. 문제마다 고치는 법을 함께 낸다. `harness init`이 끝에 돌리고, 메인 세션도 시작할 때 돌린다.
 
 - **checkout**: 클론 루트와 그 안의 `harness/prompts/launch.md`.
 - **version**: 바이너리를 빌드한 커밋과 클론의 `HEAD`.
@@ -827,6 +866,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 - **gh**: `PATH`에 있고 `gh auth status`가 성공하는지(경고).
 - **runner**: 실행 파일이 `PATH`에 있는지(실패), 이 클론으로 설치되었는지(omp는 `omp plugin list --json`, 경고).
 - **workspace**: 실행 파일이 `PATH`에 있는지(실패). `orca`면 `orca_repo_path`가 `orca repo list`의 Orca 프로젝트인지(실패, 고치는 법은 `orca repo add --path <경로>`).
+- **agent_models**: `agent_models`의 이름이 모두 `agents/`의 에이전트인지(아니면 실패, 고치는 법은 `harness config unset agent_models.<이름>`). 러너가 지금 적용한 모델을 알려 주면, 설정과 다를 때 경고이고 고치는 법은 `harness install`이다. 비어 있으면 ok이고 에이전트마다 기본 역할 모델을 쓴다.
 - **contests_root**: 있고 쓸 수 있는지.
 - **profile**: 있고, 권한이 0600이며, 예시 자리표시가 남아 있지 않은지(경고).
 - **memory**: 쓸 수 있는 메모리를 읽을 수 있는지(경고).
@@ -840,7 +880,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 
 | 어댑터 | 서브에이전트 | 모델 프리셋 | 시스템 프롬프트(메인 세션) | 한 번 실행 명령 | Orca automation 에이전트 | `harness install` |
 |---|---|---|---|---|---|---|
-| `omp` | 있음(`task` 도구) | `preset_by_level`: omp `modelPresets`를 실행마다 만드는 `--config` 덮개로 | `--append-system-prompt` | `omp -p` | `omp` | `omp plugin link <저장소>`. 예전 파일별 설치가 남긴 심볼릭 링크는 지운다 |
+| `omp` | 있음(`task` 도구) | `preset_by_level`: omp `modelPresets`를 실행마다 만드는 `--config` 덮개로 | `--append-system-prompt` | `omp -p` | `omp` | `omp plugin link <저장소>`. 예전 파일별 설치가 남긴 심볼릭 링크는 지운다. `agent_models`를 omp의 `task.agentModelOverrides`에 합친다 |
 
 <p>표 1. 코어에 든 러너 어댑터</p>
 
@@ -857,6 +897,19 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 
 레지스트리 항목의 `session` 필드가 세션 위치를 `{workspace, workspace_id, runner, handle}`로 기록한다.
 
+#### 에이전트별 모델
+
+하네스 에이전트마다 frontmatter에 기본 모델이 있다(`agents/*.md`의 `model`, 예를 들어 omp 역할 별칭 `@task`, `@slow`, `@plan`). 설정 키 `agent_models`가 에이전트마다 이를 바꾼다. 에이전트 이름에 러너 문법의 모델 지정을 짝짓는다(omp는 `provider/model:effort` 또는 `@역할`).
+
+```bash
+harness agents                                                   # 이름, 기본 모델, 설정한 모델, 러너가 지금 적용한 모델
+harness config set agent_models.ContestJudge '<provider>/<model>:<effort>'
+harness install                                                  # agent_models를 설정한 러너에 적용
+harness config set agent_models.ContestJudge null                # 다음 harness install이 러너에서 그 선택을 지운다
+```
+
+`harness install`은 `agents/`에 없는 이름을 거절하고, 설정한 러너에만 적용한다. omp 어댑터는 이름을 적은 에이전트를 omp 전역 설정 `task.agentModelOverrides`에 합친다(`omp config get`으로 읽고 `omp config set`으로 쓴다). `agent_models`에 적힌 하네스 에이전트(값을 정했거나 `null`로 지운 것)만 건드리고 다른 설정은 그대로 둔다. `harness config unset agent_models.<이름>`은 설정 파일에서 키만 지우므로, 이미 적용한 선택을 되돌리려면 먼저 `null`로 두고 `harness install`을 실행한다. 에이전트별 모델을 지원하지 않는 어댑터는 `null`이 아닌 값을 거절한다. `harness agents --json`은 `[{name, description, default_model: [...], configured, applied}]`이다.
+
 #### 러너 어댑터 추가
 
 코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 omp 어댑터만 들어 있다. 다른 에이전트 하네스(Claude Code, Codex, pi, 직접 만든 하네스)로 돌리려면 `src/runners/<이름>.rs`에 `Runner` trait을 구현하고 `runners::ALL`에 한 줄 더한 뒤 pull request를 보낸다. `tests/backends.rs`의 계약 테스트 `every_adapter_keeps_the_runner_contract`가 등록된 어댑터마다 돈다. trait 메서드, 어댑터가 지킬 규칙, pull request에 담을 것은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있다. 예전 버전에는 검증하지 않은 pi·Claude Code·Codex·dsh 어댑터가 있었고, 그 코드는 커밋 `bf05366`의 `src/runners/`에 남아 있어 출발점으로 쓸 수 있다.
@@ -871,6 +924,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 | `/contest <id>` | 명령 | 공모전 하나의 요약 |
 | `/contest-chat` | 명령 | 메인 인터페이스 세션 여는 법과 바이너리 버전 |
 | `/contest-gate <id>` | 프롬프트 템플릿(`commands/contest-gate.md`) | 레지스트리 항목 하나를 `ContestGate`로 거르고 결과를 요약한다 |
+| `/contest-init` | 프롬프트 템플릿(`commands/contest-init.md`) | [INIT.md](INIT.md)대로 사용자와 하네스 설정을 마치고, `harness doctor` 결과와 남은 할 일을 알린다 |
 
 <p>표 3. 확장이 등록하는 명령</p>
 
@@ -878,7 +932,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 
 ### 메인 인터페이스와 페르소나
 
-`harness chat [--runner R] [--workspace terminal|orca|tmux]`는 저장소 루트에서 메인 세션을 연다. 페르소나(켜져 있을 때)와 [harness/prompts/main.md](harness/prompts/main.md)로 `data/main-system.md`를 만들어 러너에 시스템 프롬프트 덧붙이기로 넘기고, `data/main-start.md`로 시작한다. 첫 지시는 보드와 용량을 요약하고 사용자에게 물을 것을 한 번에 묶어 묻는 것이다. 그다음부터 사용자가 말로 요청하면 세션이 `harness` 명령과 에이전트를 대신 돌린다. 메인 세션은 공모전 결과물을 직접 쓰거나 고치지 않는다. 그 일은 `harness launch`로 띄운 공모전 세션이 한다.
+`harness chat [--runner R] [--workspace terminal|orca|tmux]`는 저장소 루트에서 메인 세션을 연다. 페르소나(켜져 있을 때)와 [harness/prompts/main.md](harness/prompts/main.md)로 `data/main-system.md`를 만들어 러너에 시스템 프롬프트 덧붙이기로 넘기고, `data/main-start.md`로 시작한다. 세션은 먼저 `harness doctor --json`을 실행한다. `data/config.json`이 없거나 실패한 점검이 있으면 [INIT.md](INIT.md) 설정 절차를 사용자와 먼저 마친다. 그렇지 않으면 보드와 용량을 요약하고 사용자에게 물을 것을 한 번에 묶어 묻는다. 그다음부터 사용자가 말로 요청하면 세션이 `harness` 명령과 에이전트를 대신 돌린다. 설정 바꾸기(`harness config get`·`set`, `harness agents`, `harness install`)도 여기에 든다. 메인 세션은 공모전 결과물을 직접 쓰거나 고치지 않는다. 그 일은 `harness launch`로 띄운 공모전 세션이 한다.
 
 운영자 페르소나는 선택 기능이며 기본으로 꺼져 있다. 메인 세션의 대화 말투만 정한다. 쓰려면 `data/persona.md`(git 제외, 커밋된 `data/persona.example.md`에서 시작)에 페르소나를 적고, 다른 곳에 두면 `persona.file`로 가리키고, `persona.call_user`에 사용자를 부를 호칭을 적은 뒤 켠다:
 
@@ -982,7 +1036,17 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 
 ### 설정
 
-설정은 [`src/config.rs`](src/config.rs)의 기본값 위에 `data/config.json`을 덮어 읽는다. 적지 않은 키는 기본값을 그대로 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`)는 적은 항목만 덮는다. `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
+설정은 [`src/config.rs`](src/config.rs)의 기본값 위에 `data/config.json`을 덮어 읽는다. 적지 않은 키는 기본값을 그대로 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`, `agent_models`)는 적은 항목만 덮는다. `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
+
+`harness config`는 파일을 열지 않고 설정을 읽고 바꾼다. 키는 점으로 이은 경로다(`schedule.cron`, `agent_models.ContestJudge`, `model_by_level.3`). `set`은 값이 JSON으로 읽히면 JSON으로(숫자, `true`/`false`, `null`, `"..."`, `[...]`, `{...}`), 아니면 문자열로 받고, 설정 전체를 검사한 뒤에야 파일을 쓴다(원자적으로, 권한 0600). 틀린 값은 거절하고 파일은 그대로 둔다. `unset`은 파일에서 키를 지워 기본값으로 되돌린다. `get`은 적용되는 값(기본값 + 파일)을 보여 주고, 키가 없으면 설정 전체를 보여 준다.
+
+```bash
+harness config path                          # 설정 파일 경로
+harness config get schedule                  # 적용되는 값
+harness config set max_running_by_level.5 0  # 숫자 0으로 읽는다
+harness config set github_org my-org         # JSON이 아니므로 문자열로 읽는다
+harness config unset max_running_by_level.5  # 기본값으로 되돌린다
+```
 
 설정 파일은 읽을 때 검증하고, 설정 오류는 모두 파일 경로로 시작한다. 모르는 키는 거절한다(`unknown field ...`). `persona`와 `schedule` 안도 같다. `runner`는 코어에 든 어댑터 이름, `workspace`는 `orca`·`tmux`·`headless`·`terminal`, `schedule.scheduler`는 `orca`·`launchd`·`cron` 가운데 하나여야 한다. `schedule.cron`과 `schedule.scout_hours`(cron의 시 칸, 0~23, 비워도 된다)는 해석되어야 한다. 레벨별 키는 `"1"`~`"5"`만 쓴다. 메모리 값은 유한한 0 이상의 수, `ram_gb_per_worker`는 0보다 큰 수, `collect_pages`는 1 이상이어야 한다.
 
@@ -1014,6 +1078,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 | `schedule.cron` | `"0 */6 * * *"` | 정기 실행 시각. 이 컴퓨터의 현지 시각 기준 다섯 칸 cron 식(분 시 일 월 요일)이다. `harness schedule install`이 적용한다 |
 | `schedule.scheduler` | `"orca"` | 정기 실행을 띄우는 것: `orca`(러너의 Orca 에이전트를 띄우는 Orca automation), `launchd`(`harness autorun`을 띄우는 launchd 작업, macOS 전용), `cron`(`harness autorun`을 띄우는 사용자 crontab 항목) |
 | `schedule.scout_hours` | `"0-5"` | 정기 실행이 `ContestScout` 웹 검색까지 하는 현지 시각. cron의 시 칸처럼 쓴다(`0-5`, `0,12`, `*`). 비우면 하지 않는다. 판정은 `harness tick`이 `scout`로 알린다 |
+| `agent_models` | `{}` | 하네스 에이전트(`agents/<이름>.md`)마다 쓸 모델. 러너 문법으로 쓴다(omp: `provider/model:effort` 또는 `@역할`). `harness install`이 러너에 적용하고, `null`은 하네스가 전에 적용한 선택을 지운다. 없는 에이전트 이름은 `install`이 거절하고 `doctor`가 실패로 알린다. [에이전트별 모델](#에이전트별-모델) 참고 |
 
 <p>표 6. 설정 키</p>
 
@@ -1029,8 +1094,14 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 
 | 명령 | 하는 일 |
 |---|---|
-| `harness --version` | 버전과 바이너리를 빌드한 커밋을 보여 준다: `0.3.0 (<12자리 sha>)` |
+| `harness --version` | 버전과 바이너리를 빌드한 커밋을 보여 준다: `0.4.0 (<12자리 sha>)` |
 | `harness doctor` | 클론, 설정, 도구, 정기 실행을 점검한다. 실패가 하나라도 있으면 종료 코드 1. [설치 점검](#설치-점검harness-doctor) 참고 |
+| `harness init` | 새 클론에 필요한 것을 만든다: `data/`(0700), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 있는 파일은 그대로 둔다. 끝에 점검을 돌린다. JSON은 `{created: [...], kept: [...], checks: [...], next: "<루트>/INIT.md"}`. 종료 코드 0 |
+| `harness config path` | 설정 파일 경로(`data/config.json`)를 보여 준다 |
+| `harness config get [KEY]` | 점으로 이은 키의 적용되는 값(기본값 + 파일), 또는 설정 전체를 보여 준다 |
+| `harness config set <KEY> <VALUE>` | 점으로 이은 키를 정한다. 값은 JSON으로 읽히면 JSON, 아니면 문자열이다. 파일을 쓰기 전에 설정 전체를 검사하고(원자적 쓰기, 0600), 틀린 값은 거절하며 파일은 바뀌지 않는다 |
+| `harness config unset <KEY>` | 파일에서 키를 지워 기본값으로 되돌린다. 파일에 없는 키면 오류다 |
+| `harness agents` | `agents/*.md`의 에이전트를 보여 준다: 이름, 설명, 기본 모델(frontmatter `model`), `agent_models`에서 고른 모델, 러너가 지금 적용한 모델. JSON은 `[{name, description, default_model: [...], configured, applied}]` |
 | `harness collect [--source <이름>\|all] [--pages N]` | 새 공고를 모아 사이트 간 중복을 병합하고, 새 공모전을 `discovered`로 넣는다. `--pages`(기본 `collect_pages`)는 1 이상이어야 한다 |
 | `harness add --title T --url U [--org O] [--deadline D] [--source scout\|manual] [--note N] [--force]` | 공모전 한 건을 넣는다. URL은 http(s)여야 한다. `--deadline`은 `YYYY-MM-DD`(`YYYY-MM-DDT23:59+09:00`으로 저장) 또는 `YYYY-MM-DDTHH:MM[:SS]+09:00`을 받는다(`24:00`은 23:59로 읽고, 다른 오프셋은 거절한다). 이미 있는 id면 `-2`, `-3` 같은 꼬리를 붙인다. 중복으로 보이면 새로 만들지 않고 후보를 알려 준다 |
 | `harness add --from-file <json> [--source scout\|manual] [--force]` | JSON 객체 하나나 `{title, url, org?, deadline?, source?, note?, categories?}`의 배열을 넣는다. 무엇이든 쓰기 전에 모든 항목을 검증하고, 잘못된 항목이 있으면 `<경로>: [i] ...`로 파일 전체를 거절한다. JSON 출력은 `{"added": [...], "duplicates": [{title, url, matches}]}`다. 중복 후보로 보류한 항목이 하나라도 있으면 종료 코드 3 |
@@ -1058,7 +1129,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 | `harness capacity` | 지금 띄울 수 있는 세션 수를 보여 준다. JSON 필드: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `harness board` | `BOARD.md`를 쓴다 |
 | `harness tick [--no-collect] [--auto-launch]` | 제어 루프를 한 번 돈다: 수집하고, 게이트 대기 목록을 내고, 선택하면 용량 안에서 라우팅·실행하고, `BOARD.md`를 갱신한다. 정기 실행이 JSON을 읽을 수 있게 종료 코드는 0이다. 텍스트는 오류 건수로 시작하고, JSON에는 `warnings`와 `scout`(지금 현지 시각이 `schedule.scout_hours` 안인지)가 더해진다 |
-| `harness install [--runner R ...] [--all]` | 설정한 러너, 지정한 러너들, 또는 CLI가 `PATH`에 있는 코어 어댑터 전부에 에이전트·스킬·확장을 설치한다 |
+| `harness install [--runner R ...] [--all]` | 설정한 러너, 지정한 러너들, 또는 CLI가 `PATH`에 있는 코어 어댑터 전부에 에이전트·스킬·확장을 설치하고, 설정한 러너에 `agent_models`를 적용한다. `agent_models`에 없는 에이전트 이름이 있으면 거절한다 |
 | `harness chat [--runner R] [--workspace W]` | 저장소 루트에서 메인 인터페이스 세션을 연다 |
 | `harness autorun` | 설정한 러너의 한 번 실행 명령으로 정기 실행을 한 번 돌린다(launchd·cron 작업이 띄우는 명령) |
 | `harness schedule install [--scheduler orca\|launchd\|cron]` | `schedule.cron`으로 정기 실행을 그 스케줄러(기본 `schedule.scheduler`)에 만들거나 고친다. 다른 스케줄러에도 작업이 있으면 경고한다 |
@@ -1178,7 +1249,13 @@ harness schedule remove      # 지운다(다른 스케줄러는 --scheduler orca
 
 ### 사용자 정보
 
-`data/profile.md`(git 제외)는 사용자가 직접 쓰는 마크다운 파일이다. 빈 칸만 있는 커밋된 `data/profile.example.md`를 복사해 채운다. 하네스는 이 파일을 읽기만 하고 고치지 않는다. 권한은 0600으로 둔다. 절은 두 개다:
+`data/profile.md`(git 제외)는 사용자 정보를 담은 마크다운 파일이다. `harness init`이 빈 칸만 있는 커밋된 `data/profile.example.md`를 권한 0600으로 복사해 두며, 권한은 계속 0600으로 둔다. 하네스 명령은 이 파일을 읽기만 하고 고치지 않는다. 사용자가 직접 채우거나, 설정 절차([INIT.md](INIT.md) 4단계)에서 에이전트에게 대화로 알려 준다:
+
+- 직접 쓰기를 권한다. 제출용 개인정보 절은 특히 그렇다.
+- 대화로 알려 주면 에이전트는 받은 값만 그대로 해당 절에 쓴다. 제출용 개인정보 절은 먼저 "대화로 준 값은 모델 제공자와 세션 기록을 거친다"고 알리고 직접 쓰기를 권한다. 쓴 뒤 `chmod 600 data/profile.md`를 실행하고, 값을 다시 읊지 않으며, 다른 곳(다른 파일, 커밋, 로그, 메모)에 옮기지 않는다. 이 단계 밖에서는 에이전트가 이 파일을 고치지 않는다.
+- 서명·도장·증명서 같은 파일은 사용자가 `data/profile/`에 직접 두고, 프로필에는 경로만 적는다.
+
+절은 두 개다:
 
 - `## 참가 자격`(또는 `## Eligibility`): 게이트가 대조하는 정보. 참가 형태(개인·팀), 학생 여부, 학교, 학과, 과정, 학년, 출생 연도(나이 제한 판정용, 생년월일 대신), 거주 지역, 국적, 재학증명서 보유 여부, 강점, 피하는 조건. 식별 값은 쓰지 않는다.
 - `## 제출용 개인정보`(또는 `## Submission details`): 제출 양식에 들어갈 정보. 이름(한글·영문·한자), 생년월일, 전화, 이메일, 학교·학과 정식 명칭, 서명·도장·재학증명서 파일 경로(예: git 제외인 `data/profile/` 아래), 한컴독스 계정. 사용자가 제출을 승인한 뒤에만 읽는다.
@@ -1232,7 +1309,8 @@ Contest-Harness/
 │   ├── guard.rs                페르소나 차단 검사
 │   ├── doctor.rs               harness doctor 점검
 │   ├── process.rs              제한 시간·프로세스 그룹을 둔 외부 명령 실행
-│   ├── install.rs, schedule.rs 어댑터 설치, cron·Orca automation·launchd·crontab·autorun
+│   ├── install.rs, schedule.rs 어댑터 설치, agent_models 적용, cron·Orca automation·launchd·crontab·autorun
+│   ├── init.rs                 harness init
 │   ├── runners/                러너 어댑터 인터페이스(mod.rs)와 omp 어댑터
 │   ├── workspaces/             orca, tmux, headless, terminal
 │   └── sources/                모음 사이트마다 모듈 하나
@@ -1240,7 +1318,7 @@ Contest-Harness/
 ├── bin/                        scripts/install.sh가 설치한 바이너리 (git 제외)
 ├── package.json                omp 확장 패키지 매니페스트
 ├── extensions/contest-harness.ts  omp용 /contest 명령
-├── commands/contest-gate.md    /contest-gate 프롬프트 템플릿
+├── commands/                   /contest-gate, /contest-init 프롬프트 템플릿
 ├── agents/                     에이전트 (ContestScout, ContestGate, ContestHQ, DomainResearcher,
 │                               OpenSourceScout, ContestJudge, ContestEditor, ReferenceScout,
 │                               UxReviewer)
@@ -1249,17 +1327,19 @@ Contest-Harness/
 │   ├── prompts/                launch.md, level_1.md … level_5.md, automation.md, main.md
 │   └── templates/              SPEC, PLAN, TASKS, JUDGE, RUBRIC, SUBMISSION, LEDGER
 ├── data/
-│   ├── config.example.json     설정 예시 (config.json으로 복사)
+│   ├── config.example.json     설정 예시 (harness init이 config.json으로 복사)
 │   ├── config.json             사용자의 설정 (git 제외)
-│   ├── profile.example.md      사용자 정보 예시 (profile.md로 복사)
+│   ├── profile.example.md      사용자 정보 예시 (harness init이 profile.md로 복사)
 │   ├── profile.md              사용자 정보 (git 제외)
 │   ├── profile/                서명·도장·증빙 파일 (git 제외)
+│   ├── logs/                   정기 실행 로그 (git 제외)
 │   ├── local-rules.example.md  로컬 규칙 예시
 │   ├── local-rules.md          사용자의 로컬 규칙 (git 제외)
 │   ├── persona.example.md      선택 운영자 페르소나 예시
 │   ├── persona.md              사용자의 페르소나 (git 제외)
 │   ├── submissions.json        제출 기록부 (git 제외)
 │   └── registry.json           공모전 레지스트리 (git 제외)
+├── INIT.md                     에이전트가 따르는 설정 절차
 ├── docs/CONTRACT.md            명령, 상태, 파일 형식, 백엔드
 ├── CONTRIBUTING.md             러너 어댑터·수집 출처 추가 방법
 ├── SECURITY.md                 위협 모델, 취약점 신고
@@ -1272,7 +1352,7 @@ Contest-Harness/
 ### 한계
 
 - **한국어로, 국내 공모전용으로 쓰였다.** 에이전트 지시문, 스킬, 플레이북, 템플릿, 페르소나, 계약은 한국어로 쓰여 있고 국내 공모전을 대상으로 한다. CLI 메시지와 `BOARD.md`도 한국어다. HWP 파일을 다룰 도구(한컴독스 등)를 전제한다. 운영자 환경에 따른 규칙(도우미 스크립트, 계산 서버, 폴더 관례)은 저장소에 없다. 자기 규칙은 `data/local-rules.md`에 적으면 에이전트가 먼저 읽는다.
-- **코어의 러너 어댑터는 하나다.** omp 어댑터만 들어 있고, 공모전을 처음부터 끝까지 실제로 돌려 본 것도 그것뿐이다. 에이전트는 omp 기준으로 쓰였고, 모델 역할(`@task`, `@slow` 등)과 `preset_by_level`은 omp 기능이다. 다른 하네스는 pull request로 어댑터를 더해야 한다([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **코어의 러너 어댑터는 하나다.** omp 어댑터만 들어 있고, 공모전을 처음부터 끝까지 실제로 돌려 본 것도 그것뿐이다. 에이전트는 omp 기준으로 쓰였고, 모델 역할(`@task`, `@slow` 등), `preset_by_level`, `agent_models` 적용은 omp 기능이다. 셸을 쓰는 에이전트라면 [INIT.md](INIT.md)로 하네스를 설정할 수 있지만, 공모전 세션을 띄우려면 그 하네스의 어댑터를 pull request로 더해야 한다([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **토큰 속도는 omp에서 읽는다.** `budget`과 `capacity`는 `omp usage --json`을 읽는다. omp가 없으면 메모리와 개수 상한만 적용한다.
 - **headless 세션에는 답할 수 없다.** `headless`는 TTY 없이 러너의 한 번 실행 명령을 돌린다. 세션 안에서 콘셉트나 계획 승인이 필요한 공모전은 `orca`나 `tmux`를 쓴다.
 - **페르소나 검사는 텍스트만 읽는다.** HWP·PDF 같은 이진 형식의 안쪽은 보지 못하고, 데이터·빌드 폴더와 4MB 넘는 파일은 건너뛴다. 최종 결과물의 텍스트는 `ContestJudge`가 따로 확인한다.

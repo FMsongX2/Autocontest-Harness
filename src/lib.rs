@@ -11,6 +11,7 @@ pub mod doctor;
 pub mod error;
 pub mod guard;
 pub mod http;
+pub mod init;
 pub mod install;
 pub mod launch;
 pub mod ledger;

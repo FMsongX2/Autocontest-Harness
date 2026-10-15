@@ -3,6 +3,7 @@
 //! says what the harness supports, and installs the agents, skill and extension for it.
 //! Contract: `docs/CONTRACT.md` 10절. How to add one: `CONTRIBUTING.md`.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
@@ -71,6 +72,24 @@ pub trait Runner: Sync {
     /// Whether `install` has been done for the checkout at `root` (`harness doctor`). `None` when
     /// the adapter cannot tell.
     fn installed(&self, _root: &Path) -> Option<bool> {
+        None
+    }
+    /// Apply the per-agent model choices of `agent_models` (agent name -> selector; `None` removes
+    /// the choice the harness made before) where the harness reads them. Called by `harness
+    /// install`. Returns one human-readable line per action. Adapters without per-agent models
+    /// refuse any `Some`.
+    fn apply_agent_models(&self, models: &BTreeMap<String, Option<String>>) -> Result<Vec<String>> {
+        if let Some(name) = models.iter().find_map(|(name, model)| model.as_ref().map(|_| name)) {
+            crate::bail!(
+                "러너 {}는 에이전트별 모델 지정을 지원하지 않는다({name}). agent_models를 비운다",
+                self.name()
+            );
+        }
+        Ok(Vec::new())
+    }
+    /// The per-agent models the harness currently uses (`harness agents`, `harness doctor`);
+    /// `None` when the adapter cannot tell.
+    fn agent_models(&self) -> Option<BTreeMap<String, String>> {
         None
     }
 }
@@ -150,6 +169,8 @@ pub struct AgentDoc {
     pub description: String,
     pub tools: Vec<String>,
     pub skills: Vec<String>,
+    /// The agent's default model: selectors or `@role` aliases, tried in order.
+    pub model: Vec<String>,
     /// The omp `output` schema (JSON Type Definition), if any.
     pub output: Option<serde_json::Value>,
     pub body: String,
@@ -189,6 +210,7 @@ impl AgentDoc {
             description: text_of("description"),
             tools: list_of("tools"),
             skills: list_of("autoloadSkills"),
+            model: list_of("model"),
             output: meta.get("output").filter(|v| !v.is_null()).cloned(),
             body: body.trim().to_string(),
         })

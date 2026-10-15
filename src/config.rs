@@ -21,6 +21,7 @@ const MERGED_KEYS: &[&str] = &[
     "runner_args",
     "persona",
     "schedule",
+    "agent_models",
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -75,6 +76,10 @@ pub struct Config {
     pub gate_batch: usize,
     pub persona: Persona,
     pub schedule: Schedule,
+    /// Model per harness agent (`agents/<Name>.md`), in the runner's selector syntax (omp:
+    /// `provider/model:effort` or `@role`). `harness install` applies it; `null` removes a choice
+    /// the harness applied before, so the agent's own default role applies again.
+    pub agent_models: BTreeMap<String, Option<String>>,
 }
 
 pub fn defaults() -> Value {
@@ -99,7 +104,8 @@ pub fn defaults() -> Value {
         "auto_launch": false,
         "gate_batch": 16,
         "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []},
-        "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"}
+        "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"},
+        "agent_models": {}
     })
 }
 
@@ -139,6 +145,83 @@ pub fn load_at(path: &Path) -> Result<Config> {
     let config: Config = serde_json::from_value(merge(defaults(), overlay)).map_err(|err| at(&err))?;
     validate(&config).map_err(|err| at(&err))?;
     Ok(config)
+}
+
+/// The overlay as written in `path` (`{}` when missing), without defaults.
+fn read_overlay(path: &Path) -> Result<serde_json::Map<String, Value>> {
+    let at = |err: &dyn std::fmt::Display| Error(format!("{}: {err}", path.display()));
+    match crate::store::read(path)? {
+        None => Ok(serde_json::Map::new()),
+        Some(text) => match serde_json::from_str(&text).map_err(|err| at(&err))? {
+            Value::Object(map) => Ok(map),
+            _ => Err(at(&"설정 파일은 JSON 객체여야 한다")),
+        },
+    }
+}
+
+/// Validate `overlay` as a whole config and write it to `path` (0600, atomic). Nothing is written
+/// when the result would not load.
+fn save_overlay(path: &Path, overlay: serde_json::Map<String, Value>) -> Result<Value> {
+    let overlay = Value::Object(overlay);
+    let at = |err: &dyn std::fmt::Display| Error(format!("{}: {err}", path.display()));
+    let config: Config = serde_json::from_value(merge(defaults(), overlay.clone())).map_err(|err| at(&err))?;
+    validate(&config).map_err(|err| at(&err))?;
+    crate::store::write_atomic(path, (serde_json::to_string_pretty(&overlay)? + "\n").as_bytes(), false)?;
+    Ok(overlay)
+}
+
+/// A dotted key (`schedule.cron`, `agent_models.ContestJudge`) as path segments.
+fn segments(key: &str) -> Result<Vec<&str>> {
+    let parts: Vec<&str> = key.split('.').collect();
+    if parts.iter().any(|p| p.is_empty()) {
+        bail!("설정 키가 올바르지 않다: {key:?}");
+    }
+    Ok(parts)
+}
+
+/// Set `key` to `value` in the config file at `path` (`harness config set`). Objects on the way are
+/// created; the whole config must still validate.
+pub fn set_at(path: &Path, key: &str, value: Value) -> Result<Value> {
+    let parts = segments(key)?;
+    let mut overlay = read_overlay(path)?;
+    let (last, parents) = parts.split_last().unwrap_or((&"", &[]));
+    let mut node = &mut overlay;
+    for part in parents {
+        let entry = node.entry(part.to_string()).or_insert_with(|| json!({}));
+        if !entry.is_object() {
+            *entry = json!({});
+        }
+        let Value::Object(map) = entry else { bail!("{key}: 객체가 아닌 값 아래에 쓸 수 없다") };
+        node = map;
+    }
+    node.insert(last.to_string(), value);
+    save_overlay(path, overlay)
+}
+
+/// Remove `key` from the config file at `path`, so its default applies again (`harness config unset`).
+pub fn unset_at(path: &Path, key: &str) -> Result<Value> {
+    let parts = segments(key)?;
+    let mut overlay = read_overlay(path)?;
+    let (last, parents) = parts.split_last().unwrap_or((&"", &[]));
+    let mut node = Some(&mut overlay);
+    for part in parents {
+        node = node.and_then(|map| map.get_mut(*part)).and_then(Value::as_object_mut);
+    }
+    if node.and_then(|map| map.remove(*last)).is_none() {
+        bail!("{}에 {key}가 없다", path.display());
+    }
+    save_overlay(path, overlay)
+}
+
+/// The effective value of `key` (defaults + file), or the whole effective config without a key.
+pub fn get_at(path: &Path, key: Option<&str>) -> Result<Value> {
+    let config = serde_json::to_value(load_at(path)?)?;
+    let Some(key) = key else { return Ok(config) };
+    let mut node = &config;
+    for part in segments(key)? {
+        node = node.get(part).ok_or_else(|| Error(format!("알 수 없는 설정 키: {key}")))?;
+    }
+    Ok(node.clone())
 }
 
 /// Values serde cannot check: names of runners, workspaces and schedulers, the cron expression,

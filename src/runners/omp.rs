@@ -1,5 +1,6 @@
 //! The omp adapter (reference implementation of [`Runner`]).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -143,4 +144,58 @@ impl Runner for Omp {
         });
         Some(linked)
     }
+
+    /// omp reads per-agent models from `task.agentModelOverrides` in its global config; only the
+    /// harness agents named in `models` are touched, every other override stays.
+    fn apply_agent_models(&self, models: &BTreeMap<String, Option<String>>) -> Result<Vec<String>> {
+        if models.is_empty() {
+            return Ok(Vec::new());
+        }
+        let current = overrides()?;
+        let merged = merge_overrides(&current, models);
+        if merged == current {
+            return Ok(vec![format!("ok {OVERRIDES} ({}개)", models.len())]);
+        }
+        let value = serde_json::to_string(&merged)?;
+        run_cli("omp", &["config", "set", OVERRIDES, &value])?;
+        let changed: Vec<&str> = models.keys().map(String::as_str).collect();
+        Ok(vec![format!("omp config set {OVERRIDES}: {}", changed.join(", "))])
+    }
+
+    fn agent_models(&self) -> Option<BTreeMap<String, String>> {
+        let current = overrides().ok()?;
+        Some(current.into_iter().filter_map(|(name, model)| model.as_str().map(|m| (name, m.to_string()))).collect())
+    }
+}
+
+/// The omp setting that maps an agent name to the model it runs on.
+pub const OVERRIDES: &str = "task.agentModelOverrides";
+
+/// The current `task.agentModelOverrides` record.
+fn overrides() -> Result<serde_json::Map<String, Value>> {
+    let out = crate::process::output("omp", &["config", "get", OVERRIDES, "--json"], None, crate::process::LOCAL)?;
+    if !out.status.success() {
+        crate::bail!("omp config get {OVERRIDES} 실패: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    let answer: Value = serde_json::from_slice(&out.stdout)?;
+    Ok(answer.get("value").and_then(Value::as_object).cloned().unwrap_or_default())
+}
+
+/// `current` with each named agent set (`Some`) or removed (`None`); other agents are untouched.
+pub fn merge_overrides(
+    current: &serde_json::Map<String, Value>,
+    models: &BTreeMap<String, Option<String>>,
+) -> serde_json::Map<String, Value> {
+    let mut merged = current.clone();
+    for (name, model) in models {
+        match model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+            Some(model) => {
+                merged.insert(name.clone(), json!(model));
+            }
+            None => {
+                merged.remove(name);
+            }
+        }
+    }
+    merged
 }

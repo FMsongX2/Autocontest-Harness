@@ -17,5 +17,6 @@
   "auto_launch": false,
   "gate_batch": 16,
   "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []},
-  "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"}
+  "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"},
+  "agent_models": {}
 }

@@ -83,6 +83,7 @@ pub fn run() -> Vec<Check> {
     out.extend(data_files());
     out.extend(git_and_github(&config));
     out.extend(runner_and_workspace(&config, &root));
+    out.push(agent_models(&config, &root));
     out.push(contests_root(&config));
     out.extend(user_profile());
     out.push(memory());
@@ -217,6 +218,41 @@ fn orca_knows(path: &Path) -> Option<bool> {
         list.iter()
             .any(|r| r["path"].as_str().and_then(|p| std::fs::canonicalize(p).ok()).is_some_and(|p| p == wanted)),
     )
+}
+
+/// `agent_models` names real agents, and the runner applies what the config says.
+fn agent_models(config: &Config, root: &Path) -> Check {
+    match crate::install::unknown_agents(config, root) {
+        Err(err) => return fail("agent_models", err.0, "agents/*.md를 확인한다"),
+        Ok(unknown) if !unknown.is_empty() => {
+            return fail(
+                "agent_models",
+                format!("없는 에이전트: {}", unknown.join(", ")),
+                "harness agents로 이름을 확인하고 harness config unset agent_models.<이름>",
+            );
+        }
+        Ok(_) => {}
+    }
+    if config.agent_models.is_empty() {
+        return ok("agent_models", "에이전트마다 기본 역할 모델을 쓴다");
+    }
+    let Some(applied) = runners::get(&config.runner).ok().and_then(|r| r.agent_models()) else {
+        return ok(
+            "agent_models",
+            format!("{}개 설정(적용 여부는 러너가 알려 주지 않는다)", config.agent_models.len()),
+        );
+    };
+    let stale: Vec<&str> = config
+        .agent_models
+        .iter()
+        .filter(|(name, model)| applied.get(*name).map(String::as_str) != model.as_deref().map(str::trim))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if stale.is_empty() {
+        ok("agent_models", format!("{}개 적용됨", config.agent_models.len()))
+    } else {
+        warn("agent_models", format!("설정과 러너가 다르다: {}", stale.join(", ")), "harness install")
+    }
 }
 
 fn contests_root(config: &Config) -> Check {

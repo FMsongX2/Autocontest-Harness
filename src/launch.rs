@@ -287,7 +287,7 @@ pub fn main_system_prompt(config: &Config) -> Result<PathBuf> {
 fn main_start(config: &Config) -> Result<PathBuf> {
     let user = Some(config.persona.call_user.trim()).filter(|u| !u.is_empty()).unwrap_or("사용자");
     let text = format!(
-        "메인 인터페이스 세션을 시작한다. `harness board --json`과 `harness capacity --json`으로 진행 중·게이트 대기·승인 대기·마감 임박 공모전과 남은 용량을 짧게 요약하고, {user}에게 물을 것(게이트 질문, 제출 승인, 레벨 5 계획 검수)이 있으면 한 번에 묶어 물은 뒤 지시를 기다린다.\n"
+        "메인 인터페이스 세션을 시작한다. 먼저 `harness doctor --json`을 돌린다. `data/config.json`이 없거나 실패 항목이 있으면 저장소 루트의 `INIT.md` 절차로 {user}와 설정부터 마친다. 설정이 끝나 있으면 `harness board --json`과 `harness capacity --json`으로 진행 중·게이트 대기·승인 대기·마감 임박 공모전과 남은 용량을 짧게 요약하고, {user}에게 물을 것(게이트 질문, 제출 승인, 레벨 5 계획 검수)이 있으면 한 번에 묶어 물은 뒤 지시를 기다린다.\n"
     );
     let target = paths::data().join("main-start.md");
     std::fs::create_dir_all(paths::data())?;

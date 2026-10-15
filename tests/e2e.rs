@@ -29,8 +29,9 @@ impl World {
         for dir in ["harness", "agents", "skills"] {
             std::os::unix::fs::symlink(repo.join(dir), root.join(dir)).unwrap();
         }
-        let config = json!({"contests_root": base.join("contests"), "workspace": "headless", "github_org": ""});
-        std::fs::write(root.join("data/config.json"), config.to_string()).unwrap();
+        for example in ["config.example.json", "profile.example.md"] {
+            std::fs::copy(repo.join("data").join(example), root.join("data").join(example)).unwrap();
+        }
 
         // The stand-in runner: prints which contest session it is and the instructions it got.
         let bin = base.join("bin");
@@ -93,6 +94,18 @@ impl Drop for World {
 #[test]
 fn a_contest_goes_from_listing_to_cleaned_up_submission() {
     let w = World::new("lifecycle");
+
+    // Setup the way INIT.md does it: scaffold, then set values through the validated CLI.
+    let init = w.ok(&["init"]);
+    assert!(init["created"].to_string().contains("config.json"), "{init}");
+    let contests = w.base.join("contests");
+    w.ok(&["config", "set", "contests_root", contests.to_str().unwrap()]);
+    w.ok(&["config", "set", "workspace", "headless"]);
+    w.ok(&["config", "set", "github_org", "\"\""]);
+    assert_eq!(w.ok(&["config", "get", "workspace"]), "headless");
+    assert!(w.harness(&["config", "set", "workspace", "screen"]).status.code() == Some(1), "invalid value refused");
+    let agents = w.ok(&["agents"]);
+    assert!(agents.as_array().is_some_and(|a| a.iter().any(|x| x["name"] == "ContestJudge")), "{agents}");
 
     // Add and gate.
     let added =

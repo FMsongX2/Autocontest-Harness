@@ -2,6 +2,21 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how. Korean: [한국어](#한국어).
 
+## 0.4.0 - 2026-10-15
+
+Agent-driven setup: point your agent at `INIT.md` and it sets the harness up with you.
+
+### Added
+- `INIT.md`: the setup procedure an agent follows: install, scaffold, one batch of questions with recommended defaults, apply them through the CLI, the user profile, model choices, install, schedule, doctor. omp: `/contest-init`.
+- `harness init`: creates `data/`, `data/config.json` and `data/profile.md` from the examples (private permissions), keeps existing files, and runs the doctor.
+- `harness config path|get|set|unset`: dotted keys, values read as JSON when they parse, the whole config validated before anything is written.
+- `agent_models` and `harness agents`: a model per harness agent. `harness install` applies the choices to the runner (omp: `task.agentModelOverrides`, touching only the harness agents); `harness doctor` checks names and drift.
+- Runner adapter methods `apply_agent_models` and `agent_models`.
+
+### Changed
+- The main session starts with `harness doctor` and runs the `INIT.md` procedure when the checkout is not set up.
+- The profile can be filled by dictating it to the setup agent (`INIT.md` step 4). Writing the personal-details section yourself stays the recommendation, because dictated values pass through the model provider and the session transcript.
+
 ## 0.3.0 - 2026-10-15
 
 Production hardening: installs and runs on a new machine, survives failures halfway through, and keeps unattended agents inside the user's approvals.
@@ -43,6 +58,18 @@ Rust rewrite of the harness: single binary, 11 sources, five execution levels, s
 ## 한국어
 
 [English](#changelog)
+
+### 0.4.0 - 2026-10-15
+
+에이전트가 설정을 맡는다. 에이전트에게 `INIT.md`를 읽게 하면 사용자와 함께 하네스를 설정한다.
+
+- **추가**:
+  - `INIT.md`: 설치, 뼈대 만들기, 추천 기본값을 단 질문 한 묶음, CLI로 적용, 사용자 정보, 모델 고르기, 설치·정기 실행·점검까지의 절차(omp: `/contest-init`)
+  - `harness init`, `harness config path|get|set|unset`
+  - 에이전트별 모델 `agent_models`와 `harness agents`. `harness install`이 러너에 적용한다(omp: 하네스 에이전트의 `task.agentModelOverrides`만)
+- **바뀜**:
+  - 메인 세션은 `harness doctor`로 시작하고, 설정이 안 된 클론이면 `INIT.md` 절차부터 진행한다.
+  - 사용자 정보는 설정 에이전트에게 대화로 알려 줘 받아 적게 할 수도 있다. 제출용 개인정보 절은 직접 쓰기를 계속 권한다. 대화로 준 값은 모델 제공자와 세션 기록을 거치기 때문이다.
 
 ### 0.3.0 - 2026-10-15
 

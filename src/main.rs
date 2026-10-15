@@ -254,11 +254,35 @@ enum Command {
     Autorun,
     /// Check that this checkout, its config, the tools it calls and the scheduled run are ready.
     Doctor,
+    /// Create the files a new checkout needs (data/, config.json, profile.md from the examples;
+    /// existing files are kept), then run the doctor. An agent continues with INIT.md.
+    Init,
+    /// Read or change data/config.json; every change is validated before it is written.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// The harness agents: default model, the model chosen in `agent_models`, and what the runner
+    /// applies now.
+    Agents,
     /// Install, remove or inspect the scheduled run (config `schedule`: cron, scheduler, scout_hours).
     Schedule {
         #[command(subcommand)]
         action: ScheduleAction,
     },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// The config file path.
+    Path,
+    /// The effective value of a dotted key (defaults + file), or the whole config.
+    Get { key: Option<String> },
+    /// Set a dotted key (`schedule.cron`, `agent_models.ContestJudge`). The value is read as JSON
+    /// when it parses (numbers, true/false, null, "...", [...], {...}), otherwise as a string.
+    Set { key: String, value: String },
+    /// Remove a key from the file so its default applies again.
+    Unset { key: String },
 }
 
 #[derive(Subcommand)]
@@ -821,6 +845,78 @@ fn run(cli: &Cli) -> Result<u8> {
             let checks = harness::doctor::run();
             emit(json_mode, &json!({"checks": checks}), Some(harness::doctor::text(&checks)))?;
             Ok(u8::from(checks.iter().any(|c| c.level == harness::doctor::Level::Fail)))
+        }
+        Command::Init => {
+            let report = harness::init::init(&harness::paths::root())?;
+            emit(json_mode, &report, Some(harness::init::text(&report)))?;
+            Ok(0)
+        }
+        Command::Config { action } => {
+            let path = harness::paths::config_file();
+            let (result, text) = match action {
+                ConfigAction::Path => (json!({"path": path, "exists": path.exists()}), path.display().to_string()),
+                ConfigAction::Get { key } => {
+                    let value = config::get_at(&path, key.as_deref())?;
+                    let text = match &value {
+                        Value::String(s) => s.clone(),
+                        other => serde_json::to_string_pretty(other)?,
+                    };
+                    (value, text)
+                }
+                ConfigAction::Set { key, value } => {
+                    let parsed = serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone()));
+                    let shown = serde_json::to_string(&parsed)?;
+                    config::set_at(&path, key, parsed)?;
+                    (
+                        json!({"path": path, "key": key, "value": config::get_at(&path, Some(key))?}),
+                        format!("{key} = {shown}"),
+                    )
+                }
+                ConfigAction::Unset { key } => {
+                    config::unset_at(&path, key)?;
+                    let value = config::get_at(&path, Some(key)).unwrap_or(Value::Null);
+                    let text = format!("{key}: 기본값으로 돌아감({})", serde_json::to_string(&value)?);
+                    (json!({"path": path, "key": key, "value": value}), text)
+                }
+            };
+            emit(json_mode, &result, Some(text))?;
+            Ok(0)
+        }
+        Command::Agents => {
+            let cfg = config::load()?;
+            let runner = runners::get(&cfg.runner)?;
+            let applied = runner.agent_models().unwrap_or_default();
+            let rows: Vec<Value> = runners::agent_docs(&harness::paths::root())?
+                .into_iter()
+                .map(|doc| {
+                    let configured = cfg.agent_models.get(&doc.name).cloned().flatten();
+                    json!({
+                        "name": doc.name,
+                        "description": doc.description,
+                        "default_model": doc.model,
+                        "configured": configured,
+                        "applied": applied.get(&doc.name),
+                    })
+                })
+                .collect();
+            let text = rows
+                .iter()
+                .map(|r| {
+                    let default = r["default_model"]
+                        .as_array()
+                        .map(|m| m.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
+                    format!(
+                        "{:<17} 기본 {:<20} 설정 {:<36} 적용 {}",
+                        shown(&r["name"]),
+                        default.unwrap_or_else(|| "-".into()),
+                        shown(&r["configured"]),
+                        shown(&r["applied"])
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            emit(json_mode, &rows, Some(text))?;
+            Ok(0)
         }
         Command::Schedule { action } => {
             let cfg = config::load()?;
