@@ -33,7 +33,7 @@ pub fn config_file() -> PathBuf {
 }
 
 pub fn profile() -> PathBuf {
-    data().join("profile.json")
+    data().join("profile.md")
 }
 
 /// The submission ledger: every contest already submitted (git-ignored).

@@ -163,7 +163,7 @@ enum Command {
         #[command(subcommand)]
         action: Option<SubmittedAction>,
     },
-    /// Participant profile (data/profile.json): fields, show, set, unset, init, eligibility, path.
+    /// Participant profile, a Markdown file you write yourself (data/profile.md): path, eligibility, show.
     Profile {
         #[command(subcommand)]
         action: ProfileAction,
@@ -260,24 +260,12 @@ enum SubmittedAction {
 
 #[derive(Subcommand)]
 enum ProfileAction {
-    /// The input fields: key, label, kind, example, sensitive.
-    Fields,
-    /// Show the profile, identifying values masked.
-    Show {
-        /// Original values (only in an approved submission step).
-        #[arg(long)]
-        reveal: bool,
-    },
-    /// Set one field (dotted key, e.g. identity.name); file fields are copied to data/profile/.
-    Set { key: String, value: String },
-    /// Clear one field.
-    Unset { key: String },
-    /// Ask every field in the terminal.
-    Init,
-    /// Eligibility facts for ContestGate, without identifying values.
-    Eligibility,
-    /// The profile file path.
+    /// The profile file path and whether it exists.
     Path,
+    /// The `## 참가 자격` section only (what ContestGate reads; no personal details).
+    Eligibility,
+    /// The whole profile, personal details included (only in an approved submission step).
+    Show,
 }
 
 fn main() -> ExitCode {
@@ -775,70 +763,22 @@ fn submitted(json_mode: bool, action: Option<&SubmittedAction>) -> Result<u8> {
 
 fn profile_command(json_mode: bool, action: &ProfileAction) -> Result<u8> {
     let path = profile::path();
-    let show = |value: &Value| -> String {
-        profile::FIELDS
-            .iter()
-            .map(|f| format!("{} ({}): {}", f.label, f.key, profile::display(profile::get(value, f.key))))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
     match action {
-        ProfileAction::Fields => {
-            let text = profile::FIELDS
-                .iter()
-                .map(|f| {
-                    let kind = serde_json::to_value(f.kind)?;
-                    let mark = if f.sensitive { " (민감)" } else { "" };
-                    Ok(format!("{:<28} {:<6} {}{mark} 예: {}", f.key, kind.as_str().unwrap_or(""), f.label, f.example))
-                })
-                .collect::<Result<Vec<_>>>()?
-                .join("\n");
-            emit(json_mode, &profile::FIELDS, Some(text))?;
-        }
-        ProfileAction::Show { reveal } => {
-            let stored = profile::load_at(&path)?;
-            let value = if *reveal { stored } else { profile::masked(&stored) };
-            let mut text = show(&value);
-            if !path.exists() {
-                text = format!("(아직 없음: harness profile init 또는 harness profile set)\n{text}");
-            }
-            emit(json_mode, &value, Some(text))?;
-        }
-        ProfileAction::Set { key, value } => {
-            let mut stored = profile::load_at(&path)?;
-            profile::set_field(&mut stored, &path, key, value)?;
-            profile::save_at(&path, &stored)?;
-            let field = profile::find_field(key)?;
-            let shown = profile::mask(field, profile::get(&stored, key));
-            emit(
-                json_mode,
-                &json!({"key": key, "value": shown}),
-                Some(format!("저장: {} = {}", key, profile::display(&shown))),
-            )?;
-        }
-        ProfileAction::Unset { key } => {
-            let mut stored = profile::load_at(&path)?;
-            profile::unset_field(&mut stored, &path, key)?;
-            profile::save_at(&path, &stored)?;
-            emit(json_mode, &json!({"key": key, "unset": true}), Some(format!("지움: {key}")))?;
-        }
-        ProfileAction::Init => {
-            use std::io::IsTerminal;
-            if !std::io::stdin().is_terminal() {
-                return Err(Error::msg(
-                    "profile init은 터미널에서 실행한다(대화형 입력). 아니면 harness profile set <key> <value>",
-                ));
-            }
-            let stored = profile::init(&path, &mut std::io::stdin().lock(), &mut std::io::stdout())?;
-            let masked = profile::masked(&stored);
-            emit(json_mode, &masked, Some(format!("저장: {}\n{}", path.display(), show(&masked))))?;
+        ProfileAction::Path => {
+            let text = if path.exists() {
+                path.display().to_string()
+            } else {
+                format!("{} (아직 없음: data/profile.example.md를 복사해 직접 쓴다)", path.display())
+            };
+            emit(json_mode, &json!({"path": path, "exists": path.exists()}), Some(text))?;
         }
         ProfileAction::Eligibility => {
-            let today = chrono::Utc::now().with_timezone(&text::kst()).date_naive();
-            emit(json_mode, &profile::eligibility(&profile::load_at(&path)?, today), None)?;
+            let eligibility = profile::eligibility(&profile::read_at(&path)?)?;
+            emit(json_mode, &json!({"path": path, "eligibility": eligibility}), Some(eligibility.clone()))?;
         }
-        ProfileAction::Path => {
-            emit(json_mode, &json!({"path": path}), Some(path.display().to_string()))?;
+        ProfileAction::Show => {
+            let text = profile::read_at(&path)?;
+            emit(json_mode, &json!({"path": path, "text": text}), Some(text.clone()))?;
         }
     }
     Ok(0)

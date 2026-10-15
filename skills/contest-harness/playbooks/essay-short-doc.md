@@ -24,7 +24,7 @@
 
 ## 4. 서식
 
-hwp/hwpx 신청서는 `idea-proposal.md` 7절대로 채우고 한컴독스 웹에서 정렬을 확인한다. PDF는 한컴독스 웹으로만 만든다. 개인정보는 승인된 제출 단계에서만 `harness profile show --reveal --json`에서 꺼내 채우고 저장소 파일에 남기지 않는다.
+hwp/hwpx 신청서는 `idea-proposal.md` 7절대로 채우고 한컴독스 웹에서 정렬을 확인한다. PDF는 한컴독스 웹으로만 만든다. 개인정보는 승인된 제출 단계에서만 `harness profile show --json`에서 꺼내 채우고 저장소 파일에 남기지 않는다.
 
 ## 5. 제출 준비
 

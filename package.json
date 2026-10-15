@@ -1,7 +1,7 @@
 {
   "name": "contest-harness",
   "version": "0.2.0",
-  "description": "Autocontest-Harness extension, skill and agents for omp and pi: /contest board and capacity, /contest-harness-init profile setup, contest_agent for pi",
+  "description": "Autocontest-Harness extension, skill and agents for omp and pi: /contest board and capacity, contest_agent for pi",
   "type": "module",
   "private": true,
   "license": "MIT",

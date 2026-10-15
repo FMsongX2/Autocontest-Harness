@@ -57,4 +57,4 @@
 
 ## 6. 제출 준비
 
-SUBMISSION.md(제출 양식 필드별 답, 저장소·배포·영상 URL, 팀원 정보 항목)를 채우고 커밋·푸시 후 `harness transition <id> awaiting_approval --note "<요약>"`(`plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`). 개인 값은 승인 뒤 `harness profile show --reveal --json`에서 꺼내 양식에만 넣는다.
+SUBMISSION.md(제출 양식 필드별 답, 저장소·배포·영상 URL, 팀원 정보 항목)를 채우고 커밋·푸시 후 `harness transition <id> awaiting_approval --note "<요약>"`(`plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`). 개인 값은 승인 뒤 `harness profile show --json`에서 꺼내 양식에만 넣는다.

@@ -11,4 +11,4 @@
 6. 정리: `harness clean --all --json`을 실행한다. 제출이 끝났고 문제가 없는 공모전(`submitted`·`closed`, 제출 기록부에 있음, 커밋·push 완료, 제출본이 git에 있음)의 세션을 닫고 로컬 폴더를 휴지통으로 옮긴다. 막힌 공모전은 지우지 않고 이유(`problems`)만 남긴다.
 7. 마지막 답변은 여섯 줄 이내로: 새로 통과한 공모전(마감·레벨·우선순위), 보류와 그 질문, 계획 검수 대기(`plan_review`), 실행한 것, 정리 결과(정리한 폴더와 휴지통 경로, 막힌 공모전과 이유), 오류.
 
-레지스트리(`data/registry.json`), 제출 기록부(`data/submissions.json`), 사용자 정보(`data/profile.json`)와 `BOARD.md`는 공개 저장소에 올리지 않는 로컬 상태이므로 커밋하지 않는다.
+레지스트리(`data/registry.json`), 제출 기록부(`data/submissions.json`), 사용자 정보(`data/profile.md`)와 `BOARD.md`는 공개 저장소에 올리지 않는 로컬 상태이므로 커밋하지 않는다.

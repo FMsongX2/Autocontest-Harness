@@ -30,7 +30,7 @@ The harness automates these steps: collecting, deduplicating, gating, sizing, sc
 - Human-in-the-loop gates for creative concepts, Level 5 plans, and final submission.
 - A score loop from Level 2 up: the contest's scoring criteria become a rubric, `ContestJudge` scores the plan before anything is built and the deliverable afterward, and every score is recorded with `harness score`. Submission approval waits until the final score reaches the target.
 - A submission ledger (`harness submitted`) that remembers every contest you have already entered, including ones entered outside the harness, so the same contest is never gated, routed, or submitted twice.
-- A local user profile (`harness profile`, `/contest-harness-init`) with your eligibility facts and the personal details forms ask for. The gate sees only eligibility facts; identifying values are revealed only at an approved submission step.
+- A local user profile you write yourself (`data/profile.md`, read with `harness profile`) with your eligibility facts and the personal details forms ask for. The gate sees only the eligibility section; personal details are read only at an approved submission step.
 - A board (`BOARD.md`) that lists every contest by state.
 
 ## How it works
@@ -89,11 +89,12 @@ cp data/config.example.json data/config.json   # personal settings; git-ignored
 $EDITOR data/config.json                        # contests_root, github_org, runner, workspace; see Configuration
 ```
 
-Then set up your user profile (eligibility facts and the details submission forms ask for). In omp or pi, after `harness install`, run `/contest-harness-init`; it asks for each field in a dialog. In any terminal, run:
+Then write your user profile (eligibility facts and the details submission forms ask for). It is a Markdown file you fill in yourself:
 
 ```bash
-harness profile init    # asks field by field; Enter keeps the current value
-harness profile show    # sensitive values are masked
+cp data/profile.example.md data/profile.md   # git-ignored; fill it in by hand
+chmod 600 data/profile.md
+harness profile path                         # path and whether it exists
 ```
 
 Optionally copy `data/local-rules.example.md` to `data/local-rules.md` and write rules for your own environment there (see [Local rules](#local-rules)).
@@ -163,7 +164,6 @@ The repository is an extension package for both omp and pi. `harness install --r
 | `/contest` | Command | Board summary: counts by state, contests awaiting submission approval or plan review, hold questions, in-progress deadlines within 7 days, and capacity |
 | `/contest <id>` | Command | Summary of one contest |
 | `/contest-chat` | Command | How to open the main interface session, and the binary version |
-| `/contest-harness-init` | Command | Sets up your user profile: reads the fields from `harness profile fields --json`, asks for each in an input dialog, saves with `harness profile set`, and ends with the masked `harness profile show`. In modes without dialogs it tells you to run `harness profile init` in a terminal |
 | `/contest-gate <id>` | Prompt template (`commands/contest-gate.md`) | Runs `ContestGate` on one registry entry and summarizes the result |
 | `contest_agent` | Tool, pi only | Runs `agents/<agent>.md` as a one-shot `pi` subprocess and returns its output. Not registered inside that subprocess, so agents cannot recurse |
 
@@ -326,12 +326,9 @@ Every command accepts `--json`. Exit codes: `0` success, `1` error (the reason g
 | `harness submitted import` | One-time import of submitted entries from the registry into the ledger. Existing keys are skipped |
 | `harness clean <id> [--dry-run] [--purge] [--force]` | After submission, closes the contest's session and workspace and moves its local folder to the trash (`--purge` deletes it). Refuses unless every cleanup condition holds (`--force` skips the checks) |
 | `harness clean --all [--dry-run]` | Runs `clean` over every `submitted` or `closed` contest that still has its folder |
-| `harness profile init` | Asks for each profile field in the terminal; Enter keeps the current value |
-| `harness profile show [--reveal]` | Prints the profile with sensitive values masked. `--reveal` prints the real values, for an approved submission step only |
-| `harness profile set <key> <value>` / `harness profile unset <key>` | Sets or clears one field by dotted key, such as `identity.name` or `affiliation.school`. File fields are copied into `data/profile/` |
-| `harness profile eligibility` | Prints only the eligibility facts the gate needs, without identifying values |
-| `harness profile fields` | Lists the field definitions (key, label, kind, example, sensitive) |
-| `harness profile path` | Prints the profile file path |
+| `harness profile path` | Prints the profile file path (`data/profile.md`) and whether it exists |
+| `harness profile eligibility [--json]` | Prints only the `## 참가 자격` section, the eligibility facts the gate needs, without identifying values. JSON is `{path, eligibility}` |
+| `harness profile show [--json]` | Prints the whole profile, personal details included, for an approved submission step only. JSON is `{path, text}` |
 | `harness budget` | Shows per-provider remaining quota, pace, and the recommended worker count |
 | `harness capacity` | Shows how many sessions can start now. JSON fields: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram` (`available_gb`, `reserve_gb`, `budget_gb`, `pressure`), `limits`, `providers` |
 | `harness board` | Writes `BOARD.md` |
@@ -384,7 +381,7 @@ Manage it with `orca automations run <id>` (run now), `orca automations edit <id
 
 - **Concept cards.** For creative work (video, image, music), the agent presents two or three concept cards and you pick one before production starts.
 - **Level 5 plan review.** After the reference research, SPEC, and PLAN are done, the session runs `harness transition <id> plan_review --note "<summary>"` and stops. It continues only after you approve, with `harness transition <id> running --note "Approved: <your message and time>"`. That note is required. Without this approval record, the CLI refuses to move a Level 5 contest to `awaiting_approval`.
-- **Submission approval.** Every contest stops at `awaiting_approval`, which the persona guard and, from Level 2 up, the score gate must pass first. Personal details (name, contact information, signatures, enrollment certificates) are used only at this step, after you approve, read with `harness profile show --reveal --json`. The approval is recorded in `SUBMISSION.md` and in `harness submit --note`.
+- **Submission approval.** Every contest stops at `awaiting_approval`, which the persona guard and, from Level 2 up, the score gate must pass first. Personal details (name, contact information, signatures, enrollment certificates) are used only at this step, after you approve, read with `harness profile show --json`. The approval is recorded in `SUBMISSION.md` and in `harness submit --note`.
 - **Gate questions.** The gate asks at most three questions per contest, and they are batched so you answer them all at once.
 
 The main session collects these approvals and questions and relays your answers to contest sessions as quotations.
@@ -422,13 +419,14 @@ Then it:
 
 ## User profile
 
-`data/profile.json` (git-ignored) holds the facts the gate checks and the details submission forms ask for: name (Korean, English, hanja), birth date, phone, email, student status and school, department, level, year, proof of enrollment, region of residence, nationality, individual or team participation, accounts (such as Hancom Docs), signature and seal images, strengths, and constraints. Signature, seal, and proof files are copied into `data/profile/` (git-ignored) and stored as relative paths. The committed `data/profile.example.json` has empty values only.
+`data/profile.md` (git-ignored) is a Markdown file you write yourself. Copy the committed `data/profile.example.md`, which has empty fields only, and fill it in. The harness only reads it and never changes it. Keep it at 0600 permissions. It has two sections:
 
-- Set it up with `/contest-harness-init` in omp or pi, or `harness profile init` in a terminal. Change one field with `harness profile set <key> <value>` or `harness profile unset <key>`. Values are validated (dates `YYYY-MM-DD`, an `@` in emails, digits, hyphens, and `+` in phone numbers).
-- The profile is written with 0600 permissions.
-- `harness profile show` masks sensitive values (for example `홍*동`, `010-****-1234`, `a***@example.com`, `YYYY-**-**`, and present/absent for files). `--reveal` prints the real values.
-- `ContestGate` reads only `harness profile eligibility --json`: student status, level, year, school, department, region, nationality, age computed from the birth date, participation, strengths, and constraints, with no name, contact details, birth date, or signature.
-- Identifying values are read only at an approved submission step, with `harness profile show --reveal --json`.
+- `## 참가 자격` (or `## Eligibility`): the facts the gate checks, such as participation (individual or team), student status, school, department, level, year, birth year (for age limits, instead of a birth date), region of residence, nationality, whether you have proof of enrollment, strengths, and conditions you avoid. No identifying values go here.
+- `## 제출용 개인정보` (or `## Submission details`): the details submission forms ask for: name (Korean, English, hanja), birth date, phone, email, the official name of your school and department, paths to signature, seal, and enrollment certificate files (for example under `data/profile/`, git-ignored), and your Hancom Docs account. It is read only after you approve a submission.
+
+- `ContestGate` reads only `harness profile eligibility --json`, the `## 참가 자격` section.
+- Identifying values are read only at an approved submission step, with `harness profile show --json`.
+- If the file or its `## 참가 자격` section is missing, the commands fail with a message that points to `data/profile.example.md`.
 
 ## Local rules
 
@@ -436,7 +434,7 @@ Rules that only make sense on your machine, such as your own helper scripts, com
 
 ## Privacy
 
-Personal state stays on your machine. `.gitignore` excludes `data/config.json`, `data/registry.json`, `data/*.lock`, `data/profile.json`, `data/profile/`, `data/submissions.json`, `data/local-rules.md`, `data/persona.md`, `data/main-system.md`, `data/main-start.md`, `data/logs/`, `BOARD.md`, and the reference clones under `references/`. Contest repositories are created as private. The committed examples `data/config.example.json`, `data/profile.example.json`, `data/local-rules.example.md`, and `data/persona.example.md` contain no personal values. The gate never copies personal values into `gate.json`.
+Personal state stays on your machine. `.gitignore` excludes `data/config.json`, `data/registry.json`, `data/*.lock`, `data/profile.md`, `data/profile/`, `data/submissions.json`, `data/local-rules.md`, `data/persona.md`, `data/main-system.md`, `data/main-start.md`, `data/logs/`, `BOARD.md`, and the reference clones under `references/`. Contest repositories are created as private. The committed examples `data/config.example.json`, `data/profile.example.md`, `data/local-rules.example.md`, and `data/persona.example.md` contain no personal values. The gate never copies personal values into `gate.json`.
 
 ## Extending: adding a source
 
@@ -481,8 +479,8 @@ Contest-Harness/
 ├── data/
 │   ├── config.example.json     settings example (copy to config.json)
 │   ├── config.json             your settings (git-ignored)
-│   ├── profile.example.json    user profile example
-│   ├── profile.json            your profile (git-ignored)
+│   ├── profile.example.md      user profile example (copy to profile.md)
+│   ├── profile.md              your profile (git-ignored)
 │   ├── profile/                signature, seal, and proof files (git-ignored)
 │   ├── local-rules.example.md  local rules example
 │   ├── local-rules.md          your local rules (git-ignored)

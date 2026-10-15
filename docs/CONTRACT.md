@@ -18,7 +18,7 @@
 - 계획 검수: 레벨 5는 레퍼런스 조사와 SPEC·PLAN 뒤 `plan_review`에서 멈추고 사용자 승인을 받은 뒤에 구현한다(4절).
 - 점수 루프: 레벨 2 이상은 공모전 평가기준을 점수표로 바꾸고, 기획 단계부터 예측 채점해 점수를 올리는 방향으로 일한다(15절).
 - 페르소나 검사: `awaiting_approval`로 옮길 때 CLI가 공모전 폴더와 커밋 메시지에서 페르소나 흔적을 찾고, 있으면 거절한다(12절).
-- 제출: 개인정보가 들어가고 되돌릴 수 없으므로, 제출 직전에는 반드시 `awaiting_approval`에서 멈추고 사용자 승인을 받는다. 개인 식별 값은 이 단계에서만 `harness profile show --reveal --json`으로 읽는다(14절). 제출한 공모전은 제출 기록부(13절)에 남아 다시 배정되지 않는다.
+- 제출: 개인정보가 들어가고 되돌릴 수 없으므로, 제출 직전에는 반드시 `awaiting_approval`에서 멈추고 사용자 승인을 받는다. 개인 식별 값은 이 단계에서만 `harness profile show --json`으로 읽는다(14절). 제출한 공모전은 제출 기록부(13절)에 남아 다시 배정되지 않는다.
 - 메인 인터페이스: 사용자는 `harness chat`으로 연 메인 세션 하나에서 위 흐름을 보고 지휘한다(12절). 메인 세션은 공모전 결과물을 직접 쓰지 않는다.
 
 ## 2. 경로
@@ -33,7 +33,7 @@
 | 운영자 환경 규칙(git 제외) | 저장소 `data/local-rules.md` (예시 `data/local-rules.example.md`). 운영자 전용 장비·도구·연구 환경 규칙을 둔다. 있으면 에이전트와 스킬이 먼저 읽고 따른다 |
 | 레지스트리(git 제외) | 저장소 `data/registry.json`, 잠금 파일 `data/registry.lock` |
 | 상태 보드(git 제외) | 저장소 `BOARD.md` |
-| 사용자 정보(자격 판정·제출용, git 제외) | 저장소 `data/profile.json`(스키마 v2, 14절, 예시 `data/profile.example.json`), 서명·도장·재학 증빙 같은 파일은 `data/profile/`. 둘 다 0600 권한으로 쓴다 |
+| 사용자 정보(자격 판정·제출용, git 제외) | 저장소 `data/profile.md`(사용자가 직접 쓰는 마크다운, 14절, 예시 `data/profile.example.md`). 서명·도장·재학증명서 같은 파일은 사용자가 둔 곳(예: `data/profile/`)의 경로만 적는다. 0600 권한 권장 |
 | 제출 기록부(git 제외) | 저장소 `data/submissions.json`, 잠금 파일 `data/submissions.lock` (13절) |
 | 메인 세션 시스템 프롬프트(git 제외) | 저장소 `data/main-system.md` (`harness chat`이 실행할 때마다 다시 쓴다, 12절) |
 | 메인 세션 첫 지시(git 제외) | 저장소 `data/main-start.md` (`harness chat`이 실행할 때마다 다시 쓴다) |
@@ -201,13 +201,9 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `harness submitted` | 제출 기록부 목록(날짜, 제목, 방법, 접수 증빙). 13절 |
 | `harness submitted add --title T [--url U] [--org O] [--date D] [--method M] [--receipt R] [--folder F] [--note N]` | 하네스 밖에서 낸 공모전을 기록부에 남긴다(`source: manual`). `--date`는 `YYYY-MM-DD` 또는 `YYYY-MM-DDTHH:MM+09:00`, 기본은 지금 |
 | `harness submitted import` | 레지스트리에서 제출한 항목을 기록부로 한 번 옮긴다(`source: import`, 이미 있는 key는 건너뜀) |
-| `harness profile fields` | 사용자 정보 입력 항목 정의 목록(14절) |
-| `harness profile show [--reveal]` | 사용자 정보. 기본은 민감 값을 가린다. `--reveal`은 원래 값(승인된 제출 단계에서만) |
-| `harness profile set <key> <value>` | 점 경로 키 하나를 검증해 저장한다. 파일 항목은 `data/profile/`로 복사한다 |
-| `harness profile unset <key>` | 키 하나를 비운다 |
-| `harness profile init` | 터미널에서 항목마다 묻는다(현재 값이 기본, Enter면 유지) |
-| `harness profile eligibility` | 게이트용 자격 정보(식별 값 없음) |
-| `harness profile path` | 사용자 정보 파일 경로 |
+| `harness profile path` | 사용자 정보 파일 경로(`data/profile.md`)와 파일이 있는지(14절) |
+| `harness profile eligibility` | `## 참가 자격` 절만(게이트용, 식별 값 없음) |
+| `harness profile show` | 파일 전체(개인정보 포함, 승인된 제출 단계에서만) |
 | `harness score <id> --stage plan\|draft\|final --file <judge.json> [--note N]` | ContestJudge 출력을 검증해 레지스트리 `scores`에 더한다(15절) |
 | `harness score <id>` | 점수 이력(시각, 단계, 총점/목표, 판정, 가장 많이 깎인 기준 셋) |
 | `harness clean <id> [--dry-run] [--purge] [--force]` | 제출 끝난 공모전의 세션을 닫고 로컬 폴더를 휴지통으로 옮긴다(16절). 조건이 하나라도 어긋나면 이유를 나열하고 아무것도 지우지 않는다. `--purge`는 완전히 지우고, `--force`는 조건 검사를 건너뛴다. `--dry-run`은 검사 결과와 할 일만 보여 준다 |
@@ -330,7 +326,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 - 창작물(영상·이미지·음악) 콘셉트는 카드 2~3장을 만들어 사용자가 고른다.
 - 레벨 5 계획 검수: 레퍼런스 조사와 SPEC·PLAN을 마치면 `plan_review`로 옮기고 사용자에게 검수를 요청한 뒤 멈춘다. 구현은 승인 뒤에만 하고, 승인 메시지 원문과 시각을 `harness transition <id> running --note "승인: <원문·시각>"`에 남긴다(4절).
 - 제출 승인 전 페르소나 검사: `awaiting_approval`로 옮기기 전에 `harness check <id>`로 흔적이 없음을 확인한다. 흔적이 있으면 CLI가 전이를 거절한다(12절).
-- 제출은 `awaiting_approval`에서 사용자 승인 후에만 한다. 승인 근거(메시지 원문과 시각)는 `SUBMISSION.md` 승인란과 `harness submit ... --note`에 남긴다. 제출 양식에 넣을 개인 식별 값은 이 단계에서만 `harness profile show --reveal --json`으로 읽는다.
+- 제출은 `awaiting_approval`에서 사용자 승인 후에만 한다. 승인 근거(메시지 원문과 시각)는 `SUBMISSION.md` 승인란과 `harness submit ... --note`에 남긴다. 제출 양식에 넣을 개인 식별 값은 이 단계에서만 `harness profile show --json`으로 읽는다.
 - 레벨 2 이상에서 최종 점수가 목표에 못 미친 채 내야 하면 사용자에게 알리고 `--score-ok "<사유>"`로 넘긴다(4절).
 - 게이트의 `questions`는 사용자에게 한 번에 묶어 묻는다.
 - 승인과 질문은 메인 인터페이스 세션(12절)에서 사용자에게 받고, 공모전 세션에는 승인 원문을 인용으로만 전한다.
@@ -382,7 +378,6 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | `/contest` | 명령 | 보드 요약: 상태별 건수, 제출 승인·계획 검수 대기, 보류 질문, 7일 안 마감, 용량. 보드도 갱신한다 |
 | `/contest <id>` | 명령 | 공모전 하나의 요약 |
 | `/contest-chat` | 명령 | 메인 세션 여는 법(`harness chat`)과 바이너리 버전 |
-| `/contest-harness-init` | 명령 | 사용자 정보 설정(14절): `harness profile fields --json`의 항목을 입력 대화상자로 묻고 `harness profile set`으로 저장한 뒤 `harness profile show`(가린 값)로 요약한다 |
 | `/contest-gate <id>` | 프롬프트 템플릿(`commands/contest-gate.md`) | 레지스트리 항목 하나를 ContestGate로 거르고 결과를 요약한다 |
 | `contest_agent {agent, task}` | 도구(pi 전용) | `agents/<agent>.md` 본문을 시스템 프롬프트로 `pi -p --no-session` 하위 프로세스를 돌려 마지막 출력을 돌려준다. 하위 프로세스에서는 이 도구를 등록하지 않는다(재귀 금지) |
 
@@ -456,42 +451,22 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 게이트의 자격 판정과 제출 양식 작성에 쓰는 참가자 정보다. 값은 이 컴퓨터에만 둔다.
 
-- 파일: 저장소 `data/profile.json`(git 제외). 서명·도장·재학 증빙 같은 이미지는 `data/profile/`(git 제외)로 복사하고 상대 경로로 둔다. 둘 다 0600 권한으로 쓴다. 공개 저장소에는 빈 값 예시 `data/profile.example.json`만 있다.
-- 스키마 v2:
-
-```json
-{
-  "version": 2,
-  "identity": {"name": "", "name_en": "", "name_hanja": "", "birth_date": ""},
-  "contact": {"phone": "", "email": ""},
-  "affiliation": {"is_student": null, "school": "", "department": "", "level": "", "year": null, "proof": ""},
-  "residence_region": "",
-  "nationality": "",
-  "participation": {"individual": true, "team_available": null, "team_note": ""},
-  "accounts": {"hancom": ""},
-  "signature": "",
-  "seal": "",
-  "strengths": [],
-  "constraints": []
-}
-```
-
-- 예전 v1 파일(`name`, `student{...}` 등)은 읽을 때 v2로 옮겨 다루고, 쓸 때 v2로 저장한다.
+- 파일: 저장소 `data/profile.md`(git 제외). 사용자가 직접 쓰는 마크다운 파일이고, 공개 저장소의 빈 칸 예시 `data/profile.example.md`를 복사해 채운다. 권한은 0600을 권장한다. 서명·도장·재학증명서 같은 파일은 사용자가 원하는 곳(예: git 제외인 `data/profile/`)에 두고 경로만 적는다. 하네스는 이 파일을 읽기만 하고 고치지 않는다.
+- 절 두 개(`## ` 제목. 영어 제목도 된다):
+  - `## 참가 자격`(`## Eligibility`): 게이트의 자격 판정에 쓴다. 참가 형태(개인·팀), 학생 여부, 학교, 학과, 과정, 학년, 출생 연도(나이 제한 판정용), 거주 지역, 국적, 재학증명서 보유 여부, 강점, 피하는 조건. 이름·전화·이메일 같은 식별 값은 쓰지 않고, 나이는 생년월일 대신 출생 연도로 쓴다.
+  - `## 제출용 개인정보`(`## Submission details`): 사용자가 제출을 승인한 뒤에만 읽는다. 이름, 영문·한자 이름, 생년월일, 전화, 이메일, 학교·학과 정식 명칭, 서명·도장 이미지와 재학증명서 파일 경로, 한컴독스 계정.
 
 | 명령 | 하는 일 |
 |---|---|
-| `harness profile fields --json` | 입력 항목 정의 목록 `[{key, label, kind, example, sensitive}]`. `kind`는 `text`, `date`, `bool`, `int`, `file`, `list`. 정의는 Rust 한 곳에 있고 `/contest-harness-init`와 `profile init`이 이걸로 질문을 만든다 |
-| `harness profile show [--json] [--reveal]` | 기본은 민감 값을 가린다: 이름 `홍*동`, 전화 `010-****-1234`, 이메일 `a***@example.com`, 생년월일 `YYYY-**-**`, 한자·영문 이름은 첫 글자만, 파일은 "있음/없음". `--reveal`은 원래 값이고 승인된 제출 단계에서만 쓴다 |
-| `harness profile set <key> <value>` | 점 경로 키(`identity.name`, `contact.phone`, `affiliation.school` …). 검증: 생년월일 `YYYY-MM-DD`, 이메일에 `@`, 전화는 숫자·하이픈·`+`, bool은 예/아니오/true/false, list는 쉼표 구분. `signature`·`seal`·`affiliation.proof`는 파일을 `data/profile/`로 복사하고 상대 경로를 저장한다 |
-| `harness profile unset <key>` | 키 하나를 비운다 |
-| `harness profile init` | TTY에서 항목마다 묻는다. 현재 값이 기본이고 Enter면 유지한다 |
-| `harness profile eligibility --json` | 게이트용. 이름·연락처·이메일·생년월일·서명 같은 식별 값 없이 `is_student`, `level`, `year`, `school`, `department`, `residence_region`, `nationality`, `age`(생년월일로 계산), `participation`, `strengths`, `constraints`만 낸다 |
-| `harness profile path` | 사용자 정보 파일 경로 |
+| `harness profile path [--json]` | 사용자 정보 파일 경로와 파일이 있는지 |
+| `harness profile eligibility [--json]` | `## 참가 자격` 절 본문만 낸다. JSON은 `{path, eligibility}` |
+| `harness profile show [--json]` | 파일 전체를 낸다. JSON은 `{path, text}`. 승인된 제출 단계에서만 쓴다 |
 
 <p>표 13. 사용자 정보 명령</p>
 
-- 읽기 규칙: ContestGate는 `harness profile eligibility --json`만 읽는다. 개인 식별 값은 사용자가 승인한 제출 단계에서 `harness profile show --reveal --json`으로만 읽는다. 에이전트는 `data/profile.json`을 직접 읽거나 고치지 않는다.
-- 처음 설정: omp·pi에서는 `/contest-harness-init`(11절)를 쓴다. `harness profile fields --json`으로 항목을 받아 입력 대화상자로 묻고 `harness profile set`으로 저장한 뒤 `harness profile show`(가린 값)로 요약한다. 대화상자를 못 쓰는 모드면 터미널에서 `harness profile init`을 쓰라고 안내한다. 다른 러너는 `harness profile init`을 쓴다.
+- 파일이 없으면 `eligibility`·`show`가, `## 참가 자격` 절이 없거나 비어 있으면 `eligibility`가 `data/profile.example.md`를 가리키는 오류를 낸다.
+- 읽기 규칙: ContestGate는 `harness profile eligibility --json`만 읽는다. 개인 식별 값은 사용자가 승인한 제출 단계에서 `harness profile show --json`으로만 읽는다. 에이전트는 `data/profile.md`를 직접 읽거나 고치지 않는다.
+- 처음 설정: 사용자가 `cp data/profile.example.md data/profile.md`로 복사한 뒤 직접 채운다. 하네스와 에이전트는 값을 대신 쓰지 않는다.
 
 ## 15. 점수 루프
 

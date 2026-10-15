@@ -1,10 +1,7 @@
 // Autocontest-Harness extension for omp and pi (one file; both expose the same extension API).
 //
 // Commands: /contest (board + capacity summary), /contest <id> (one entry), /contest-chat
-// (how to open the main interface), /contest-harness-init (fill data/profile.json through UI
-// input dialogs). All of them call the `harness` binary.
-// Profile values go only between the dialog and `harness profile set`; they are never sent to
-// the model (no message injection, no tool result).
+// (how to open the main interface). All of them call the `harness` binary.
 // pi only: the `contest_agent` tool runs an agents/<name>.md prompt in a one-shot pi, since
 // pi has no subagents (omp has its own `task` tool). The persona and main interface role
 // come from `harness chat` (--append-system-prompt), not from this extension.
@@ -21,12 +18,9 @@ import { fileURLToPath } from 'node:url'
 type NotifyType = 'info' | 'warning' | 'error'
 interface HostUI {
   notify?(message: string, type?: NotifyType): void
-  input?(title: string, placeholder?: string): Promise<string | undefined>
 }
 interface HostContext {
   cwd?: unknown
-  hasUI?: boolean
-  mode?: string
   ui?: HostUI
 }
 interface ToolResult {
@@ -285,85 +279,6 @@ function runAgent(agent: string, task: string, cwd: string, signal: AbortSignal 
   return promise.finally(() => rmSync(dir, { recursive: true, force: true }))
 }
 
-// Display-only view of `harness profile fields --json`; the binary owns the definitions.
-interface ProfileField {
-  key: string
-  label?: string
-  kind?: string
-  example?: unknown
-  sensitive?: boolean
-}
-
-const KIND_HINT: Record<string, string> = {
-  date: 'YYYY-MM-DD',
-  bool: '예/아니오',
-  int: '숫자',
-  file: '파일 경로(data/profile/로 복사)',
-}
-
-function profileText(v: unknown): string {
-  if (v === null || v === undefined) return ''
-  if (typeof v === 'boolean') return v ? '예' : '아니오'
-  if (Array.isArray(v)) return v.map(profileText).filter(Boolean).join(', ')
-  if (typeof v === 'object') return JSON.stringify(v)
-  return String(v)
-}
-
-// Masked `profile show --json` is the nested profile; field keys are dot paths into it.
-function profileAt(profile: unknown, key: string): string {
-  let v = profile
-  for (const part of key.split('.')) v = v && typeof v === 'object' ? (v as Record<string, unknown>)[part] : undefined
-  return profileText(v)
-}
-
-async function profileInit(ctx: HostContext): Promise<void> {
-  const input = ctx.ui?.input
-  if (!ctx.hasUI || typeof input !== 'function') {
-    const text = '이 모드에서는 입력 대화상자를 쓸 수 없다. 터미널에서 `harness profile init`을 실행한다.'
-    // Why: without a UI (print, rpc --no-ui) notify is a no-op; stderr reaches the user, not the model.
-    if (ctx.hasUI) show(ctx, text, 'warning')
-    else process.stderr.write(`${text}\n`)
-    return
-  }
-  const [rawFields, current] = await Promise.all([runHarness(['profile', 'fields']), runHarness(['profile', 'show'])])
-  const fields = (Array.isArray(rawFields) ? rawFields : []).filter((f): f is ProfileField => typeof f?.key === 'string')
-  if (!fields.length) throw new Error('harness profile fields: 항목이 없다')
-  let saved = 0
-  for (const [i, f] of fields.entries()) {
-    const label = f.label || f.key
-    const now = profileAt(current, f.key)
-    const example = profileText(f.example)
-    const placeholder = [
-      now ? `현재 ${now}` : '비어 있음',
-      KIND_HINT[f.kind ?? ''],
-      example ? `예: ${example}` : '',
-      'Enter=유지, Esc=중단',
-    ]
-      .filter(Boolean)
-      .join(' · ')
-    for (;;) {
-      const answer = await input.call(ctx.ui, `사용자 정보 ${i + 1}/${fields.length}: ${label}`, placeholder)
-      if (answer === undefined) {
-        show(ctx, `사용자 정보 입력을 중단했다(저장한 항목 ${saved}개).`, 'warning')
-        return
-      }
-      const value = answer.trim()
-      if (!value) break
-      try {
-        // Why: `--` keeps values such as "-" or "+82..." from parsing as options.
-        await execHarness(['profile', 'set', '--', f.key, value])
-        saved++
-        break
-      } catch (err) {
-        show(ctx, `${label}: ${errorText(err)}`, 'error')
-      }
-    }
-  }
-  const masked = await runHarness(['profile', 'show'])
-  const lines = fields.map((f) => `  ${f.label || f.key}: ${profileAt(masked, f.key) || '-'}`)
-  show(ctx, `사용자 정보 저장: ${saved}개 항목 갱신(값은 가림)\n${lines.join('\n')}`)
-}
-
 export default function (pi: HostApi): void {
   pi.registerCommand('contest', {
     description: '공모전 하네스: 인자 없으면 보드·용량 요약, <id>면 그 공모전',
@@ -387,17 +302,6 @@ export default function (pi: HostApi): void {
         show(ctx, errors.length ? `${text}\n오류: ${errors.join(' / ')}` : text, errors.length ? 'warning' : 'info')
       } catch (err) {
         show(ctx, `harness 실패: ${errorText(err)}`, 'error')
-      }
-    },
-  })
-
-  pi.registerCommand('contest-harness-init', {
-    description: '공모전 하네스 사용자 정보(data/profile.json)를 항목마다 입력 대화상자로 묻고 저장',
-    handler: async (_args, ctx) => {
-      try {
-        await profileInit(ctx)
-      } catch (err) {
-        show(ctx, `harness profile 실패: ${errorText(err)}`, 'error')
       }
     },
   })

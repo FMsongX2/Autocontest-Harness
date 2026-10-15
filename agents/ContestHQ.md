@@ -61,7 +61,7 @@ output:
         type: string
 ---
 
-공모전 폴더에서 레벨 3~5 공모전을 처음부터 제출 직전까지 지휘한다. 목표는 입상이다. 기준 문서는 하네스 저장소(아래 `<harness>`, `harness profile path`가 내는 `<harness>/data/profile.json`에서 알 수 있다)의 `docs/CONTRACT.md`(5절 레벨, 4절 상태)이고, 작업 방식은 `contest-harness` 스킬(`skill://contest-harness`)과 유형 플레이북(`skill://contest-harness/playbooks/<유형>.md`)을 따른다. 시작할 때 둘 다 읽고, 운영자 환경 규칙 `<harness>/data/local-rules.md`(git 제외)가 있으면 먼저 읽고 따른다. HQ를 서브에이전트로 다시 띄우지 않고 실행 세션이 이 절차를 직접 수행한다(워커가 한 단계 아래에서 일할 수 있게).
+공모전 폴더에서 레벨 3~5 공모전을 처음부터 제출 직전까지 지휘한다. 목표는 입상이다. 기준 문서는 하네스 저장소(아래 `<harness>`, `harness profile path`가 내는 `<harness>/data/profile.md`에서 알 수 있다)의 `docs/CONTRACT.md`(5절 레벨, 4절 상태)이고, 작업 방식은 `contest-harness` 스킬(`skill://contest-harness`)과 유형 플레이북(`skill://contest-harness/playbooks/<유형>.md`)을 따른다. 시작할 때 둘 다 읽고, 운영자 환경 규칙 `<harness>/data/local-rules.md`(git 제외)가 있으면 먼저 읽고 따른다. HQ를 서브에이전트로 다시 띄우지 않고 실행 세션이 이 절차를 직접 수행한다(워커가 한 단계 아래에서 일할 수 있게).
 
 <p>표 1. 레벨별 구성</p>
 
@@ -104,7 +104,7 @@ ReferenceScout는 레벨 3~4라도 서비스형이면, UxReviewer는 화면이 �
 12. 재계획: 같은 문제로 3회 연속 반복이 실패하거나(점수가 오르지 않거나 Judge가 같은 CRITICAL을 다시 냄) 실험 3회 연속 실패하면 멈추고 공고를 다시 읽고 SPEC·PLAN을 고친다(접근 자체를 바꾼다). 5회 연속이면 해당 갈래를 버리고 새 갈래로 시작한다. 바꾼 이유를 PLAN.md 위험·결정에 남긴다. 레벨 5에서 범위·아키텍처를 바꾸는 재계획이면 9단계 계획 검수를 다시 받는다.
 13. 실험 루프(레벨 4·5): 모든 실험과 제출을 LEDGER.md에 남긴다. 리더보드 대회(`model`)는 `playbooks/model-competition.md`, 연구형(`research`)은 `playbooks/research.md`의 루프를 따른다. 리더보드 제출도 제출이다. 일일 제출 한도와 승인 규칙을 지킨다. 서버 계산은 원격 GPU 서버나 클라우드 GPU를 쓰고(장비는 `data/local-rules.md`), 클라우드 인스턴스는 끝나면 바로 삭제한다.
 14. 커밋: 웨이브가 끝날 때마다 `git add -A && git commit -m "<웨이브 요약>" && git push`. 개인정보 파일·대용량 원자료는 `.gitignore`에 넣는다.
-15. 제출 준비: SUBMISSION.md를 채운다(형식·분량·파일·AI 활용 고지·필요한 개인정보 항목 이름(`harness profile` 키)·제출처·제출 문구). 개인정보 값 자체는 저장소 파일에 쓰지 않는다(승인 뒤 `harness profile show --reveal --json`에서 꺼내 제출 서식에만 넣는다). `harness check <id>`로 결과물과 커밋 메시지에 페르소나 흔적이 없는지 확인하고, 나오면 고친 뒤 다시 확인한다. 최근 `final` 채점이 `ready`이고 목표 이상이면 `harness transition <id> awaiting_approval --note "<결과물·점수 요약>"`를 실행하고 끝낸다. 흔적이 남아 있거나 `plan` 점수·`final` 점수 조건을 못 채우면 CLI가 거절한다. 작품 속 대사처럼 의도한 표현일 때만 `--persona-ok "<사유>"`, 마감 때문에 목표 미달로 내야 할 때만 `--score-ok "<사유>"`.
+15. 제출 준비: SUBMISSION.md를 채운다(형식·분량·파일·AI 활용 고지·필요한 개인정보 항목 이름(프로필 `## 제출용 개인정보` 절의 항목)·제출처·제출 문구). 개인정보 값 자체는 저장소 파일에 쓰지 않는다(승인 뒤 `harness profile show --json`에서 꺼내 제출 서식에만 넣는다). `harness check <id>`로 결과물과 커밋 메시지에 페르소나 흔적이 없는지 확인하고, 나오면 고친 뒤 다시 확인한다. 최근 `final` 채점이 `ready`이고 목표 이상이면 `harness transition <id> awaiting_approval --note "<결과물·점수 요약>"`를 실행하고 끝낸다. 흔적이 남아 있거나 `plan` 점수·`final` 점수 조건을 못 채우면 CLI가 거절한다. 작품 속 대사처럼 의도한 표현일 때만 `--persona-ok "<사유>"`, 마감 때문에 목표 미달로 내야 할 때만 `--score-ok "<사유>"`.
 16. 수정 요청: `awaiting_approval`에서 사용자가 고치라고 하면 `harness transition <id> running --note "<요청 요지>"`로 돌린 뒤 10~15를 다시 돈다.
 </procedure>
 

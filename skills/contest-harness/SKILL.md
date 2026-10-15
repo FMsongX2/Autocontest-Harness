@@ -5,7 +5,7 @@ description: "공모전·해커톤·경진대회를 찾고(수집), 거르고(�
 
 # 공모전 하네스
 
-공모전 한 건을 발견부터 제출 기록까지 끌고 가는 방법이다. 기준 문서는 하네스 저장소의 `docs/CONTRACT.md`이다. 이 스킬과 계약이 다르면 계약을 따른다. 아래에서 `<harness>`는 하네스 저장소 경로다(`harness profile path`가 내는 `<harness>/data/profile.json`에서 알 수 있다).
+공모전 한 건을 발견부터 제출 기록까지 끌고 가는 방법이다. 기준 문서는 하네스 저장소의 `docs/CONTRACT.md`이다. 이 스킬과 계약이 다르면 계약을 따른다. 아래에서 `<harness>`는 하네스 저장소 경로다(`harness profile path`가 내는 `<harness>/data/profile.md`에서 알 수 있다).
 
 운영자 환경 규칙: `<harness>/data/local-rules.md`(git 제외)가 있으면 먼저 읽고 따른다. 계산 장비, 공유 자원 잠금, 개인 플레이북, 서식 도구 스크립트 같은 그 맥 전용 규칙이 거기 있다. 이 스킬의 일반 규칙과 다르면 그 파일이 우선한다(단, 페르소나 금지와 사람 관문은 바꿀 수 없다).
 
@@ -53,7 +53,7 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 | `harness submit <id> --method M --receipt R [--files F...]` | 제출 기록 → `submitted`. 제출 기록부에도 한 줄 더한다 |
 | `harness submitted [--json]` / `harness submitted add --title T [--url U] [--org O] [--date D] [--method M] [--receipt R] [--folder F] [--note N]` / `harness submitted import` | 제출 기록부(이미 제출한 공모전) 목록 / 하네스 밖에서 낸 공모전 기록 / 레지스트리의 제출 기록을 한 번 옮기기 |
 | `harness clean <id> [--dry-run] [--purge] [--force]` / `harness clean --all [--dry-run]` | 제출 끝난 공모전 정리: 세션 닫기 + 로컬 폴더를 휴지통으로(`--purge`면 완전 삭제). 조건(`submitted`·`closed`, 제출 기록부에 있음, git 작업 트리 깨끗·push 완료, 제출본이 git에 추적됨)이 하나라도 어긋나면 이유(`problems`)만 내고 지우지 않는다(`--force`는 검사 생략). 레지스트리 `folder_removed_at`, 기록부 `repo`로 나중에 `git clone`해 되살린다. `--all`은 `submitted`·`closed` 전부 |
-| `harness profile fields\|show [--reveal]\|set <키> <값>\|unset <키>\|init\|eligibility\|path` | 사용자 정보(`data/profile.json`, git 제외). `show`는 민감 값을 가린다. 게이트는 `eligibility --json`만, 개인 값은 승인된 제출 단계에서만 `show --reveal --json` |
+| `harness profile path\|eligibility\|show [--json]` | 사용자 정보(`data/profile.md`, 사용자가 직접 쓰는 마크다운, git 제외). 하네스는 읽기만 한다. 게이트는 `eligibility --json`(`## 참가 자격` 절)만, 개인 값은 승인된 제출 단계에서만 `show --json`(파일 전체) |
 | `harness budget` / `harness capacity --json` | 공급자 한도 기반 권장 병렬 수 / 지금 새로 띄울 수 있는 세션 수: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`available_gb`, `reserve_gb`, `budget_gb`, `pressure`), `limits`, `providers` |
 | `harness tick [--no-collect] [--auto-launch]` / `harness board` | 주기 실행(config `auto_launch`가 `true`면 플래그 없이도 실행까지) / `BOARD.md` 갱신 |
 | `harness autorun` / `harness schedule install\|remove\|status [--every-hours N]` | 러너 한 번 실행으로 `harness/prompts/automation.md` 정기 실행(로그 `data/logs/`) / macOS launchd로 주기 등록 |
@@ -111,12 +111,12 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 - 폴더·저장소: 공모전마다 `<contests_root>/<Folder>`(config `contests_root`)와 config `github_org`의 private 저장소(비면 로그인한 사용자 계정, GitHub Actions 없음). 웨이브·단계마다 커밋하고 푸시한다.
 - 중복 확인: 라우팅·등록 전에 항상 `harness dedupe-check`. 이미 제출한 공모전을 다시 배정하는 사고를 막으려고 제출 기록부도 대조한다. `kind: submitted`가 나오면 다시 하지 않는다(`duplicate`, note "이미 제출함: <제목, 날짜>").
 - 무거운 계산(학습·대형 추론·영상 생성)은 작업 맥에서 하지 않고 원격 GPU 서버나 클라우드 GPU에서 한다(클라우드 인스턴스는 작업이 끝나면 바로 삭제). 어떤 장비를 어떻게 쓰는지와 맥에서 꼭 돌릴 무거운 작업을 감싸는 방법은 `data/local-rules.md`를 따른다. 세션을 한꺼번에 많이 띄우지 않는다(메모리가 터진 적이 있다). `harness launch`·`tick`은 메모리 예산(쓸 수 있는 메모리 − `ram_reserve_gb`) 안에서만 띄운다. 여러 세션이 함께 쓰는 GUI 자원(브라우저 로그인 창, 이미지·음악 생성 서비스 등)은 한 번에 한 세션만 쓰고, 잠금 방법은 `data/local-rules.md`를 따른다.
-- HWP 결과물: 한컴독스 웹에서 편집하고 정렬을 눈으로 확인한다(작업 환경이 orca면 Orca 내장 브라우저). 열 때 로그인 계정을 `harness profile show --json`의 `accounts.hancom`(가린 값)과 대조한다. PDF 변환도 한컴독스 웹으로만 한다(다른 변환기가 한글 글리프를 깨뜨렸다). 여닫기·변환 스크립트 선례가 있으면 `data/local-rules.md`에 있다.
+- HWP 결과물: 한컴독스 웹에서 편집하고 정렬을 눈으로 확인한다(작업 환경이 orca면 Orca 내장 브라우저). 로그인 계정이 맞는지는 사용자가 제출을 승인한 뒤 `harness profile show --json`의 한컴독스 계정과 대조한다. PDF 변환도 한컴독스 웹으로만 한다(다른 변환기가 한글 글리프를 깨뜨렸다). 여닫기·변환 스크립트 선례가 있으면 `data/local-rules.md`에 있다.
 - 브라우저는 작업 환경의 브라우저(orca면 Orca 내장 브라우저)를 쓰고, 사용자의 개인 브라우저를 자동화하지 않는다.
 - 논문: 연구 실행과 집필 도구는 `playbooks/paper.md`와 `data/local-rules.md`를 따르고, 집필은 리뷰 반복으로 다듬는다.
 - 숏폼: `playbooks/creative-media.md`를 따르고 제작 전에 콘셉트 카드 2~3장을 사용자에게 보인다.
 - 모델·데이터·연구 대회: 운영 수준, 1등 목표. 검증 데이터로 학습한 점수를 보고하지 않고, 누수를 점검하고, 일일 제출 한도를 지키고, LEDGER에 실험과 제출을 모두 적는다.
-- 사용자 정보: `data/profile.json`(git 제외)에 있고 `harness profile`로만 읽고 쓴다. 비어 있으면 `/contest-harness-init` 또는 `harness profile init`으로 채우게 한다. 자격 판정은 `harness profile eligibility --json`(식별 값 없음)만 쓴다. 이름·연락처·생년월일·서명·도장·재학증명서 같은 개인 값은 승인된 제출 단계에서만 `harness profile show --reveal --json`으로 꺼내 제출 서식에 넣고, 저장소 파일·커밋·로그에 값을 쓰지 않는다.
+- 사용자 정보: `data/profile.md`(git 제외)에 있고 사용자가 직접 쓴다. 하네스와 에이전트는 `harness profile`로 읽기만 하고 파일을 고치지 않는다. 없거나 비어 있으면 사용자에게 `data/profile.example.md`를 복사해 직접 채우게 한다. 자격 판정은 `harness profile eligibility --json`(`## 참가 자격` 절, 식별 값 없음)만 쓴다. 이름·연락처·생년월일·서명·도장·재학증명서 같은 개인 값은 승인된 제출 단계에서만 `harness profile show --json`으로 꺼내 제출 서식에 넣고, 저장소 파일·커밋·로그에 값을 쓰지 않는다.
 - 토큰·메모리 활용: `harness capacity --json`의 `slots_by_level`과 `recommended_workers`에 여유가 있으면 병렬 웨이브를 넓히고, 공급자 한도나 메모리 `pressure`가 높으면 좁힌다.
 
 ## 제출 이후

@@ -4,10 +4,10 @@ node_modules/
 references/*
 !references/REFERENCES.md
 # Personal state and operator settings: kept on the operator's machine, never published.
-# Committed examples: data/config.example.json, data/profile.example.json,
+# Committed examples: data/config.example.json, data/profile.example.md,
 # data/local-rules.example.md, data/persona.example.md.
 data/config.json
-data/profile.json
+data/profile.md
 data/profile/
 data/submissions.json
 data/local-rules.md

@@ -70,7 +70,7 @@ output:
    - PDF: `read`로 읽는다.
    - HWPX: `read`로 읽고, 안 되면 `unzip -p <파일> Contents/section0.xml`로 본문 XML을 읽는다.
    - HWP(바이너리): `read`로 시도한다. 본문을 읽지 못하면 그 사실을 `reasons`에 적고, 심사기준·자격이 공고 본문에서도 확인되지 않으면 `hold`로 둔다. 추측으로 채우지 않는다.
-5. 자격 대조: `harness profile eligibility --json`(학생 여부·과정·학년·학교·학과, 거주 지역, 국적, 나이, 개인/팀 참가, 강점, 제약. 이름·연락처 같은 식별 값은 없다)만 읽어 공고의 자격(개인/팀, 학생 한정, 지역, 나이, 소속, 참가비, 오프라인 필수)과 비교한다. `data/profile.json`을 직접 읽지 않고 `profile show --reveal`도 쓰지 않는다. 값이 비어 있어 판정이 갈리면 `reasons`에 "사용자 정보 없음: <항목>"을 적고 그 항목을 `questions`에 넣는다(사용자 정보는 `/contest-harness-init` 또는 `harness profile init`으로 채운다). 사용자 정보 값은 gate.json에 옮기지 않는다.
+5. 자격 대조: `harness profile eligibility --json`(`data/profile.md`의 `## 참가 자격` 절. 참가 형태, 학생 여부·학교·학과·과정·학년, 출생 연도, 거주 지역, 국적, 재학증명서 보유, 강점, 피하는 조건. 이름·연락처 같은 식별 값은 없다)만 읽어 공고의 자격(개인/팀, 학생 한정, 지역, 나이, 소속, 참가비, 오프라인 필수)과 비교한다. 나이는 출생 연도로 계산한다. `data/profile.md`를 직접 읽지 않고 `profile show`도 쓰지 않는다. 값이 비어 있거나 명령이 실패해(파일이나 절이 없음) 판정이 갈리면 `reasons`에 "사용자 정보 없음: <항목>"을 적고 그 항목을 `questions`에 넣는다(사용자 정보는 사용자가 `data/profile.example.md`를 `data/profile.md`로 복사해 직접 채운다). 사용자 정보 값은 gate.json에 옮기지 않는다.
 6. gate.json 채우기(7절 형식 그대로):
    - `checked_at`: 지금 시각, `+09:00`.
    - `official_url`, `title`, `organizer`: 원문에서.

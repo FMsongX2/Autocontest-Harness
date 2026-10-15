@@ -2,7 +2,7 @@
 
 - 하네스 id: `[id]` · 마감: `[YYYY-MM-DDTHH:MM+09:00]`
 - 제출 방법: [폼/메일/사이트/우편] · 제출처: [URL 또는 주소]
-- 이 파일에는 개인정보 값을 쓰지 않는다. 항목 이름과 `harness profile` 키만 적는다. 값은 사용자 승인 뒤 제출 단계에서만 `harness profile show --reveal --json`으로 꺼내 제출 서식에 바로 넣는다.
+- 이 파일에는 개인정보 값을 쓰지 않는다. 항목 이름과 프로필(`data/profile.md`)의 항목 이름만 적는다. 값은 사용자 승인 뒤 제출 단계에서만 `harness profile show --json`으로 꺼내 제출 서식에 바로 넣는다.
 
 ## 1. 형식·제한
 
@@ -32,18 +32,18 @@
 
 ## 4. 필요한 개인정보 항목
 
-| 항목 | 필요한 곳 | `harness profile` 키 |
+| 항목 | 필요한 곳 | 프로필 항목(`## 제출용 개인정보`) |
 |---|---|---|
-| [성명] | [신청서] | `identity.name` |
-| [영문·한자 성명] | | `identity.name_en`, `identity.name_hanja` |
-| [생년월일] | | `identity.birth_date` |
-| [연락처·이메일] | | `contact.phone`, `contact.email` |
-| [소속(학교·학과·학년)] | | `affiliation.school`, `affiliation.department`, `affiliation.year` |
-| [서명·도장 이미지] | | `signature`, `seal`(파일, `data/profile/`) |
-| [재학증명서] | | `affiliation.proof`(파일, `data/profile/`) |
+| [성명] | [신청서] | 이름 |
+| [영문·한자 성명] | | 영문 이름, 한자 이름 |
+| [생년월일] | | 생년월일 |
+| [연락처·이메일] | | 휴대전화, 이메일 |
+| [소속(학교·학과·학년)] | | 학교·학과 정식 명칭(학년은 `## 참가 자격`) |
+| [서명·도장 이미지] | | 서명 이미지 파일, 도장 이미지 파일(경로) |
+| [재학증명서] | | 재학증명서 파일(경로) |
 | [그 밖에 프로필에 없는 항목] | | 없음: 승인 단계에서 사용자에게 묻는다(파일에 남기지 않는다) |
 
-<p>표 2. 개인정보 항목(값은 승인 뒤 제출 단계에서만 `harness profile show --reveal --json`으로 채운다. 비어 있으면 사용자에게 `harness profile set`을 요청한다)</p>
+<p>표 2. 개인정보 항목(값은 승인 뒤 제출 단계에서만 `harness profile show --json`으로 채운다. 비어 있으면 사용자에게 `data/profile.md`를 직접 채워 달라고 요청한다)</p>
 
 ## 5. 제출 입력값
 
