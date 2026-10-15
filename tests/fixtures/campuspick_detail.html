@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <script src="https://www.googletagmanager.com/gtag/js?id=G-GHX2SCRQS8" async></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag() {
+  dataLayer.push(arguments);
+}
+gtag('js', new Date());
+gtag('config', 'G-GHX2SCRQS8', {send_page_view: false});
+</script><script>
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window,document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init','833100809845275');
+fbq('track','PageView');
+</script><script>
+window.Campuspick = {
+  goBack: function (refresh) {
+    if (typeof window.CampuspickWebview !== 'undefined') {
+      window.CampuspickWebview.close(refresh);
+    } else {
+      history.go(-1);
+    }
+  },
+  goLink: function (url, isExportable) {
+    var isInternalLink = (url[0] === '/');
+    if (isInternalLink) {
+      url = location.origin + url;
+    }
+    if (isExportable === undefined) {
+      isExportable = !isInternalLink;
+    }
+    if (typeof window.CampuspickWebview !== 'undefined') {
+      window.CampuspickWebview.open(url, isExportable);
+    } else {
+      if (isExportable) {
+        window.open(url, '_blank');
+      } else {
+        location.href = url;
+      }
+    }
+  },
+  isApp: function () {
+    return typeof window.CampuspickWebview !== 'undefined';
+  },
+  openChat(params) {
+    var paramsJson = JSON.stringify(params);
+    if (typeof window.CampuspickWebview !== 'undefined' && window.CampuspickWebview.openChat) {
+      window.CampuspickWebview.openChat(paramsJson);
+    } else {
+      window.location.href = 'CampuspickWebview://openChat?params=' + encodeURIComponent(paramsJson);
+    }
+  },
+  openToApp(data) {
+    if (
+      window.webkit !== undefined &&
+      window.webkit.messageHandlers !== undefined &&
+      window.webkit.messageHandlers.campuspickHomeWebInterface !== undefined
+    ) { // iOS
+      window.webkit.messageHandlers.campuspickHomeWebInterface.postMessage({
+        action: 'openToApp',
+        ...data
+      });
+    } else if (window.CampuspickHomeWebInterface) { // Android
+      window.CampuspickHomeWebInterface.openToApp(JSON.stringify(data));
+    }
+  }
+};
+</script>
+    <meta charset="utf-8">
+    <meta name="referrer" content="origin">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="google-site-verification" content="l_bpc8htkSqBgQBQBV-2Wn01hauHyFyxO9-sUML1bac">
+    <meta name="google-site-verification" content="J7SDet0ynsnbUd8dAMg2sA-xEPw1YmWCgvR5cn_Ibq8" />
+    <meta name="naver-site-verification" content="c24ea6d1a8799a59c80f6a53f837954d5b253d7a">
+    <meta name="theme-color" content="#1dcdff">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@100..900&display=swap" rel="stylesheet">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="에브리커리어(캠퍼스픽)">
+    <meta property="og:url" content="https://www.campuspick.com/contest/view?id=36544">
+    <link rel="canonical" href="https://www.campuspick.com/contest/view?id=36544">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="robots" content="max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+    <title>제4회 『춘천 한 문장, 봄내글판』 전국 공모전 | 에브리커리어</title><meta data-vue-meta="ssr" property="og:title" content="제4회 『춘천 한 문장, 봄내글판』 전국 공모전 | 에브리커리어"><meta data-vue-meta="ssr" name="description" content="제4회 『춘천 한 문장, 봄내글판』 전국 공모전  ● 참가 자격 - 춘천을 사랑하는 전 국민 누구나  ● 공모 주제 -『정원도시 춘천』 - 춘천"><meta data-vue-meta="ssr" property="og:description" content="제4회 『춘천 한 문장, 봄내글판』 전국 공모전  ● 참가 자격 - 춘천을 사랑하는 전 국민 누구나  ● 공모 주제 -『정원도시 춘천』 - 춘천"><meta data-vue-meta="ssr" property="og:image" content="https://cf-tabs-image.campuspick.com/activity/1791888562247741_thumb.jpg"><link data-vue-meta="ssr" rel="preload" href="/css/c07a662d99948b1bb3ea.css" as="style"><link data-vue-meta="ssr" rel="preload" href="/js/8f3c2a557854e1e78df2.js" as="script"><link data-vue-meta="ssr" rel="preload" href="/css/83fe22ef36e0e911b983.css" as="style"><link data-vue-meta="ssr" rel="preload" href="/js/67250a682825a4ba6c41.js" as="script"><link data-vue-meta="ssr" rel="stylesheet" href="/css/3a97c58a8ac168d0aee2.css"><script data-vue-meta="ssr" src="/js/18e80b5bb7ee72ada0b4.js" defer></script><script data-vue-meta="ssr" src="/js/85083139c85ec1feed3a.js" defer></script><script data-vue-meta="ssr" src="/js/7d66c8d03b7ddc9517b3.js" defer></script><script data-vue-meta="ssr" src="/js/97b2a658df6e81b7174e.js" defer></script><script data-vue-meta="ssr" src="/js/efe71c1505cada9f61a3.js" defer></script><script data-vue-meta="ssr" src="/js/6d90190805a6db47ed6b.js" defer></script><script data-vue-meta="ssr" src="/js/d87dc04bd285c9699494.js" defer></script><script data-vue-meta="ssr" src="/js/adc6e780883295153d8a.js" defer></script><script data-vue-meta="ssr" src="/js/f3b5a8e779bc3b28e4eb.js" defer></script>
+  </head>
+  <body>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"춘천시 홍보담당관","url":"https://www.chuncheon.go.kr/cityhall/administrative-info/notice-info/notice-announcement/view/?notAncmtMgtNo=76458&pageIndex=1&searchCnd=SJ&searchWrd=%EB%B4%84%EB%82%B4","image":"https://cf-tabs-image.campuspick.com/activity/1791888562247741_thumb.jpg"}</script>
+    <div id="seo-fallback" hidden></div>
+    <div id="app"></div>
+    <div id="bottom-popup"></div>
+    <script id="__INITIAL_STATE__" type="application/json">{"adServerUrl":"https://ad.campuspick.com","apiServerUrl":"https://api2.campuspick.com","webServerUrl":"https://www.campuspick.com","appInfo":{"appName":"","appVersion":"","osName":"","osVersion":""},"isLogged":false,"pageName":"pages/activity/view","screenName":"공모전 - 상세","sentryDSN":"https://225a8e77f4be4c4594ea218c39f4ef21@o4504002973597696.ingest.sentry.io/4504036836114432","sentryENV":"production","target":1,"targetPath":"contest","activity":{"id":36544,"target":1,"title":"제4회 『춘천 한 문장, 봄내글판』 전국 공모전","start_date":"2026-10-13","end_date":"2026-10-23","website":"https://www.chuncheon.go.kr/cityhall/administrative-info/notice-info/notice-announcement/view/?notAncmtMgtNo=76458&pageIndex=1&searchCnd=SJ&searchWrd=%EB%B4%84%EB%82%B4","company":"춘천시 홍보담당관","company_type":2,"company2":"소양하다","company3":"","prize_top":800000,"prize_total":4,"prize_benefit":"[0,0,0,0,0,0]","description":"제4회 『춘천 한 문장, 봄내글판』 전국 공모전\n\n● 참가 자격\n- 춘천을 사랑하는 전 국민 누구나\n\n● 공모 주제\n-『정원도시 춘천』\n- 춘천은 2027년 대한민국 정원산업박람회 개최지로, 호수로 둘러싸인 상중도에는 전국 유일의 국립정원소재센터를 중심으로 호수지방정원이 조성되고 있습니다. 도시 곳곳의 시민정원과 호수정원페스타 등 춘천의 정원문화를 떠올리며, 아름다운 호수 경관 위에 펼쳐질 미래의 정원도시 춘천을 자유롭게 표현해 주세요.\n\n● 공모 일정\n- 2026. 10. 13.(화) ~ 2026. 10. 23.(금)\n- 결과발표: 2026. 11. 3.(화) 예정\n- 수상자 개별 통지 및 춘천시 대표 홈페이지 발표\n  ※ 심사 일정에 따라 결과발표 일정은 변동될 수 있습니다.\n\n● 시상 내역\n- 최우수(1명) 80만 원, 우수(1명) 50만 원, 장려(1명) 각 30만 원, 입선(2명) 각 10만 원\n   ※ 시상품은 춘천사랑상품권으로 지급\n   ※ 접수 결과 및 작품성에 따라 시상 인원이 변동될 수 있습니다.\n   ※ 시상식은 11월 중 개최하며, 불참 시 수상이 취소될 수 있습니다.\n\n● 접수 방법\n- 구글링크 접수: https://forms.gle/9BQvpNabRdN2r9sm8\n  ※ 우편 및 방문접수 불가\n\n● 심사 기준\n- 글자수 40자 이내(띄어쓰기 포함)\n- 창작 문안\n- 지역성, 심미성, 전달성, 참신성, 대중성을 고려하여, 구성된 문안심사위원회에서 심사 진행\n\n● 유의 사항\n- 공모전에 출품된 작품의 저작권은 응모자에게 있습니다.\n- 춘천시(운영사무국)는 수상작에 한하여 공모전 운영, 봄내글판 게시, 전시, 기록자료 제작, 보도․홍보, 홈페이지․SNS․인쇄물 게재 등의 목적 범위에서 비독점적, 비영리적으로 이용할 수 있습니다.\n- 수상자의 경우 이름이 봄내글판 및 홍보물 등에 활용될 수 있으며, 보도자료 및 홍보물 등에 인터뷰가 활용될 수 있습니다.\n- 응모 시 반드시 실명 및 연락 가능한 본인의 연락처를 기입하여야 하며, 이를 지키지 않을 시 수상이 취소될 수 있습니다.\n- 제출된 응모작은 반환하지 않으며, 타인 작품의 도용ㆍ표절 등으로 발생하는 모든 법적 책임은 응모자에게 있습니다.\n- 점수 등 심사 과정의 내부사항은 공개하지 않으며, 결과에 대한 이의제기 및 재심 요청은 불가합니다.\n- 수상작에 대해 도용ㆍ표절 등 부정행위가 확인될 경우 자동 탈락 및 시상금 환수 조치 됩니다.\n- 수상작은 수상자와의 합의를 거쳐 문안선정위원회를 통해 수정될 수 있으며, 심사 결과에 따라 수상범위가 달라질 수 있습니다.\n\n● 문의 사항\n- 카카오톡채널 : 춘천봄내글판\n- 운영시간: 평일 10:00~18:00","image_thumb":"1791888562247741_thumb.jpg","image":"1791888562247741.jpg","view_count":180,"comment_count":0,"team_count":0,"created_at":"2026-10-14 17:37:22","updated_at":"0000-00-00 00:00:00","manager_id":28332,"online_type":0,"price":0,"region":"null","is_scrapped":0},"categories":[102,107,101],"image":"https://cf-tabs-image.campuspick.com/activity/1791888562247741.jpg","imageThumb":"https://cf-tabs-image.campuspick.com/activity/1791888562247741_thumb.jpg","isScrapped":0}</script>
+  </body>
+</html>

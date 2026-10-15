@@ -1,0 +1,77 @@
+# 제출 준비: [공모전 공식 명칭]
+
+- 하네스 id: `[id]` · 마감: `[YYYY-MM-DDTHH:MM+09:00]`
+- 제출 방법: [폼/메일/사이트/우편] · 제출처: [URL 또는 주소]
+- 이 파일에는 개인정보 값을 쓰지 않는다. 항목 이름과 `harness profile` 키만 적는다. 값은 사용자 승인 뒤 제출 단계에서만 `harness profile show --reveal --json`으로 꺼내 제출 서식에 바로 넣는다.
+
+## 1. 형식·제한
+
+- [ ] 파일 형식이 공고와 같다: [형식] (FR-[###])
+- [ ] 분량·규격이 한도 안이다: [측정값] / [한도] (확인 명령: [pdfinfo/ffprobe/글자 수])
+- [ ] 파일 용량이 한도 안이다: [크기] / [한도]
+- [ ] 파일 이름이 공고 규칙을 따른다: [규칙]
+- [ ] 블라인드 심사면 신원 정보가 결과물에 없다
+- [ ] PDF는 한컴독스 웹으로 만들었고 모든 쪽을 렌더해 확인했다(해당 시)
+
+## 2. 제출 파일
+
+| 파일 | 경로 | SHA-256 | 비고 |
+|---|---|---|---|
+| [결과물] | [submission/…] | [ ] | [ ] |
+| [신청서·동의서] | | | 개인정보 채움은 승인 후 |
+
+<p>표 1. 제출 파일</p>
+
+## 3. 생성형 AI 활용 공개
+
+- 정책: [허용/표기 조건부 허용/금지/불명] (FR-[###])
+- [ ] 공고가 요구한 고지 문구를 원문 그대로 넣었다: [위치]
+- [ ] AI 활용 설명서·도구 목록·사람이 한 일을 첨부했다(요구 시)
+- [ ] 직접 창작 서약과 충돌하지 않는다
+- [ ] 유사도 검사가 요구되면 결과를 첨부했다: [결과 파일]
+
+## 4. 필요한 개인정보 항목
+
+| 항목 | 필요한 곳 | `harness profile` 키 |
+|---|---|---|
+| [성명] | [신청서] | `identity.name` |
+| [영문·한자 성명] | | `identity.name_en`, `identity.name_hanja` |
+| [생년월일] | | `identity.birth_date` |
+| [연락처·이메일] | | `contact.phone`, `contact.email` |
+| [소속(학교·학과·학년)] | | `affiliation.school`, `affiliation.department`, `affiliation.year` |
+| [서명·도장 이미지] | | `signature`, `seal`(파일, `data/profile/`) |
+| [재학증명서] | | `affiliation.proof`(파일, `data/profile/`) |
+| [그 밖에 프로필에 없는 항목] | | 없음: 승인 단계에서 사용자에게 묻는다(파일에 남기지 않는다) |
+
+<p>표 2. 개인정보 항목(값은 승인 뒤 제출 단계에서만 `harness profile show --reveal --json`으로 채운다. 비어 있으면 사용자에게 `harness profile set`을 요청한다)</p>
+
+## 5. 제출 입력값
+
+- 메일 제목·본문 / 폼 응답값 / 업로드 제목·설명·해시태그·공개 설정:
+
+```text
+[그대로 붙여 넣을 내용]
+```
+
+## 6. 최종 판정
+
+- ContestJudge(stage `final`): [ready] · 총점: [ ] / 목표 [ ] · 기록: `.harness/judge/final-[n].json`, `harness score <id> --stage final --file <경로>` [시각], `JUDGE.md`
+- 기획 채점(stage `plan`) 기록: [있음, 예측 총점 [ ] / 목표 [ ]] · 목표 미달로 내면 `--score-ok` 사유: [ ]
+
+## 7. 승인
+
+- [ ] `harness check <id>` 깨끗함(결과물·커밋 메시지에 페르소나 흔적 없음): [시각]
+- [ ] `harness transition <id> awaiting_approval --note "<요약>"` 실행(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수 필요): [시각]
+- 사용자 승인: [메시지 원문] — [YYYY-MM-DD HH:MM]
+
+## 8. 접수 증빙
+
+- 제출 시각: [ ]
+- 접수 번호·확인 메일·화면 캡처: [경로]
+- 기록: `harness submit <id> --method <폼|메일|사이트|우편> --receipt "<증빙>" --files <파일...>` 실행 [시각](제출 기록부에도 남는다)
+
+## 9. 정리
+
+- [ ] 제출본을 포함한 모든 파일을 커밋·push했다(제출본이 `.gitignore`에 걸려 있지 않다)
+- [ ] `harness clean <id> --dry-run`에 막는 이유가 없다: [시각]
+- [ ] `harness clean <id>` 실행(세션 닫기, 로컬 폴더를 휴지통으로): [휴지통 경로] · 본선·발표 등 남은 일이 있으면 정리하지 않고 `running`으로 돌아간다

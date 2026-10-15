@@ -1,0 +1,21 @@
+.DS_Store
+/target/
+node_modules/
+references/*
+!references/REFERENCES.md
+# Personal state and operator settings: kept on the operator's machine, never published.
+# Committed examples: data/config.example.json, data/profile.example.json,
+# data/local-rules.example.md, data/persona.example.md.
+data/config.json
+data/profile.json
+data/profile/
+data/submissions.json
+data/local-rules.md
+data/persona.md
+data/trash/
+data/*.lock
+data/registry.json
+data/main-system.md
+data/main-start.md
+data/logs/
+BOARD.md

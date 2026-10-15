@@ -1,0 +1,10 @@
+- 이 세션이 지휘(HQ)를 맡는다. `<harness>/agents/ContestHQ.md`의 레벨 3 절차를 HQ 서브에이전트로 다시 띄우지 말고 이 세션에서 직접 수행한다(워커가 한 단계 아래에서 일할 수 있게).
+- 진행 방식은 점수 루프다: 점수표 `RUBRIC.md` → 기획 채점 반복(후보 2~3개, 최고안 선택, 예측 총점이 목표 이상이 되거나 3회까지) → 만들기 → 중간(`draft`)·최종(`final`) 채점 → `harness score` 기록 → 관문.
+- 순서: `RUBRIC.md`·`SPEC.md` → 조사(`DomainResearcher`, 논문은 `ArticleResearcher`; 하나부터 시작해 최대 5개 병렬) → 주제·콘셉트 후보 기획 채점(`ContestJudge` stage `plan`) → `PLAN.md` → `TASKS.md`(`[P]` 웨이브) → 웨이브마다 러너의 서브에이전트(task·agent 도구) 워커 병렬 실행 → 체크포인트마다 채점과 리뷰.
+- 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `harness score <id> --stage <stage> --file <경로>`로 남긴다.
+- 서비스형이면 SPEC 전에 `ReferenceScout`로 레퍼런스를, 화면이 있으면 체크포인트에서 `UxReviewer`를 골라 쓸 수 있다.
+- 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표(`gate.json`의 `criteria`)가 있으면 최종 채점 전에 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
+- 웨이브 폭은 매번 `harness capacity --json`의 `recommended_workers`를 넘기지 않는다(`ram.budget_gb`로 묶인 값). 0이거나 `ram.pressure`가 warning 이상이면 순차로 직접 한다.
+- 템플릿은 `<harness>/harness/templates/`에 있다.
+- 관문: `awaiting_approval` 전이에는 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`.
+- 사람 관문: 창작물 콘셉트 선택, 제출 승인.

@@ -1,0 +1,11 @@
+- 이 세션이 지휘(HQ)를 맡는다. `<harness>/agents/ContestHQ.md`의 레벨 5 절차를 이 세션에서 직접 수행한다(HQ 서브에이전트로 다시 띄우지 않는다).
+- 진행 방식은 점수 루프다: 점수표 `RUBRIC.md` → 기획 채점 반복 → 계획 검수 → 만들기 → 중간(`draft`)·최종(`final`) 채점 → `harness score` 기록 → 관문. 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `harness score <id> --stage <stage> --file <경로>`로 남긴다.
+- 1) 레퍼런스: `ReferenceScout`를 띄워 같은 일을 이미 하는 프로덕션 서비스·오픈소스를 `research/references.md`에 비교받는다. 이미 있는 프로덕션이 교본이다.
+- 2) 계획: 레퍼런스를 본 뒤 `RUBRIC.md`, `SPEC.md`, `PLAN.md`(아키텍처 뼈대, 따를 패턴과 차별점), `TASKS.md`(DAG)를 쓴다. 조사는 `DomainResearcher`(논문은 `ArticleResearcher`).
+- 3) 기획 채점: 제품 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 `ContestJudge` stage `plan`으로 예측 채점하고, 가장 높은 안의 기준별 부족분을 SPEC·PLAN에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 커밋·push한다.
+- 4) 계획 검수(사람 관문, 반드시): `plan` 점수가 있어야 한다(없으면 CLI가 거절한다). `harness transition <id> plan_review --note "<검수 요청 요약과 예측 총점/목표>"`을 실행하고 사용자에게 SPEC·PLAN 경로, 예측 점수와 검토할 점을 묶어 보여 검수를 요청한 뒤 멈춘다. 승인 전에는 구현을 시작하지 않는다.
+- 5) 승인되면 `harness transition <id> running --note "승인: <승인 메시지 원문 · 시각>"`으로 돌아와 구현한다. 이 승인 기록이 없으면 CLI가 `awaiting_approval` 전이를 거절한다. 고치라고 하면 계획을 고치고 다시 채점해 4)로 간다.
+- 구현: 러너의 서브에이전트(task·agent 도구) 워커 웨이브, 긴 작업은 작업 환경이 orca일 때만 Orca orchestration 워커(그 밖에는 서브에이전트 워커). 폭은 매번 `harness capacity --json`의 `recommended_workers`와 `ram.budget_gb`로 정한다.
+- 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`), `UxReviewer`(실행 중인 화면, 작업 환경의 브라우저), 러너의 기본 `security-reviewer`, 코드는 `reviewer`(이 둘이 없는 러너면 같은 관점으로 이 세션이 직접 검토), 글 산출물에 평가표가 있으면 `ContestEditor`. 최적화는 UxReviewer·측정이 짚은 곳만 UX에 영향이 없을 만큼 가볍게 한다.
+- 관문: `awaiting_approval` 전이에는 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`.
+- 사람 관문: 계획 검수(`plan_review`), 제출 승인.

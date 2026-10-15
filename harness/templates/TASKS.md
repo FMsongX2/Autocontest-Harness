@@ -1,0 +1,60 @@
+# 작업: [공모전 공식 명칭]
+
+- 입력: `SPEC.md`, `PLAN.md` · 하네스 id: `[id]`
+
+## 형식
+
+`- [ ] T### [P] [D#] 설명 (경로)` — 레벨 4·5는 줄 끝에 `after: T###, T###`(진짜 선행 작업만)를 붙인다.
+
+- `[P]`: 다른 파일을 다루고 끝나지 않은 작업에 기대지 않아 같은 웨이브에서 병렬로 돌릴 수 있다.
+- `[D#]`: SPEC.md 결과물 번호. 준비·기반·마무리 작업은 붙이지 않는다.
+- 끝난 작업은 `[X]`. 실패한 `[P]` 작업은 그대로 두고 아래에 `↳ 실패: 이유`를 단다. 같은 파일을 다루는 작업은 차례로 돌린다.
+
+## 1단계: 준비
+
+- [ ] T001 공고·서식 원본을 `docs/form/`에 저장 (docs/form/)
+- [ ] T002 [P] 이전 수상작·심사평 조사 (research/research.md)
+- [ ] T003 [P] 도구·계정 확인(한컴독스, GPU 서버 등) (PLAN.md)
+- [ ] T008 (레벨 2 이상) 점수표 작성 (RUBRIC.md)
+- [ ] T009 (레벨 2 이상) 콘셉트·기획 후보 2~3개 기획 채점(ContestJudge stage `plan`, `.harness/judge/plan-<n>.json`, `harness score <id> --stage plan --file <경로>`), 최고안 선택·보완을 예측 총점이 목표 이상이 되거나 3회까지 반복 (RUBRIC.md, research/research.md) after: T008
+- [ ] T006 [P] (레벨 5 필수) ReferenceScout 레퍼런스 조사 (research/references.md)
+- [ ] T007 (레벨 5 필수) SPEC·PLAN·TASKS 커밋·푸시 후 `harness transition <id> plan_review --note "<검수 요청 요약과 예측 총점>"`, 사용자 검수 요청하고 멈춤 (PLAN.md) after: T006, T009
+
+**체크포인트**: SPEC.md·RUBRIC.md 확정, 기획 채점으로 고른 주제·콘셉트와 근거 기록. 레벨 5는 계획 승인(`harness transition <id> running --note "승인: <원문·시각>"`) 전에는 2단계로 가지 않는다.
+
+## 2단계: 기반 (모든 결과물이 기댄다)
+
+- [ ] T004 용어집·문체 규칙·파일 구조 고정 (PLAN.md)
+- [ ] T005 [P] 공통 데이터·그림·표 준비 (data/, out/)
+
+**체크포인트**: 기반 완료 — 결과물 작업을 병렬로 시작할 수 있다. 모든 FR·SC가 작업에 연결되었는지 확인.
+
+## 3단계: D1 — [결과물 이름] (P1)
+
+- [ ] T010 [P] [D1] [설명] ([경로])
+- [ ] T011 [D1] [설명] ([경로]) after: T010
+
+**체크포인트**: D1만으로 제출 가능. ContestJudge 중간 채점(stage `draft`) → `harness score`.
+
+## 4단계: D2 — [결과물 이름] (P2)
+
+- [ ] T020 [P] [D2] [설명] ([경로])
+
+**체크포인트**: ContestJudge 중간 채점(stage `draft`) → `harness score`.
+
+## 마지막 단계: 마무리
+
+- [ ] T090 서식·형식 최종 반영(한컴독스 확인, PDF는 한컴독스 웹) ([경로])
+- [ ] T091 AI 활용 고지·서약·동의서 확인 (SUBMISSION.md)
+- [ ] T092 ContestJudge 최종 채점(stage `final`) `ready`·목표 이상, `harness score <id> --stage final --file <경로>` (JUDGE.md)
+- [ ] T093 SUBMISSION.md 작성, 커밋·푸시, `harness transition <id> awaiting_approval --note "<요약>"`
+- [ ] T094 (승인·제출 뒤) `harness submit` → 커밋·푸시 → `harness clean <id>`(남은 본선·발표가 있으면 정리하지 않는다)
+
+## 대응 확인
+
+| 항목 | 작업 |
+|---|---|
+| FR-001 | T0xx |
+| SC-001 | T0xx |
+
+<p>표 1. 규칙·심사기준과 작업의 대응</p>

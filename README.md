@@ -1,0 +1,534 @@
+**English** | [한국어](README.ko.md)
+
+# Autocontest-Harness
+
+Autocontest-Harness finds open contests, checks whether you are eligible, and runs a coding agent on each one until the entry is ready for you to submit.
+
+It is a single Rust binary (`harness`) plus a set of agent prompts. The binary keeps a local registry of contests, moves each one through a fixed set of states, and starts agent sessions. The agents read the official announcements, plan the work, and produce the deliverables. Sessions can run on five agent harnesses (omp, pi, Claude Code, Codex, dsh) inside four kinds of workspace (Orca, tmux, a background process, the current terminal). The harness never submits an entry for you.
+
+[![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)](Cargo.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+Repository: https://github.com/FMsongX2/Autocontest-Harness. The interface contract (commands, states, file formats, backends) lives in [docs/CONTRACT.md](docs/CONTRACT.md).
+
+## Why
+
+Korean contest listings are spread across many aggregator sites, and each one formats things differently. The same contest often shows up on several of them. Before any real work starts, you have to read the official notice, check eligibility (student-only, region, team rules, AI policy, fees), and decide how much effort the contest is worth. A short-form video and a month-long product hackathon need very different setups.
+
+The harness automates these steps: collecting, deduplicating, gating, sizing, scheduling, and launching. People still make the decisions that matter: which creative concept to pursue, whether a production-scale plan is sound, and whether to submit.
+
+## Features
+
+- Collectors for 11 listing sites, with dedupe across sites. The first run on 2026-10-15 saw 375 listings, merged 75 cross-site duplicates automatically, and added 246 new contests.
+- A web-search agent (`ContestScout`) that looks for contests the aggregators do not list: government and public-agency sites, academic societies, corporate contests, and overseas organizations.
+- An agent gate (`ContestGate`) that reads the official notice. It records the eligibility, deliverables, scoring criteria, submission method, type, level, and priority in a structured `gate.json`.
+- Five execution levels. Each level sets the agent team for a contest, from a single session up to a reviewed, production-grade build.
+- Admission control. New sessions start only when the global limit, the per-level limit, and the memory budget all allow it, and when the token-usage pace of your model provider leaves room.
+- Pluggable backends. Pick the agent harness (`runner`) and where sessions run (`workspace`) in the config.
+- A main interface session (`harness chat`) from which you watch and direct every contest, with an optional persona that never reaches contest sessions.
+- A persona guard that blocks the move to submission approval while a contest folder or its commit messages contain persona traces.
+- Human-in-the-loop gates for creative concepts, Level 5 plans, and final submission.
+- A score loop from Level 2 up: the contest's scoring criteria become a rubric, `ContestJudge` scores the plan before anything is built and the deliverable afterward, and every score is recorded with `harness score`. Submission approval waits until the final score reaches the target.
+- A submission ledger (`harness submitted`) that remembers every contest you have already entered, including ones entered outside the harness, so the same contest is never gated, routed, or submitted twice.
+- A local user profile (`harness profile`, `/contest-harness-init`) with your eligibility facts and the personal details forms ask for. The gate sees only eligibility facts; identifying values are revealed only at an approved submission step.
+- A board (`BOARD.md`) that lists every contest by state.
+
+## How it works
+
+```mermaid
+flowchart LR
+  A[Collect<br/>harness collect<br/>ContestScout] --> B[Gate<br/>ContestGate<br/>harness gate]
+  B -->|pass| C[Route<br/>harness route<br/>folder, repo, workspace]
+  B -->|fail / hold| X[Rejected / on hold]
+  C --> D[Launch<br/>harness launch<br/>runner + workspace + level prompt]
+  D --> E{Level}
+  E -->|1| F[Single session + playbook]
+  E -->|2| G[Session + researcher<br/>ContestEditor]
+  E -->|3-4| H[HQ: SPEC, PLAN, TASKS<br/>worker waves, reviewers<br/>Level 4: experiment loop]
+  E -->|5| P[ReferenceScout, SPEC, PLAN<br/>plan_review: human approval]
+  P --> H
+  F & G & H --> J[ContestJudge<br/>harness score]
+  J --> Q[Persona guard<br/>harness check]
+  Q --> K[awaiting_approval<br/>human approval]
+  K --> L[harness submit]
+```
+
+Registry states: `discovered → gate_pass | rejected | hold → routed → running → (plan_review →) running → awaiting_approval → submitted → closed`. Most states can also move to `skipped` or `duplicate`. [docs/CONTRACT.md](docs/CONTRACT.md) section 4 has the full transition table. Only the CLI writes to the registry. Agents change state by calling `harness`.
+
+### Architecture
+
+- **Rust core** (`src/`). One binary handles the registry, collectors, dedupe, gate records, routing, capacity, the board, the persona guard, and session launch. It has no runtime dependencies beyond the tools it calls (`git`, `gh`, the runner and workspace CLIs).
+- **Runners** (`src/runners/`): `omp`, `pi`, `claude`, `codex`, `dsh`. Each runner knows its interactive command, its one-shot command, whether it has subagents, how to append a system prompt, and how to install the harness agents and skill.
+- **Workspaces** (`src/workspaces/`): `orca`, `tmux`, `headless`, `terminal`. Each workspace knows how to create a per-contest workspace, open a session in it, and read the tail of its screen or log.
+- **Extension package** for omp and pi (`package.json`, `extensions/contest-harness.ts`, `commands/`, `skills/`, `agents/`). It adds `/contest` commands to either agent, and a `contest_agent` subagent tool to pi.
+- **Install-time conversion** for the other runners. `harness install` rewrites the omp agent files as Claude Code subagents or Codex custom agents and links the skill where those tools look for it.
+
+## Quickstart
+
+Prerequisites:
+
+- macOS. Memory checks use `vm_stat` and the macOS memory-pressure level, and scheduled runs use launchd.
+- Rust 1.89 or later (`cargo`). There are no prebuilt binaries.
+- `git` and the GitHub CLI `gh`, signed in to an account that can create private repositories in your `github_org` (by default, your own account).
+- At least one runner CLI on `PATH`: [omp](https://github.com/can1357/oh-my-pi) (the default), pi, Claude Code (`claude`), Codex (`codex`), or dsh.
+- A workspace backend for contest sessions: [Orca](https://github.com/stablyai/orca) with its `orca` CLI (the default), or `tmux`. `headless` needs nothing extra.
+
+Clone the harness and build it. Any location works; the examples use `~/contests/Contest-Harness`. The binary records the checkout it was built from and reads `data/`, prompts, agents, and the skill from there. Set `HARNESS_HOME` to use a different checkout.
+
+```bash
+mkdir -p ~/contests
+git clone https://github.com/FMsongX2/Autocontest-Harness.git ~/contests/Contest-Harness
+cd ~/contests/Contest-Harness
+cargo install --path . --root ~/.local     # installs ~/.local/bin/harness; ~/.local/bin must be on PATH
+```
+
+Create your settings from the committed example and edit them:
+
+```bash
+cp data/config.example.json data/config.json   # personal settings; git-ignored
+$EDITOR data/config.json                        # contests_root, github_org, runner, workspace; see Configuration
+```
+
+Then set up your user profile (eligibility facts and the details submission forms ask for). In omp or pi, after `harness install`, run `/contest-harness-init`; it asks for each field in a dialog. In any terminal, run:
+
+```bash
+harness profile init    # asks field by field; Enter keeps the current value
+harness profile show    # sensitive values are masked
+```
+
+Optionally copy `data/local-rules.example.md` to `data/local-rules.md` and write rules for your own environment there (see [Local rules](#local-rules)).
+
+With the default `orca` workspace, contest workspaces are created as worktrees of `orca_repo_path` (default: `contests_root`, which defaults to `~/contests`). That directory must be a git repository added to Orca. Set `"workspace": "tmux"` or `"headless"` to run without Orca.
+
+Install the agents, skill, and extension for your runner, collect listings, and open the main session:
+
+```bash
+harness install            # the configured runner; or --runner pi --runner claude, or --all
+harness collect            # all sources; or: harness collect --source dacon --pages 1
+harness chat               # main interface session at the repository root, in this terminal
+```
+
+The main session summarizes the board and capacity and asks you what to do. You can also drive each step yourself:
+
+```bash
+harness list --state discovered
+# Gate: ask the main session (or any session of your runner) to run ContestGate on an id,
+# or use the /contest-gate <id> prompt template in omp or pi. The agent writes gate.json
+# and records it with: harness gate <id> --file gate.json
+harness show wevity-111674
+harness route wevity-111674            # folder <contests_root>/<Folder>, private repo, workspace, CONTEST.md
+harness capacity                       # free slots per level, memory budget, recommended workers
+harness launch wevity-111674 --dry-run # print the command and prompt without starting it
+harness launch wevity-111674
+harness peek wevity-111674             # tail of the session's screen or log
+```
+
+Use `--no-repo` or `--no-workspace` on `route` to skip the GitHub repository or the workspace. To launch everything the limits allow, use `harness tick --auto-launch`. It routes and launches `gate_pass` and `routed` contests in priority order. Contests that do not fit are reported as `waiting`.
+
+## Runners and workspaces
+
+`runner` picks the agent harness for contest sessions, scheduled runs, and the main session. `workspace` picks where contest sessions run. Interactive workspaces use the runner's interactive command. `headless` has no TTY, so it uses the runner's one-shot command.
+
+<p>Table 1. Runners</p>
+
+| Runner | Subagents | System prompt (main session) | One-shot command | Model selection | `harness install` |
+|---|---|---|---|---|---|
+| `omp` | Yes (`task` tool) | `--append-system-prompt` | `omp -p` | `preset_by_level` (per-run `--config` overlay) or `model_by_level` | `omp plugin link <repo>`; removes symlinks left by the old per-file install |
+| `pi` | No. The extension's `contest_agent` tool runs one agent in a separate `pi` process | `--append-system-prompt` | `pi -p` | `model_by_level` | `pi install <repo>` |
+| `claude` | Yes (converted subagents) | `--append-system-prompt-file` | `claude -p` | `model_by_level` | Agents converted to `~/.claude/agents/contest-harness/`, skill linked to `~/.claude/skills/contest-harness` |
+| `codex` | Yes (converted custom agents) | `-c developer_instructions=...` | `codex exec` | `model_by_level` | Agents converted to `~/.codex/agents/contest-<Name>.toml`, skill linked to `~/.agents/skills/contest-harness` |
+| `dsh` | No | No flag; prepended to the first message | `dsh --profile headless` | Not supported | Skill linked to `~/.agents/skills/contest-harness` |
+
+On runners without subagents, `harness launch` appends a section to the launch prompt telling the session to run subagent steps one after another in the same session. Contest sessions never get an appended system prompt, so they never get the persona. `runner_args` adds fixed arguments per runner; the defaults are `--permission-mode acceptEdits` for `claude` and `--sandbox workspace-write` for `codex`.
+
+<p>Table 2. Workspaces</p>
+
+| Workspace | Interactive | What `route` creates | How `launch` starts the session | `peek` |
+|---|---|---|---|---|
+| `orca` | Yes | A worktree of `orca_repo_path` named after the contest | `orca terminal create` in that worktree, running `cd <folder> && <command>` | `orca terminal read` |
+| `tmux` | Yes | Nothing | A window per contest in the tmux session `contest-harness`, running `cd <folder> && <command>` | `tmux capture-pane` |
+| `headless` | No | Nothing | A detached background process running the one-shot command, logging to `<folder>/.harness/session.log` | Tail of the log |
+| `terminal` | Yes | Nothing | Replaces the current process. Default for `harness chat`; `launch` refuses it | Not available |
+
+The registry records where each session runs in the entry's `session` field: `{workspace, workspace_id, runner, handle}`.
+
+## omp and pi extension
+
+The repository is an extension package for both omp and pi. `harness install --runner omp` runs `omp plugin link <repo>`, and `harness install --runner pi` runs `pi install <repo>`. Both load the same extension file and the repository's skill, agents, and prompt templates.
+
+<p>Table 3. Commands and tools registered by the extension</p>
+
+| Name | Kind | What it does |
+|---|---|---|
+| `/contest` | Command | Board summary: counts by state, contests awaiting submission approval or plan review, hold questions, in-progress deadlines within 7 days, and capacity |
+| `/contest <id>` | Command | Summary of one contest |
+| `/contest-chat` | Command | How to open the main interface session, and the binary version |
+| `/contest-harness-init` | Command | Sets up your user profile: reads the fields from `harness profile fields --json`, asks for each in an input dialog, saves with `harness profile set`, and ends with the masked `harness profile show`. In modes without dialogs it tells you to run `harness profile init` in a terminal |
+| `/contest-gate <id>` | Prompt template (`commands/contest-gate.md`) | Runs `ContestGate` on one registry entry and summarizes the result |
+| `contest_agent` | Tool, pi only | Runs `agents/<agent>.md` as a one-shot `pi` subprocess and returns its output. Not registered inside that subprocess, so agents cannot recurse |
+
+The extension gets all data from `harness ... --json`. It looks for the binary at `HARNESS_BIN`, then `target/release/harness` and `target/debug/harness` in the checkout, then `harness` on `PATH`. It does not add the persona.
+
+## Main interface and persona
+
+`harness chat [--runner R] [--workspace terminal|orca|tmux]` opens the main session at the repository root. It writes `data/main-system.md` from the persona (when enabled) and [harness/prompts/main.md](harness/prompts/main.md), passes it to the runner as an appended system prompt, and starts with `data/main-start.md`: summarize the board and capacity, then ask you any pending questions in one batch. From there you ask in plain language and the session runs `harness` commands and agents for you. The main session does not write or edit contest deliverables; contest sessions started by `harness launch` do that.
+
+The operator persona is an optional feature, off by default. It sets the conversational tone of the main session only. To use one, write it in `data/persona.md` (git-ignored; start from the committed `data/persona.example.md`), point `persona.file` at it if you keep it elsewhere, set `persona.call_user` to how it should address you, and turn it on:
+
+```json
+"persona": {"enabled": true, "call_user": "<form of address>", "guard_terms": ["<persona name>"]}
+```
+
+The persona goes only into the main session (`harness chat`). It is never added to contest sessions, subagents, scheduled runs, or the extension, and no setting turns it on there.
+
+## Persona guard
+
+Contest deliverables (code, comments, reports, slides, forms) and commit messages must not contain the persona: its name, the form of address, casual speech, or laughter notation. List those markers in `persona.guard_terms`. The harness enforces this:
+
+- `harness check <id>` scans every UTF-8 text file in the contest folder and every commit message for `persona.guard_terms` plus `persona.call_user`, and exits with code 4 if it finds any. Korean syllable terms count only at the start of a word, so a term `도담` matches in `도담이` but not inside `새도담길`.
+- It skips `.git`, `.harness`, `node_modules`, `target`, virtualenvs and caches, `dist`, `build`, `data`, `dataset(s)`, `raw`, `cache`, files over 4 MB, and binary files.
+- `harness transition <id> awaiting_approval` refuses while the scan finds anything. If a match is intentional, such as a character's line in a story, pass `--persona-ok "<reason>"`; the reason and the match count are written to the history note.
+- Agents, skills, templates, and launch prompts refer to you as "the user" (사용자), because these texts are copied into contest sessions.
+
+The guard checks `guard_terms` and `call_user` whether or not the persona is enabled.
+
+## Levels
+
+`ContestGate` assigns each contest one level. If a contest falls between two levels, it gets the higher one.
+
+<p>Table 4. Execution levels</p>
+
+| Level | Size | Example contests | Execution |
+|---|---|---|---|
+| 1 | One deliverable within a day | Short-form video, poster, image, slogan, short essay, simple application form | Single agent: one session follows the type playbook. `ContestJudge` runs once at the end as the submission gate |
+| 2 | One document that needs research | Idea proposal, short plan | Main session plus one researcher (`DomainResearcher`, or `ArticleResearcher` for academic sources). If the notice has scoring criteria (`gate.criteria`), `ContestEditor` checks and edits style, tone, and sentences against them. Then `ContestJudge` |
+| 3 | A deliverable that takes several sessions | Policy-idea paper, paper backed by a simple experiment, simple policy-related service, a project the size of an illegal-ad detection service | HQ (the session follows the `ContestHQ` procedure to write SPEC, PLAN, TASKS) + `DomainResearcher` (plus `ArticleResearcher` when needed) + subagent worker waves + reviewers (`ContestJudge` at every checkpoint, `ContestEditor` for writing, omp's built-in `reviewer` for code) |
+| 4 | Large project with an experiment or feedback loop | Multi-day server-experiment research competitions, or DACON-style submit → score → analyze → improve loops | Level 3 setup + experiment loop (every experiment and submission is logged in `LEDGER.md`), remote compute (a GPU server or a cloud GPU that is deleted as soon as the job ends), and Orca orchestration workers for long tasks |
+| 5 | A month or more, real production quality | Products that need real-world quality, such as the Meta AI hackathon | 1) `ReferenceScout` finds and analyzes existing production references on the web. 2) SPEC and PLAN are written after reviewing them. 3) The session moves the contest to `plan_review`, asks for human review, and stops. 4) After approval: HQ + `DomainResearcher` + worker waves + `UxReviewer` + omp's built-in `security-reviewer` + optimization (only as much as UX needs) + `ContestJudge` |
+
+Signals the gate applies:
+
+- A multi-day server or GPU experiment, or a repeated-submission feedback loop, means at least Level 4.
+- Real production quality, or a timeline of a month or more, means Level 5.
+- Implementing an experiment or a service means at least Level 3.
+- A document that needs research evidence means at least Level 2.
+
+The gate records its reasoning in `reasons`.
+
+Priority includes a schedule-slack score that uses a minimum number of days left before the deadline: 2 days for Level 1, 5 for Level 2, 10 for Level 3, 14 for Level 4, and 30 for Level 5. A contest gets 20 points at twice the minimum or more, 10 points at the minimum or more, and 0 below it.
+
+Contest types are `video, image, music, idea, paper, report, model, data, software, essay, design, research, other`. `model` covers leaderboard contests with repeated submissions. `research` covers contests where you run experiments and report the results with few or no leaderboard submissions. Each type maps to a playbook under `skills/contest-harness/playbooks/`.
+
+## Score loop
+
+From Level 2 up, work is driven by a score. The contest's scoring criteria are turned into a rubric, `ContestJudge` scores against it, and the session works to raise that score. Scoring starts at the planning stage, not after the deliverable is finished: it is cheaper to fix a plan than a finished entry.
+
+1. **Rubric** (`RUBRIC.md`, from [harness/templates/RUBRIC.md](harness/templates/RUBRIC.md)). Each criterion in `.harness/gate.json` (stage, name, weight) is written out: what earns full marks, what loses points, the evidence needed, what a winning entry would have had, and where the notice says so. If the notice gives no weights, they are split evenly and marked as an assumption. The target total comes from SPEC (default 90/100).
+2. **Plan scoring** (stage `plan`). `ContestJudge` predicts the score of two or three concept candidates (or the SPEC and PLAN drafts) as if they were completed. The best candidate is picked, its weakest criteria are fixed in the plan, and it is scored again, until the predicted total reaches the target or three rounds have run. Only then does building start.
+3. **Draft scoring** (stage `draft`). When a draft exists, it is scored and the largest deductions on the heaviest criteria are fixed first.
+4. **Final scoring** (stage `final`), right before submission. At Level 2 with scoring criteria, this comes after `ContestEditor`.
+5. Every score is recorded with `harness score`, so the per-criterion scores and the trend of the total show what raised the score.
+
+Level 1 does not require the loop; `ContestJudge` still runs once before submission.
+
+`ContestJudge` output is saved in the contest folder as `.harness/judge/<stage>-<n>.json`. `harness score <id> --stage plan|draft|final --file <judge.json> [--note N]` validates it (fields `total`, `target`, `verdict`, `scores[{name, weight, score, ...}]`; `target` defaults to 90) and appends it to the entry's `scores` array as `{at, stage, total, target, verdict, criteria, note, file}`, with `total` on a 100-point scale. `harness score <id>` without `--stage` prints the history: time, stage, total/target, verdict, and the three criteria that lost the most points. `harness show --json` includes `scores`.
+
+Transition gates (Level 2 and up):
+
+- **`→ awaiting_approval`** needs at least one `plan` score, and the latest `final` score must have `verdict` `ready` and `total >= target`. Otherwise the CLI refuses. If you must submit below the target, for example because the deadline is near, pass `--score-ok "<reason>"`; the reason and the score are written to the history note.
+- **Level 5 `→ plan_review`** needs a `plan` score, so the review request carries the predicted score.
+
+The board shows the latest score as `total/target` next to the type and level of in-progress and awaiting-approval rows, for example `idea / L2 · 88/90`.
+
+## Sources
+
+Each source is one module under `src/sources/`.
+
+<p>Table 5. Built-in sources</p>
+
+| Name | Site | Method | Notes |
+|---|---|---|---|
+| `linkareer` | Linkareer (링커리어) | HTML | Reads the Next.js `__NEXT_DATA__` on the list page, including deadline times. First page only |
+| `wevity` | Wevity (위비티) | HTML | The list has no deadline, so only new items open the detail page |
+| `thinkcontest` | Thinkgood (씽굿) | API | Internal JSON list API. Reads "open" and "upcoming" separately |
+| `allcon` | Allcon (올콘) | API + HTML | Internal JSON list, HTML detail for new items |
+| `contestkorea` | Contest Korea (콘테스트코리아) | HTML | List and detail pages. Filters out closed rows |
+| `detizen` | Detizen (대티즌) | API | Supabase REST with the site's public publishable key |
+| `campuspick` | Campuspick (캠퍼스픽) | API + HTML | Internal list API, detail `__INITIAL_STATE__` for new items |
+| `allforyoung` | Allforyoung (요즘것들) | API | Public JSON API. Deadline comes from the detail API |
+| `dacon` | DACON (데이콘) | HTML + API | Nuxt data on the list page, detail API for registration and submission deadlines |
+| `devpost` | Devpost | API + HTML | Public JSON API, online hackathons only. Detail pages are often blocked by Cloudflare and are not bypassed |
+| `kaggle` | Kaggle | API | Internal list API with prize and UTC deadline. Excludes Getting Started and Community competitions |
+
+Two sources were left out on purpose. Campusmon's robots.txt has `Disallow: /`, and AIConnect shut down on 2026-07-31. All deadlines are stored in KST (`+09:00`). When a source only gives a date, the deadline is set to 23:59 KST that day, and the gate checks the exact time against the official notice.
+
+## Configuration
+
+Settings are read from `data/config.json` on top of the defaults in [`src/config.rs`](src/config.rs). Any key you leave out keeps its default. For map-valued keys (`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`), only the entries you list are overridden; `{"max_running_by_level": {"5": 0}}` changes Level 5 alone. Level keys are the strings `"1"` to `"5"`.
+
+<p>Table 6. Configuration keys</p>
+
+| Key | Default | Description |
+|---|---|---|
+| `github_org` | `""` | GitHub organization or user where `harness route` creates a private repository per contest via `gh`. Empty means the account `gh` is logged in as |
+| `contests_root` | `"~/contests"` | Directory that holds one folder per contest. `dedupe-check` also reads `<contests_root>/*/README.md` and `<contests_root>/.shared/existing_contests.md` |
+| `orca_repo_path` | `null` (= `contests_root`) | Git repository registered in Orca. Contest workspaces are created as its worktrees |
+| `runner` | `"omp"` | Agent harness: `omp`, `pi`, `claude`, `codex`, or `dsh` |
+| `workspace` | `"orca"` | Where contest sessions run: `orca`, `tmux`, or `headless` |
+| `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | omp only. Model preset per level, for example `{"3": "ResearchPreset"}`, taken from `modelPresets` in `~/.omp/agent/config.yml` and passed as a per-launch `--config` overlay, so your global omp config is not modified. `null` uses omp's default roles. A named preset must exist in your omp config, otherwise an omp `launch` fails |
+| `model_by_level` | `{}` | Model id per level for runners other than omp (and for omp when no preset applies). `dsh` ignores it |
+| `runner_args` | `{"omp": [], "pi": [], "claude": ["--permission-mode", "acceptEdits"], "codex": ["--sandbox", "workspace-write"], "dsh": []}` | Extra arguments added to every command of that runner |
+| `max_running` | `6` | Maximum number of contests in progress at once, across all levels |
+| `max_running_by_level` | `{"1": 3, "2": 2, "3": 2, "4": 1, "5": 1}` | Maximum contests in progress per level. `0` means contests at that level stay in `gate_pass` and are never launched |
+| `ram_reserve_gb` | `8` | Memory held back for your own apps. The budget is available memory (`vm_stat` free + inactive + speculative) minus this value |
+| `ram_gb_by_level` | `{"1": 2, "2": 3, "3": 4, "4": 6, "5": 8}` | Memory one session at each level is assumed to use. These are estimates, not measurements |
+| `ram_gb_per_worker` | `1.5` | Memory per worker inside a session. It caps the recommended worker count |
+| `max_workers` | `6` | Upper bound on recommended parallel workers per session |
+| `primary_provider` | `"anthropic"` | Model provider whose usage windows drive the token pace calculation |
+| `collect_pages` | `3` | Default number of list pages per source for `collect` and `tick` |
+| `collect_skip` | `[]` | Source names to turn off, for example `["devpost", "kaggle"]` |
+| `auto_launch` | `false` | When `true`, `harness tick` routes and launches passed contests as capacity allows. Leave it off until you trust the gate's decisions |
+| `gate_batch` | `16` | Maximum number of `discovered` contests one scheduled run gates in parallel. The actual number depends on the token pace of `primary_provider`: all of it when the mode is maxing, half when steady, 4 when conserve, 0 when throttle |
+| `persona.enabled` | `false` | Add the operator persona to the main session. Contest sessions never get it |
+| `persona.file` | `"data/persona.md"` | Persona text file (git-ignored). Example: `data/persona.example.md` |
+| `persona.call_user` | `""` | How the persona addresses you. Also scanned by the persona guard |
+| `persona.guard_terms` | `[]` | Terms that must not appear in deliverables or commit messages: the persona's name, form of address, and speech markers |
+
+How capacity is computed (`harness capacity`):
+
+- **Token pace.** For each usage window reported by `omp usage --json`, the harness computes pace = share of quota remaining ÷ share of time remaining. In the tightest window, a pace of 1.5 or more allows `max_workers` (maxing), 1 to 1.5 allows half of that (steady), and below 1 scales down (conserve). If 10% or less of the quota remains, the harness allows one worker and starts no new sessions (throttle). Without omp, only the memory and count limits apply.
+- **Memory.** New sessions start only if their `ram_gb_by_level` fits within the memory budget. If macOS memory pressure is `warning` or higher, no new sessions start.
+- **Count limits.** `max_running` and `max_running_by_level` apply on top of the token and memory limits. `running` and `plan_review` contests count as in progress.
+
+## CLI reference
+
+Every command accepts `--json`. Exit codes: `0` success, `1` error (the reason goes to stderr), `3` possible duplicate (`dedupe-check`, and `add` without `--force`), `4` persona traces found (`check`).
+
+<p>Table 7. Commands</p>
+
+| Command | What it does |
+|---|---|
+| `harness collect [--source <name>\|all] [--pages N]` | Collects new listings, merges cross-site duplicates, and adds new contests as `discovered` |
+| `harness add --title T --url U [--org O] [--deadline D] [--source scout\|manual] [--note N] [--force]` | Adds one contest. If it looks like a duplicate, prints the candidates instead |
+| `harness dedupe-check "<title>" [--url U] [--id ID] [--org O] [--deadline D]` | Looks for the same contest in the submission ledger, the registry, and the contest folders. Ledger matches come first as `kind: submitted` |
+| `harness list [--state S] [--type T]` | Lists contests by deadline |
+| `harness show <id>` | Prints one registry entry |
+| `harness gate <id> --file gate.json` | Records a gate result and moves the contest to `gate_pass`, `rejected`, or `hold` |
+| `harness route <id> [--folder NAME] [--no-repo] [--no-workspace]` | Creates the folder, repository, workspace, and `CONTEST.md`, then moves the contest to `routed`. Refuses a contest already in the submission ledger |
+| `harness launch <id> [--preset NAME] [--dry-run] [--force]` | Starts the configured runner in the configured workspace with the level prompt and moves the contest to `running`. Refuses if the level has no free slot or memory (`--force` overrides). `--preset` is omp only |
+| `harness peek <id> [--lines N]` | Prints the last N lines (default 40) of a session's screen or log |
+| `harness check <id>` | Scans a contest folder and its commit messages for persona traces |
+| `harness transition <id> <state> [--note N] [--by WHO] [--persona-ok REASON] [--score-ok REASON]` | Changes state, enforcing the transition rules, the Level 5 approval rule, the score gates, and the persona guard |
+| `harness submit <id> --method M --receipt R [--files F...] [--note N] [--by WHO]` | Records a submission you made, moves the contest to `submitted`, and adds it to the submission ledger. Put your approval in `--note` |
+| `harness score <id> --stage plan\|draft\|final --file <judge.json> [--note N]` | Records a `ContestJudge` score. Without `--stage`, prints the score history |
+| `harness submitted` | Lists the submission ledger: date, title, method, receipt |
+| `harness submitted add --title T [--url U] [--org O] [--date D] [--method M] [--receipt R] [--folder F] [--note N]` | Records a contest you entered outside the harness |
+| `harness submitted import` | One-time import of submitted entries from the registry into the ledger. Existing keys are skipped |
+| `harness clean <id> [--dry-run] [--purge] [--force]` | After submission, closes the contest's session and workspace and moves its local folder to the trash (`--purge` deletes it). Refuses unless every cleanup condition holds (`--force` skips the checks) |
+| `harness clean --all [--dry-run]` | Runs `clean` over every `submitted` or `closed` contest that still has its folder |
+| `harness profile init` | Asks for each profile field in the terminal; Enter keeps the current value |
+| `harness profile show [--reveal]` | Prints the profile with sensitive values masked. `--reveal` prints the real values, for an approved submission step only |
+| `harness profile set <key> <value>` / `harness profile unset <key>` | Sets or clears one field by dotted key, such as `identity.name` or `affiliation.school`. File fields are copied into `data/profile/` |
+| `harness profile eligibility` | Prints only the eligibility facts the gate needs, without identifying values |
+| `harness profile fields` | Lists the field definitions (key, label, kind, example, sensitive) |
+| `harness profile path` | Prints the profile file path |
+| `harness budget` | Shows per-provider remaining quota, pace, and the recommended worker count |
+| `harness capacity` | Shows how many sessions can start now. JSON fields: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram` (`available_gb`, `reserve_gb`, `budget_gb`, `pressure`), `limits`, `providers` |
+| `harness board` | Writes `BOARD.md` |
+| `harness tick [--no-collect] [--auto-launch]` | Runs one control loop: collect, list contests waiting for the gate, optionally route and launch within capacity, then update `BOARD.md` |
+| `harness install [--runner R ...] [--all]` | Installs agents, the skill, and the extension for the configured runner, the given runners, or every runner on `PATH` |
+| `harness chat [--runner R] [--workspace W]` | Opens the main interface session at the repository root |
+| `harness autorun` | Runs the scheduled automation once with the configured runner's one-shot command |
+| `harness schedule install [--every-hours N]` | Installs a launchd job that runs `harness autorun` every N hours (default 6) |
+| `harness schedule remove` | Unloads and deletes the launchd job |
+| `harness schedule status` | Shows whether the job is installed and loaded, its interval, the last exit code, and the last log |
+
+## Scheduled runs
+
+Each scheduled run follows [harness/prompts/automation.md](harness/prompts/automation.md):
+
+1. `harness tick` collects listings and updates the board.
+2. A first-pass filter moves clear misses among `discovered` posts to `skipped`. Anything ambiguous is left for the gate. The filter catches three kinds of post:
+   - Posts that are not contests, such as supporter programs, reporter programs, courses, product-testing groups, recruiting, event notices, and comment events.
+   - Posts whose title or note alone shows you are not eligible, judged against your profile's eligibility facts (`harness profile eligibility --json`). Examples are contests only for school students or for residents, employees, or members of a specific group, contests that require on-site attendance, filming, or an entry fee, and overseas contests that exclude participants from Korea.
+   - Posts whose deadline has passed.
+3. The run decides how many contests to gate. It reads the `mode` of the `limits.basis` provider in `harness capacity --json` and gates `gate_batch` contests when the mode is maxing, half of that when steady, 4 when conserve, and none when throttle. It picks the remaining `discovered` contests nearest the deadline and runs one `ContestGate` agent per contest in parallel.
+4. Between 00:00 and 05:00 only, `ContestScout` runs a web search.
+5. `harness tick --no-collect` runs again. If `auto_launch` is `true`, contests that passed are routed and launched within the global limit, the per-level limits, and the memory budget. The rest are reported as `waiting`.
+6. `harness clean --all` cleans up submitted contests whose work is safely pushed (see [Cleanup after submission](#cleanup-after-submission)).
+7. The session reports in five lines or fewer: newly passed contests (deadline, level, priority), contests on hold with their questions, contests waiting for plan review (`plan_review`), what was launched, what was cleaned up or blocked, and errors.
+
+There are two ways to schedule it.
+
+**launchd.** `harness autorun` runs the prompt once with the configured runner's one-shot command from the repository root and writes the output to `data/logs/autorun-<timestamp>.log`. `harness schedule install` registers it as a launchd job:
+
+```bash
+harness schedule install --every-hours 6
+harness schedule status
+harness schedule remove
+```
+
+The job pins `HARNESS_HOME` to the checkout and `PATH` to the value at install time, so run `schedule install` again after moving tools.
+
+**Orca automation.** Orca can start an omp session on a cron schedule:
+
+```bash
+orca automations create --name "Contest harness" --trigger "0 */6 * * *" --timezone Asia/Seoul \
+  --provider omp --repo "path:$HOME/contests" \
+  --prompt "Read $HOME/contests/Contest-Harness/harness/prompts/automation.md and follow it exactly."
+```
+
+Manage it with `orca automations run <id>` (run now), `orca automations edit <id> --trigger "<cron>"`, and `orca automations edit <id> --disabled` or `--enabled`.
+
+## Human-in-the-loop gates
+
+- **Concept cards.** For creative work (video, image, music), the agent presents two or three concept cards and you pick one before production starts.
+- **Level 5 plan review.** After the reference research, SPEC, and PLAN are done, the session runs `harness transition <id> plan_review --note "<summary>"` and stops. It continues only after you approve, with `harness transition <id> running --note "Approved: <your message and time>"`. That note is required. Without this approval record, the CLI refuses to move a Level 5 contest to `awaiting_approval`.
+- **Submission approval.** Every contest stops at `awaiting_approval`, which the persona guard and, from Level 2 up, the score gate must pass first. Personal details (name, contact information, signatures, enrollment certificates) are used only at this step, after you approve, read with `harness profile show --reveal --json`. The approval is recorded in `SUBMISSION.md` and in `harness submit --note`.
+- **Gate questions.** The gate asks at most three questions per contest, and they are batched so you answer them all at once.
+
+The main session collects these approvals and questions and relays your answers to contest sessions as quotations.
+
+## Submission ledger
+
+`data/submissions.json` (git-ignored) records every contest you have already entered, so the harness never assigns or submits the same contest again. Each entry keeps the registry id (or a `manual-<slug>` key), title, organizer, URL and alternative URLs, folder, submission time in KST, method, receipt, files, a note, and its source (`harness`, `manual`, or `import`).
+
+- `harness submit` appends to the ledger after updating the registry (or updates the entry with the same key).
+- `harness submitted add --title T ...` records a contest you entered outside the harness.
+- `harness submitted import` copies past submissions from the registry once: entries with submissions or in state `submitted`, and `closed` entries whose title or history note mentions a submission (제출).
+- `harness dedupe-check` matches the ledger by URL key, alternative URLs, or a similar title, and lists those matches first as `{"kind": "submitted", ...}`. `ContestGate`, `ContestScout`, and the main session mark such a contest `duplicate` (note "already submitted: <title, date>") instead of gating it.
+- `harness route` refuses a contest that is already in the ledger.
+
+## Cleanup after submission
+
+Once a contest is submitted and nothing is left to do in its folder, the contest session runs `harness clean <id>` right after `harness submit`, and each scheduled run ends with `harness clean --all`. If work remains in the same folder, such as a final round or a presentation, the session moves the contest back with `harness transition <id> running` instead of cleaning up. The main session tells you what was removed and what was blocked.
+
+`clean` removes nothing unless all four conditions hold; otherwise it lists the problems. `--force` skips these checks.
+
+1. The state is `submitted` or `closed`.
+2. The contest is in the submission ledger.
+3. The folder is a git repository with an upstream, a clean working tree (no changes and no untracked files that are not ignored), and no unpushed commits (checked after `git fetch`).
+4. Every file listed in the registry's `submissions[].files` that lies inside the folder is tracked by git, so a git-ignored submission file is never lost.
+
+Then it:
+
+1. Closes the session (Orca terminal, tmux window, or headless process) and removes the Orca workspace if there is one. A failure here is reported as a warning and cleanup continues.
+2. Moves the folder to the trash (`~/.Trash/<name>-<time>`, or `data/trash/` when there is no trash). `--purge` deletes it instead.
+3. Sets `session` to null and records `folder_removed_at` in the registry, with a history note in the same state. The state does not change.
+4. Records the remote `repo` URL and `folder_removed_at` in the ledger entry, so the folder can be restored with `git clone`.
+5. Keeps the line in `<contests_root>/.shared/existing_contests.md`, which dedupe still uses.
+
+`--dry-run` prints the checks and the planned actions only. JSON output is `{id, ok, problems, actions, trash}` (an array with `--all`).
+
+## User profile
+
+`data/profile.json` (git-ignored) holds the facts the gate checks and the details submission forms ask for: name (Korean, English, hanja), birth date, phone, email, student status and school, department, level, year, proof of enrollment, region of residence, nationality, individual or team participation, accounts (such as Hancom Docs), signature and seal images, strengths, and constraints. Signature, seal, and proof files are copied into `data/profile/` (git-ignored) and stored as relative paths. The committed `data/profile.example.json` has empty values only.
+
+- Set it up with `/contest-harness-init` in omp or pi, or `harness profile init` in a terminal. Change one field with `harness profile set <key> <value>` or `harness profile unset <key>`. Values are validated (dates `YYYY-MM-DD`, an `@` in emails, digits, hyphens, and `+` in phone numbers).
+- The profile is written with 0600 permissions.
+- `harness profile show` masks sensitive values (for example `홍*동`, `010-****-1234`, `a***@example.com`, `YYYY-**-**`, and present/absent for files). `--reveal` prints the real values.
+- `ContestGate` reads only `harness profile eligibility --json`: student status, level, year, school, department, region, nationality, age computed from the birth date, participation, strengths, and constraints, with no name, contact details, birth date, or signature.
+- Identifying values are read only at an approved submission step, with `harness profile show --reveal --json`.
+
+## Local rules
+
+Rules that only make sense on your machine, such as your own helper scripts, compute servers, document tools, or folder conventions, go in `data/local-rules.md`. It is git-ignored, so it never reaches the public repository. Start from the committed example `data/local-rules.example.md`. When the file exists, agents and the skill read it first and follow it.
+
+## Privacy
+
+Personal state stays on your machine. `.gitignore` excludes `data/config.json`, `data/registry.json`, `data/*.lock`, `data/profile.json`, `data/profile/`, `data/submissions.json`, `data/local-rules.md`, `data/persona.md`, `data/main-system.md`, `data/main-start.md`, `data/logs/`, `BOARD.md`, and the reference clones under `references/`. Contest repositories are created as private. The committed examples `data/config.example.json`, `data/profile.example.json`, `data/local-rules.example.md`, and `data/persona.example.md` contain no personal values. The gate never copies personal values into `gate.json`.
+
+## Extending: adding a source
+
+1. Create `src/sources/<name>.rs` that implements the module contract in the header comment of [`src/sources/mod.rs`](src/sources/mod.rs):
+   - `NAME`: the source name and registry id prefix, lowercase ASCII with no hyphens.
+   - `collect(pages, known_ids) -> Result<Vec<Item>>`: every contest on the first `pages` list pages. Ids already in `known_ids` are returned from list data only, without opening detail pages. An empty result is treated as a sign that the site structure changed or nothing is open.
+   - `url_key(url) -> Option<String>`: `Some("<NAME>:<unique id>")` for this source's detail URLs and `None` for any other URL. Dedupe uses it.
+   - Each `Item` has `entry_id` (`"<NAME>-<unique id>"`), `title`, `url`, `organizer`, `deadline` (KST `YYYY-MM-DDTHH:MM+09:00` or `None`), and `categories`, plus optional `note` and `alt_url` (the official site).
+2. Declare the module in `src/sources/mod.rs` and add it to `SOURCES`. `--source` picks it up automatically.
+3. Keep parsing separate from fetching. Shared HTTP, text, and date helpers are in `src/sources/common.rs` and `src/http.rs`. Requests to the same site are at least one second apart.
+4. Add `tests/source_<name>.rs`. The tests parse real responses saved under `tests/fixtures/<name>_*.html|json` and never touch the network. Cover the list parser, the deadline conversion to KST, and `url_key`.
+5. Respect `robots.txt` and the site's terms. Do not bypass blocks. The Devpost module, for example, falls back to list data when Cloudflare blocks a detail page.
+
+Run the tests with `cargo test`.
+
+## Project layout
+
+```text
+Contest-Harness/
+├── Cargo.toml                  Rust crate (binary `harness`)
+├── src/
+│   ├── main.rs                 CLI entry point
+│   ├── config.rs, paths.rs     settings and file locations
+│   ├── registry.rs, board.rs   registry, state machine, BOARD.md
+│   ├── collect.rs, dedupe.rs   collection and duplicate matching
+│   ├── route.rs, launch.rs     folders, repositories, sessions, main interface
+│   ├── budget.rs               token pace, memory, capacity
+│   ├── guard.rs                persona guard
+│   ├── install.rs, schedule.rs runner installs, autorun and launchd
+│   ├── runners/                omp, pi, claude, codex, dsh
+│   ├── workspaces/             orca, tmux, headless, terminal
+│   └── sources/                one module per listing site
+├── package.json                omp and pi extension package manifest
+├── extensions/contest-harness.ts  /contest commands and the pi contest_agent tool
+├── commands/contest-gate.md    /contest-gate prompt template
+├── agents/                     agents (ContestScout, ContestGate, ContestHQ, DomainResearcher,
+│                               ContestJudge, ContestEditor, ReferenceScout, UxReviewer)
+├── skills/contest-harness/     lifecycle skill and per-type playbooks
+├── harness/
+│   ├── prompts/                launch.md, level_1.md … level_5.md, automation.md, main.md
+│   └── templates/              SPEC, PLAN, TASKS, JUDGE, RUBRIC, SUBMISSION, LEDGER
+├── data/
+│   ├── config.example.json     settings example (copy to config.json)
+│   ├── config.json             your settings (git-ignored)
+│   ├── profile.example.json    user profile example
+│   ├── profile.json            your profile (git-ignored)
+│   ├── profile/                signature, seal, and proof files (git-ignored)
+│   ├── local-rules.example.md  local rules example
+│   ├── local-rules.md          your local rules (git-ignored)
+│   ├── persona.example.md      optional operator persona example
+│   ├── persona.md              your persona (git-ignored)
+│   ├── submissions.json        submission ledger (git-ignored)
+│   └── registry.json           contest registry (git-ignored)
+├── docs/CONTRACT.md            commands, states, file formats, backends
+├── references/REFERENCES.md    reference projects (clones are git-ignored)
+├── tests/                      integration tests and saved source fixtures
+└── BOARD.md                    generated board (git-ignored)
+```
+
+## Limitations
+
+- **Written in Korean for Korean contests.** The agent prompts, skill, playbooks, templates, persona, and contract are in Korean and target Korean contests. They assume macOS and a tool that can edit HWP files, such as Hancom Docs. Operator-specific rules (helper scripts, compute servers, folder conventions) are not in the repository; put yours in `data/local-rules.md`, which agents read first when it exists.
+- **omp is the reference runner.** Agents are written for omp, and model roles (`@task`, `@slow`, …) and `preset_by_level` work only there. Converted Claude Code subagents use `model: inherit`. The omp-to-Claude tool-name mapping in converted agents has not been verified in a live Claude Code session. `pi` and `dsh` have no subagents, so steps written for subagents run one after another in a single session (pi can hand single tasks to `contest_agent`). `dsh` has no model or system-prompt flag.
+- **Token pace comes from omp.** `budget` and `capacity` read `omp usage --json`. Without omp, only the memory and count limits apply.
+- **Headless sessions cannot be answered.** `headless` runs the runner's one-shot command with no TTY. Use `orca` or `tmux` for contests that need concept or plan approval in the session.
+- **The persona guard reads text only.** It does not look inside HWP, PDF, or other binary formats, and it skips data and build directories and files over 4 MB. `ContestJudge` checks the text of the final deliverables separately.
+- **External agents.** `ArticleResearcher` is referenced but not included.
+- **macOS only.** Memory checks depend on `vm_stat` and the macOS memory-pressure level, and `schedule` uses launchd.
+- **Build from source.** There are no prebuilt binaries. The binary reads files from the checkout it was built from unless `HARNESS_HOME` is set.
+- **Scrapers break.** Collectors read live site structures and internal APIs. When a site changes, its collector returns zero items, which is reported as an error while the other sources keep going.
+- **Approximate deadlines.** Date-only deadlines are set to 23:59 KST, and blocked Devpost detail pages are marked as having an unconfirmed time zone. The gate re-checks deadlines against the official notice.
+- **Heuristic dedupe.** Duplicates are matched on title, URL, organizer, and deadline. A folder whose README title is the name of your work rather than the contest name can be missed.
+- **Coverage gaps.** Linkareer reads only the first list page. Devpost covers online hackathons only. Kaggle Community competitions are not listed.
+- **Estimated memory figures.** `ram_gb_by_level` values are estimates. Tune them for your machine.
+- **Gate decisions need checking.** Gate decisions come from a model reading the notice. Review a few rounds of decisions before you turn on `auto_launch`.
+
+## Acknowledgments
+
+The design borrows structure and output formats from these projects, not their code. Snapshots were cloned on 2026-10-15. See [references/REFERENCES.md](references/REFERENCES.md).
+
+<p>Table 8. Reference projects</p>
+
+| Project | License | What it informed |
+|---|---|---|
+| [BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) | MIT | Matching planning depth to the size of the work, task DAGs |
+| [Spec Kit](https://github.com/github/spec-kit) | MIT | The spec → plan → tasks sequence, numbered requirements, `[P]` parallel markers, coverage checks |
+| [GPT Researcher](https://github.com/assafelovic/gpt-researcher) | Apache-2.0 | Research planning, source reading, and citation |
+| [STORM](https://github.com/stanford-oval/storm) | MIT | Questions from multiple perspectives, cited long-form writing |
+| [open_deep_research](https://github.com/langchain-ai/open_deep_research) | MIT | Research briefs, parallel sub-research, stopping criteria |
+| [RD-Agent](https://github.com/microsoft/RD-Agent) | MIT | Hypothesis → implement → run → feedback loops for model contests |
+| [kaggle-competition-harness](https://github.com/chenxi-bot21/kaggle-competition-harness) | MIT | An auditable submission ledger, with final submission left to a human |
+
+## License
+
+[MIT](LICENSE). Copyright (c) 2026 FMsongX2.

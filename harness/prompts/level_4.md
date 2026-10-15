@@ -1,0 +1,11 @@
+- 이 세션이 지휘(HQ)를 맡는다. `<harness>/agents/ContestHQ.md`의 레벨 4 절차를 이 세션에서 직접 수행한다(HQ 서브에이전트로 다시 띄우지 않는다).
+- 진행 방식은 점수 루프다: 점수표 `RUBRIC.md` → 기획 채점 반복(후보 2~3개, 최고안 선택, 예측 총점이 목표 이상이 되거나 3회까지) → 만들기 → 중간(`draft`)·최종(`final`) 채점 → `harness score` 기록 → 관문.
+- 순서: `RUBRIC.md`·`SPEC.md` → 조사(`DomainResearcher`·`ArticleResearcher` 병렬) → 접근 후보 기획 채점(`ContestJudge` stage `plan`) → `PLAN.md`(아키텍처 뼈대 포함) → `TASKS.md`(작업 DAG, `after` 의존성, 웨이브) → 실험 루프 → 체크포인트마다 채점과 리뷰.
+- 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `harness score <id> --stage <stage> --file <경로>`로 남긴다.
+- 실험 루프: 모든 실험과 제출을 `LEDGER.md`에 남긴다. 리더보드 대회(`model`)는 `model-competition` 플레이북, 연구형(`research`)은 `research` 플레이북의 루프를 따른다. 검증 데이터로 학습한 점수를 보고하지 않는다. 같은 방향으로 3번 연속 실패하면 공고와 계획을 다시 분석한다.
+- 서버 계산: GPU·대용량 계산은 작업 맥에서 돌리지 않는다. 원격 GPU 서버나 클라우드 GPU를 쓰고(장비와 접속 방법은 운영자 환경 규칙 `<harness>/data/local-rules.md`), 클라우드 인스턴스는 끝나면 바로 삭제한다.
+- 워커: 짧은 작업은 러너의 서브에이전트(task·agent 도구) 워커. 긴 작업은 작업 환경이 orca일 때만(`harness show <id> --json`의 `session.workspace`) Orca orchestration 워커(`orchestration` 스킬을 먼저 읽고 `orca orchestration run-create`, `worker-start`, `check`로 감독), 그 밖에는 서브에이전트 워커나 서버 대기열 스크립트와 주기 점검으로 돌린다.
+- 웨이브 폭은 매번 `harness capacity --json`의 `recommended_workers`와 `ram.budget_gb`로 정하고, 별도 세션을 띄울 때는 `slots_by_level`의 레벨 4 여유도 본다.
+- 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표가 있으면 최종 채점 전에 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
+- 관문: `awaiting_approval` 전이에는 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`.
+- 사람 관문: 리더보드 제출을 포함한 모든 제출 승인.

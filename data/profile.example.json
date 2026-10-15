@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "identity": {"name": "", "name_en": "", "name_hanja": "", "birth_date": ""},
+  "contact": {"phone": "", "email": ""},
+  "affiliation": {"is_student": null, "school": "", "department": "", "level": "", "year": null, "proof": ""},
+  "residence_region": "",
+  "nationality": "",
+  "participation": {"individual": true, "team_available": null, "team_note": ""},
+  "accounts": {"hancom": ""},
+  "signature": "",
+  "seal": "",
+  "strengths": [],
+  "constraints": []
+}

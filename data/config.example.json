@@ -1,0 +1,20 @@
+{
+  "github_org": "",
+  "contests_root": "~/contests",
+  "runner": "omp",
+  "workspace": "orca",
+  "preset_by_level": {"1": null, "2": null, "3": null, "4": null, "5": null},
+  "model_by_level": {},
+  "max_running": 6,
+  "max_running_by_level": {"1": 3, "2": 2, "3": 2, "4": 1, "5": 1},
+  "ram_reserve_gb": 8,
+  "ram_gb_by_level": {"1": 2, "2": 3, "3": 4, "4": 6, "5": 8},
+  "ram_gb_per_worker": 1.5,
+  "max_workers": 6,
+  "primary_provider": "anthropic",
+  "collect_pages": 3,
+  "collect_skip": [],
+  "auto_launch": false,
+  "gate_batch": 16,
+  "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []}
+}

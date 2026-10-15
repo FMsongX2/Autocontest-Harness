@@ -1,0 +1,34 @@
+[package]
+name = "autocontest-harness"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Discover, gate, route and run contest entries with coding agents"
+license = "MIT"
+repository = "https://github.com/FMsongX2/Autocontest-Harness"
+readme = "README.md"
+
+[lib]
+name = "harness"
+path = "src/lib.rs"
+
+[[bin]]
+name = "harness"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+indexmap = { version = "2", features = ["serde"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml_ng = "0.10"
+ureq = "3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
