@@ -1,6 +1,7 @@
 - 이 세션이 지휘(HQ)를 맡는다. `<harness>/agents/ContestHQ.md`의 레벨 4 절차를 이 세션에서 직접 수행한다(HQ 서브에이전트로 다시 띄우지 않는다).
 - 진행 방식은 점수 루프다: 점수표 `RUBRIC.md` → 기획 채점 반복(후보 2~3개, 최고안 선택, 예측 총점이 목표 이상이 되거나 3회까지) → 만들기 → 중간(`draft`)·최종(`final`) 채점 → `harness score` 기록 → 관문.
-- 순서: `RUBRIC.md`·`SPEC.md` → 조사(`DomainResearcher`·`ArticleResearcher` 병렬) → 접근 후보 기획 채점(`ContestJudge` stage `plan`) → `PLAN.md`(아키텍처 뼈대 포함) → `TASKS.md`(작업 DAG, `after` 의존성, 웨이브) → 실험 루프 → 체크포인트마다 채점과 리뷰.
+- 순서: `RUBRIC.md`·`SPEC.md` 초안 → 조사(`DomainResearcher`·`ArticleResearcher`·`OpenSourceScout` 병렬) → 접근 후보 기획 채점(`ContestJudge` stage `plan`) → `SPEC.md` 확정·`PLAN.md`(아키텍처 뼈대 포함) → `TASKS.md`(작업 DAG, `after` 의존성, 웨이브) → 실험 루프 → 체크포인트마다 채점과 리뷰.
+- 오픈소스 재사용(필수): `OpenSourceScout`가 사전학습 모델(Hugging Face), 공개 베이스라인, 이전 우승 해법, 라이브러리를 찾아 `research/oss.md`에 구성 요소마다 `reuse`/`fork`/`reference`/`build`와 공고의 외부 모델·데이터 규칙을 정리한다. 접근 후보와 SPEC·PLAN의 `## 오픈소스 재사용` 절은 이 결정을 따르고, 맞는 것이 없는 부분만 만든다. 아낀 품은 배점이 큰 기준(성능 개선, 분석)에 돌린다.
 - 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `harness score <id> --stage <stage> --file <경로>`로 남긴다.
 - 실험 루프: 모든 실험과 제출을 `LEDGER.md`에 남긴다. 리더보드 대회(`model`)는 `model-competition` 플레이북, 연구형(`research`)은 `research` 플레이북의 루프를 따른다. 검증 데이터로 학습한 점수를 보고하지 않는다. 같은 방향으로 3번 연속 실패하면 공고와 계획을 다시 분석한다.
 - 서버 계산: GPU·대용량 계산은 작업 맥에서 돌리지 않는다. 원격 GPU 서버나 클라우드 GPU를 쓰고(장비와 접속 방법은 운영자 환경 규칙 `<harness>/data/local-rules.md`), 클라우드 인스턴스는 끝나면 바로 삭제한다.

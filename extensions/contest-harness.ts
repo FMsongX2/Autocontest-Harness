@@ -1,17 +1,14 @@
-// Autocontest-Harness extension for omp and pi (one file; both expose the same extension API).
+// Autocontest-Harness extension for omp.
 //
 // Commands: /contest (board + capacity summary), /contest <id> (one entry), /contest-chat
-// (how to open the main interface). All of them call the `harness` binary.
-// pi only: the `contest_agent` tool runs an agents/<name>.md prompt in a one-shot pi, since
-// pi has no subagents (omp has its own `task` tool). The persona and main interface role
-// come from `harness chat` (--append-system-prompt), not from this extension.
+// (how to open the main interface). All of them call the `harness` binary. The persona and main
+// interface role come from `harness chat` (--append-system-prompt), not from this extension.
 //
-// No package-specific type import: omp and pi publish their types under different names.
-// Failures are reported to the UI or the tool result and never block the session.
+// Host types are declared locally, so the file loads without omp's packages installed.
+// Failures are reported to the UI and never block the session.
 
-import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { execFile } from 'node:child_process'
+import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -23,27 +20,8 @@ interface HostContext {
   cwd?: unknown
   ui?: HostUI
 }
-interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>
-  details: unknown
-}
-interface ToolDefinition {
-  name: string
-  label: string
-  description: string
-  promptSnippet?: string
-  parameters: Record<string, unknown>
-  execute(
-    toolCallId: string,
-    params: Record<string, unknown>,
-    signal: AbortSignal | undefined,
-    onUpdate: unknown,
-    ctx: HostContext,
-  ): Promise<ToolResult>
-}
 interface HostApi {
   registerCommand(name: string, options: { description?: string; handler: (args: string, ctx: HostContext) => Promise<void> }): void
-  registerTool?(tool: ToolDefinition): void
 }
 
 // Display-only views of `harness --json` output; the binary owns these shapes.
@@ -72,12 +50,7 @@ interface Capacity {
   limits?: { basis?: string }
 }
 
-// Why: the OMP binary loads the same file as pi; tell them apart by executable name.
-const OMP_RUNTIME = [process.title, process.env._, process.argv[1], process.argv[0]]
-  .map((v) => String(v || '').split(/[\\/]/).pop()?.toLowerCase() || '')
-  .some((n) => ['omp', 'omp.js', 'omp.sh', 'omp.cmd', 'omp.exe', 'omp.bat'].includes(n))
-
-// Why: `omp plugin link` / `pi install` load the file through a symlink; resolve to the checkout.
+// Why: `omp plugin link` loads the file through a symlink; resolve to the checkout.
 const ROOT = (() => {
   const here = typeof __dirname === 'string' ? __dirname : dirname(fileURLToPath(import.meta.url))
   const root = resolve(here, '..')
@@ -87,8 +60,6 @@ const ROOT = (() => {
     return root
   }
 })()
-
-const MAX_TOOL_CHARS = 50_000
 
 function harnessBin(): string {
   const candidates = [process.env.HARNESS_BIN, join(ROOT, 'target', 'release', 'harness'), join(ROOT, 'target', 'debug', 'harness')]
@@ -227,60 +198,8 @@ function entrySummary(e: Entry): string {
   return out.join('\n')
 }
 
-function stripFrontmatter(text: string): string {
-  const t = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
-  if (!t.startsWith('---\n')) return t.trim()
-  const end = t.indexOf('\n---', 4)
-  if (end === -1) return t.trim()
-  const after = t.indexOf('\n', end + 4)
-  return (after === -1 ? '' : t.slice(after + 1)).trim()
-}
-
-function agentNames(): string[] {
-  try {
-    return readdirSync(join(ROOT, 'agents'))
-      .filter((f) => f.endsWith('.md'))
-      .map((f) => f.slice(0, -3))
-      .sort()
-  } catch {
-    return []
-  }
-}
-
-
-function runAgent(agent: string, task: string, cwd: string, signal: AbortSignal | undefined): Promise<string> {
-  const file = join(ROOT, 'agents', `${agent}.md`)
-  if (!/^[A-Za-z0-9_-]+$/.test(agent) || !existsSync(file)) {
-    return Promise.reject(new Error(`알 수 없는 에이전트: ${agent} (가능: ${agentNames().join(', ')})`))
-  }
-  const dir = mkdtempSync(join(tmpdir(), 'contest-agent-'))
-  const prompt = join(dir, `${agent}.md`)
-  writeFileSync(prompt, `${stripFrontmatter(readFileSync(file, 'utf8'))}\n`)
-  // Why: the child must not spawn further contest agents.
-  const env = { ...process.env, CONTEST_HARNESS_AGENT: '1' }
-  const { promise, resolve: done, reject: fail } = Promise.withResolvers<string>()
-  const child = spawn('pi', ['-p', '--no-session', '--append-system-prompt', prompt, `Task: ${task}`], {
-    cwd,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', (d) => (stdout += d))
-  child.stderr.on('data', (d) => (stderr = (stderr + d).slice(-8000)))
-  const abort = () => child.kill('SIGTERM')
-  signal?.addEventListener('abort', abort, { once: true })
-  child.on('error', fail)
-  child.on('close', (code, sig) => {
-    signal?.removeEventListener('abort', abort)
-    if (code === 0) done(stdout)
-    else fail(new Error(`pi ${agent} 실패(${sig ?? `exit ${code}`}): ${stderr.trim().split('\n').slice(-10).join('\n')}`))
-  })
-  return promise.finally(() => rmSync(dir, { recursive: true, force: true }))
-}
-
-export default function (pi: HostApi): void {
-  pi.registerCommand('contest', {
+export default function (omp: HostApi): void {
+  omp.registerCommand('contest', {
     description: '공모전 하네스: 인자 없으면 보드·용량 요약, <id>면 그 공모전',
     handler: async (args, ctx) => {
       const id = args.trim()
@@ -306,7 +225,7 @@ export default function (pi: HostApi): void {
     },
   })
 
-  pi.registerCommand('contest-chat', {
+  omp.registerCommand('contest-chat', {
     description: '공모전 하네스 메인 인터페이스(페르소나 + 지휘 역할) 여는 법',
     handler: async (_args, ctx) => {
       const { promise, resolve: done } = Promise.withResolvers<string>()
@@ -316,37 +235,9 @@ export default function (pi: HostApi): void {
       const version = await promise
       show(
         ctx,
-        `메인 인터페이스는 터미널에서 연다:\n  cd ${ROOT} && harness chat [--runner omp|pi|claude|codex|dsh] [--workspace terminal|orca|tmux]\n` +
+        `메인 인터페이스는 터미널에서 연다:\n  cd ${ROOT} && harness chat [--runner <러너>] [--workspace terminal|orca|tmux]\n` +
           `설정 러너(data/config.json runner)로 페르소나와 harness/prompts/main.md를 시스템 프롬프트에 덧붙여 저장소 루트에서 연다.\n${version}`,
       )
     },
   })
-
-  if (!OMP_RUNTIME && pi.registerTool && process.env.CONTEST_HARNESS_AGENT !== '1') {
-    const names = agentNames()
-    pi.registerTool({
-      name: 'contest_agent',
-      label: 'Contest agent',
-      description:
-        `Run one Autocontest-Harness agent (agents/<agent>.md) as a one-shot pi subprocess in the current directory and return its final output. ` +
-        `Use it where the harness instructions say to run an agent as a task (ContestGate, ContestJudge, ...). Agents: ${names.join(', ')}.`,
-      promptSnippet: 'contest_agent: run a contest harness agent (ContestGate, ContestJudge, ...) as a subtask',
-      parameters: {
-        type: 'object',
-        properties: {
-          agent: names.length ? { type: 'string', enum: names, description: 'Agent name' } : { type: 'string', description: 'Agent name' },
-          task: { type: 'string', description: 'Self-contained task for the agent' },
-        },
-        required: ['agent', 'task'],
-        additionalProperties: false,
-      },
-      async execute(_id, params, signal, _onUpdate, ctx) {
-        const agent = String(params.agent ?? '')
-        const cwd = typeof ctx?.cwd === 'string' ? ctx.cwd : process.cwd()
-        let text = (await runAgent(agent, String(params.task ?? ''), cwd, signal)).trim()
-        if (text.length > MAX_TOOL_CHARS) text = `${text.slice(0, MAX_TOOL_CHARS)}\n[출력 ${text.length}자 중 앞 ${MAX_TOOL_CHARS}자만 표시]`
-        return { content: [{ type: 'text', text: text || '(출력 없음)' }], details: { agent } }
-      },
-    })
-  }
 }

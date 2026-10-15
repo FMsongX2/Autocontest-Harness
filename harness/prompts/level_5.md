@@ -1,7 +1,7 @@
 - 이 세션이 지휘(HQ)를 맡는다. `<harness>/agents/ContestHQ.md`의 레벨 5 절차를 이 세션에서 직접 수행한다(HQ 서브에이전트로 다시 띄우지 않는다).
 - 진행 방식은 점수 루프다: 점수표 `RUBRIC.md` → 기획 채점 반복 → 계획 검수 → 만들기 → 중간(`draft`)·최종(`final`) 채점 → `harness score` 기록 → 관문. 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `harness score <id> --stage <stage> --file <경로>`로 남긴다.
-- 1) 레퍼런스: `ReferenceScout`를 띄워 같은 일을 이미 하는 프로덕션 서비스·오픈소스를 `research/references.md`에 비교받는다. 이미 있는 프로덕션이 교본이다.
-- 2) 계획: 레퍼런스를 본 뒤 `RUBRIC.md`, `SPEC.md`, `PLAN.md`(아키텍처 뼈대, 따를 패턴과 차별점), `TASKS.md`(DAG)를 쓴다. 조사는 `DomainResearcher`(논문은 `ArticleResearcher`).
+- 1) 레퍼런스: `ReferenceScout`를 띄워 같은 일을 이미 하는 프로덕션 서비스·오픈소스가 어떻게 하는지(흐름·UI 패턴·아키텍처)를 `research/references.md`에 비교받는다. 이미 있는 프로덕션이 교본이다. 무엇을 가져다 쓸지는 2)의 `OpenSourceScout`가 정한다.
+- 2) 계획: 레퍼런스를 본 뒤 `RUBRIC.md`와 `SPEC.md` 초안을 쓰고, 조사 웨이브에서 `DomainResearcher`(논문은 `ArticleResearcher`)와 `OpenSourceScout`(필수)를 나란히 띄운다. `OpenSourceScout`는 `research/oss.md`에 구성 요소마다 `reuse`/`fork`/`reference`/`build`를 정한다. 그다음 `SPEC.md` 확정, `PLAN.md`(아키텍처 뼈대, 따를 패턴과 차별점, `## 오픈소스 재사용`), `TASKS.md`(DAG)를 쓴다. 맞는 것이 없는 부분만 만들고, 아낀 품은 배점이 큰 심사기준에 돌린다.
 - 3) 기획 채점: 제품 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 `ContestJudge` stage `plan`으로 예측 채점하고, 가장 높은 안의 기준별 부족분을 SPEC·PLAN에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 커밋·push한다.
 - 4) 계획 검수(사람 관문, 반드시): `plan` 점수가 있어야 한다(없으면 CLI가 거절한다). `harness transition <id> plan_review --note "<검수 요청 요약과 예측 총점/목표>"`을 실행하고 사용자에게 SPEC·PLAN 경로, 예측 점수와 검토할 점을 묶어 보여 검수를 요청한 뒤 멈춘다. 승인 전에는 구현을 시작하지 않는다.
 - 5) 승인되면 `harness transition <id> running --note "승인: <승인 메시지 원문 · 시각>"`으로 돌아와 구현한다. 이 승인 기록이 없으면 CLI가 `awaiting_approval` 전이를 거절한다. 고치라고 하면 계획을 고치고 다시 채점해 4)로 간다.

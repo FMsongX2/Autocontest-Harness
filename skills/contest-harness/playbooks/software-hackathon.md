@@ -6,7 +6,8 @@
 
 | 단계 | 레벨 3 | 레벨 5 |
 |---|---|---|
-| 레퍼런스 | 서비스형이면 ReferenceScout 선택 | SPEC 전에 ReferenceScout 필수. 같은 일을 이미 하는 프로덕션 서비스·오픈소스를 `research/references.md`에 비교받는다. 이미 있는 프로덕션이 교본이다(베끼지 않고 배운다) |
+| 레퍼런스 | 서비스형이면 ReferenceScout 선택 | SPEC 전에 ReferenceScout 필수. 같은 일을 이미 하는 프로덕션 서비스·오픈소스가 어떻게 하는지(흐름·UI 패턴·아키텍처)를 `research/references.md`에 비교받는다. 이미 있는 프로덕션이 교본이다(베끼지 않고 배운다) |
+| 오픈소스 재사용 | OpenSourceScout 필수(조사 웨이브에서 DomainResearcher와 나란히). 구성 요소마다 `reuse`/`fork`/`reference`/`build`를 `research/oss.md`에 받고, 맞는 것이 없는 부분만 만든다 | 레벨 3과 같음. SPEC 초안 뒤, SPEC 확정·PLAN 전에 돌린다 |
 | 계획 | SPEC → PLAN → 기획 채점(stage `plan`) → TASKS 후 바로 구현 | 레퍼런스를 본 뒤 SPEC·PLAN(`## 레퍼런스` 절 필수: 따를 패턴과 차별점) → 기획 채점(stage `plan`) → TASKS → `harness transition <id> plan_review --note "<검수 요청 요약과 예측 점수>"`(`plan` 점수가 없으면 거절) → 사용자 검수를 요청하고 멈춘다. 승인되면 `harness transition <id> running --note "승인: <원문·시각>"`, 고치라고 하면 계획을 고쳐 다시 채점하고 검수를 요청한다 |
 | 구현 | 러너의 서브에이전트 워커 웨이브 | 서브에이전트 워커 웨이브 + 긴 작업은 작업 환경이 orca일 때 Orca orchestration 워커 |
 | 리뷰 | 체크포인트마다 ContestJudge, 코드는 기본 `reviewer` | ContestJudge + `reviewer` + UxReviewer(실행 중인 화면을 Orca 내장 브라우저로 점검) + 기본 `security-reviewer` |
@@ -26,6 +27,7 @@
 - SC-###: 심사기준(기술 완성도, 아이디어, 설계·UX, 영향, 후원 기술 활용)과 배점. 같은 기준을 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)에 풀어 쓴다.
 - 명확화 질문은 최대 3개.
 - 레벨 5는 SPEC을 `research/references.md`를 읽은 뒤 쓰고, `## 레퍼런스` 절에 레퍼런스 요약과 그것이 D1 범위·핵심 흐름에 준 결정을 적는다.
+- 공고의 외부 코드·라이브러리·기존 프로젝트 규칙(새로 만든 코드만 인정하는 기간, 오픈소스 사용 고지)을 FR로 옮기고, `research/oss.md`(OpenSourceScout)의 결정을 `## 오픈소스 재사용` 절에 적는다. 통째로 같은 일을 하는 오픈소스가 있으면 처음부터 만들지 않고 그 위에서 차별점(배점이 큰 SC)에 품을 쓴다.
 
 ## 2. PLAN.md
 

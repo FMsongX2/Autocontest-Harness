@@ -245,7 +245,7 @@ pub fn route(
         fs::write(target.join("README.md"), render_readme(entry))?;
     }
     if !target.join(".gitignore").exists() {
-        fs::write(target.join(".gitignore"), ".DS_Store\n.venv/\n__pycache__/\n.harness/omp-preset.yml\n")?;
+        fs::write(target.join(".gitignore"), ".DS_Store\n.venv/\n__pycache__/\n.private/\n.harness/*-preset.*\n")?;
     }
     fs::write(meta.join("gate.json"), pretty(&entry.gate)?)?;
     let mut summary = json!({"folder": target_str, "repo": null, "workspace_id": null});

@@ -21,6 +21,7 @@
 
 - 이전 수상작·심사평, 주최 기관의 정책 방향(업무계획, 보도자료), 관련 통계는 DomainResearcher에게 결정 단위로 맡긴다.
 - 기술 근거(유사 연구, 선행 기술)는 ArticleResearcher에게 맡긴다.
+- PoC를 계획하면 OpenSourceScout로 가져다 쓸 라이브러리·사전학습 모델·공개 데모를 찾아 `research/oss.md`에 구성 요소별 `reuse`/`fork`/`reference`/`build`를 받는다(레벨 2는 선택, PoC 코드를 결과물로 내는 레벨 3은 필수). PoC는 맞는 것이 없는 부분만 만들고, 사용한 오픈소스는 제안서에 고지한다.
 - 결과를 `research/research.md`(결정 / 근거 / 검토한 대안)와 `research/sources.json`에 저장한다.
 
 ## 3. 이길 주제 고르기(기획 채점)

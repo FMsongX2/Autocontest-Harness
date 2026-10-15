@@ -11,8 +11,15 @@ use serde_json::{Value, json};
 use crate::error::Result;
 use crate::paths;
 
-const MERGED_KEYS: &[&str] =
-    &["preset_by_level", "model_by_level", "max_running_by_level", "ram_gb_by_level", "runner_args", "persona"];
+const MERGED_KEYS: &[&str] = &[
+    "preset_by_level",
+    "model_by_level",
+    "max_running_by_level",
+    "ram_gb_by_level",
+    "runner_args",
+    "persona",
+    "schedule",
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Persona {
@@ -25,6 +32,18 @@ pub struct Persona {
     /// Persona traces that must never appear in contest deliverables or commit messages
     /// (`call_user` is checked too). `harness check` and the `awaiting_approval` gate scan for them.
     pub guard_terms: Vec<String>,
+}
+
+/// When scheduled runs happen (`harness schedule`), all in the machine's local time.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Schedule {
+    /// 5-field cron expression for the scheduled run (collection, gating, launching, cleanup).
+    pub cron: String,
+    /// What starts the run: `orca` (an Orca automation) or `launchd` (`harness autorun`).
+    pub scheduler: String,
+    /// Hours (a cron hour field such as `0-5`; empty = never) in which a scheduled run also runs
+    /// the ContestScout web search. `harness tick` reports the decision as `scout`.
+    pub scout_hours: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -49,6 +68,7 @@ pub struct Config {
     pub auto_launch: bool,
     pub gate_batch: usize,
     pub persona: Persona,
+    pub schedule: Schedule,
 }
 
 pub fn defaults() -> Value {
@@ -60,7 +80,7 @@ pub fn defaults() -> Value {
         "workspace": "orca",
         "preset_by_level": {"1": null, "2": null, "3": null, "4": null, "5": null},
         "model_by_level": {},
-        "runner_args": {"omp": [], "pi": [], "claude": ["--permission-mode", "acceptEdits"], "codex": ["--sandbox", "workspace-write"], "dsh": []},
+        "runner_args": {"omp": []},
         "max_running": 6,
         "max_running_by_level": {"1": 3, "2": 2, "3": 2, "4": 1, "5": 1},
         "ram_reserve_gb": 8,
@@ -72,7 +92,8 @@ pub fn defaults() -> Value {
         "collect_skip": [],
         "auto_launch": false,
         "gate_batch": 16,
-        "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []}
+        "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []},
+        "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"}
     })
 }
 

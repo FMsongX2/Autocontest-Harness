@@ -37,9 +37,9 @@
 | 제출 기록부(git 제외) | 저장소 `data/submissions.json`, 잠금 파일 `data/submissions.lock` (13절) |
 | 메인 세션 시스템 프롬프트(git 제외) | 저장소 `data/main-system.md` (`harness chat`이 실행할 때마다 다시 쓴다, 12절) |
 | 메인 세션 첫 지시(git 제외) | 저장소 `data/main-start.md` (`harness chat`이 실행할 때마다 다시 쓴다) |
-| 정기 실행 로그(git 제외) | 저장소 `data/logs/autorun-<YYYYMMDD-HHMMSS>.log`(`harness autorun`), `data/logs/launchd.log`(launchd 표준 출력·오류) |
+| 정기 실행 로그(git 제외) | 저장소 `data/logs/autorun-<YYYYMMDD-HHMMSS>.log`(`harness autorun`, launchd 작업이 이 명령을 돈다), `data/logs/launchd.log`(launchd 표준 출력·오류). Orca automation의 실행 기록은 Orca에 남는다 |
 | 정리한 폴더 | macOS 휴지통 `~/.Trash/<폴더 이름>-<시각>`, 휴지통이 없으면 저장소 `data/trash/` (`harness clean`, 16절) |
-| launchd 작업 | `~/Library/LaunchAgents/io.github.fmsongx2.autocontest-harness.plist` (`harness schedule install`) |
+| 정기 실행 작업 | 스케줄러 `orca`: Orca automation `Autocontest-Harness`. 프롬프트에 이 클론의 `harness/prompts/automation.md` 절대 경로가 든 automation을 하네스 것으로 본다. 스케줄러 `launchd`: `~/Library/LaunchAgents/io.github.fmsongx2.autocontest-harness.plist`. 둘 다 `harness schedule install`이 만든다(6절 정기 실행) |
 | 코어 소스 | 저장소 `src/` (`main.rs` CLI, `config.rs` 설정, `registry.rs` 상태, `guard.rs` 페르소나 검사, `runners/` 러너, `workspaces/` 작업 환경, `sources/` 수집 출처) |
 | 수집 모듈 | 저장소 `src/sources/<출처>.rs` (출처 하나가 모듈 하나, 모듈 계약은 `src/sources/mod.rs` 머리 주석) |
 | 실행 지시문 | 저장소 `harness/prompts/launch.md`, `level_1.md` ~ `level_5.md`, 정기 실행 `automation.md`, 메인 인터페이스 역할 `main.md` |
@@ -49,7 +49,7 @@
 | 에이전트·스킬 원본 | 저장소 `agents/*.md`, `skills/contest-harness/` (러너별 설치 위치는 10절) |
 | 공모전 루트 | 설정 `contests_root` (기본 `~/contests`) |
 | 공모전 폴더 | `<contests_root>/<Folder>` (영문 PascalCase-하이픈, 예: `City-Shorts-2026`) |
-| 공모전 메타 | `<공모전 폴더>/.harness/contest.json` (레지스트리 항목 사본), `gate.json`, `launch-prompt.md`, `omp-preset.yml`(omp 프리셋 덮개), `session.log`(headless 작업 환경), `judge/<stage>-<n>.json`(ContestJudge 채점 출력, `harness score`가 읽는다, 15절) |
+| 공모전 메타 | `<공모전 폴더>/.harness/contest.json` (레지스트리 항목 사본), `gate.json`, `launch-prompt.md`, `<러너>-preset.<확장자>`(러너 프리셋 파일, omp는 `omp-preset.yml`), `session.log`(headless 작업 환경), `judge/<stage>-<n>.json`(ContestJudge 채점 출력, `harness score`가 읽는다, 15절). `route`가 쓰는 공모전 `.gitignore`는 `.private/`와 `.harness/*-preset.*`을 뺀다 |
 | 공모전 문서 | `<공모전 폴더>/CONTEST.md`(질문 절 제목 "사용자에게 확인할 것"), `README.md`, `SPEC.md`, `PLAN.md`, `TASKS.md`, `RUBRIC.md`(레벨 2 이상 점수표), `JUDGE.md`, `SUBMISSION.md`, `LEDGER.md`(레벨 4 실험·제출, `model`·`research`), `research/references.md`(레벨 5 레퍼런스) |
 | 기존 공모전 목록 | `<contests_root>/.shared/existing_contests.md` (`- <폴더>: <제목>` 한 줄씩, `route`가 덧붙이고 `dedupe-check`가 읽는다. `clean`은 이 줄을 지우지 않는다) |
 
@@ -102,7 +102,7 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 - `plan_review → running`은 `--note`에 승인 근거(사용자가 승인한 메시지 원문과 시각)가 있어야만 된다.
 - 레벨 5 항목은 `plan_review → running` 승인 기록이 `history`에 없으면 `awaiting_approval`로 갈 수 없다(CLI가 거절한다).
 - 레벨 5 `→ plan_review`는 `plan` 점수(15절)가 하나 이상 있어야 된다. 검수 요청에 예측 점수가 함께 간다.
-- 레벨 5 세션 순서: 레퍼런스 조사(ReferenceScout) → 점수표·SPEC·PLAN과 기획 채점(`harness score <id> --stage plan`) → `harness transition <id> plan_review --note "<검수 요청 요약>"` → 사용자에게 검수를 요청하고 멈춤 → 승인되면 `harness transition <id> running --note "승인: <원문·시각>"` → 구현.
+- 레벨 5 세션 순서: 레퍼런스 조사(ReferenceScout) → 점수표·SPEC 초안 → 조사 웨이브(DomainResearcher·OpenSourceScout 병렬) → SPEC·PLAN과 기획 채점(`harness score <id> --stage plan`) → `harness transition <id> plan_review --note "<검수 요청 요약>"` → 사용자에게 검수를 요청하고 멈춤 → 승인되면 `harness transition <id> running --note "승인: <원문·시각>"` → 구현.
 
 점수 관문(레벨 2 이상, 15절):
 
@@ -123,14 +123,16 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | 레벨 | 크기 | 공모전 예 | 실행 구성 |
 |---|---|---|---|
 | 1 | 하루 안 산출물 하나 | 숏폼, 포스터, 이미지, 슬로건, 짧은 수기·간단한 신청서 | 단일 에이전트: 세션 하나가 유형 플레이북대로 만든다. 제출 관문으로 마지막에 ContestJudge 1회 |
-| 2 | 조사 근거가 필요한 문서 하나 | 아이디어 제안서, 짧은 기획서 | 메인 에이전트(세션) 1 + 조사 에이전트 1(DomainResearcher, 논문 근거는 ArticleResearcher). 평가표(`gate.criteria`)가 있으면 마지막에 ContestEditor가 평가표 기준으로 문체·어투·문장을 점검하고 다듬는다. 그 뒤 ContestJudge |
-| 3 | 여러 세션이 드는 결과물 | 정책 아이디어 논문, 간단한 실험으로 증명되는 논문, 간단한 정책 관련 서비스, 불법광고 탐지 서비스 정도의 프로젝트 | HQ(이 세션이 ContestHQ 절차로 SPEC·PLAN·TASKS) + DomainResearcher(필요 시 ArticleResearcher) + 서브에이전트 워커 웨이브 + 리뷰어(체크포인트마다 ContestJudge, 글이면 ContestEditor, 코드면 omp 기본 `reviewer`) |
-| 4 | 실험·피드백 루프가 있는 큰 프로젝트 | 며칠 서버를 써서 실험하는 연구 대회, 데이콘처럼 제출→결과→분석→개선을 반복하는 대회 | 레벨 3 구성 + 실험 루프(LEDGER.md에 모든 실험·제출), 서버 계산(GPU 서버 또는 클라우드 GPU, 끝나면 바로 삭제. 구체 장비는 `data/local-rules.md`), 긴 작업은 Orca orchestration 워커 |
-| 5 | 1달 이상, 실제 프로덕션 수준 | Meta AI 해커톤, 하나비 프로젝트처럼 실사용 품질이 필요한 제품 | 1) ReferenceScout가 웹에서 이미 있는 프로덕션 레퍼런스를 찾아 분석(이미 있는 프로덕션이 교본) → 2) 레퍼런스를 본 뒤 SPEC·PLAN → 3) `plan_review`로 사람 검수를 요청하고 멈춤 → 4) 승인 뒤 구현: HQ + DomainResearcher + 워커 웨이브 + UxReviewer(UI/UX 점검) + omp 기본 `security-reviewer` + 최적화(UX에 영향이 없을 만큼만, 과하게 하지 않음) + ContestJudge |
+| 2 | 조사 근거가 필요한 문서 하나 | 아이디어 제안서, 짧은 기획서 | 메인 에이전트(세션) 1 + 조사 에이전트 1(DomainResearcher, 논문 근거는 ArticleResearcher). PoC를 계획하면 OpenSourceScout를 골라 쓴다. 평가표(`gate.criteria`)가 있으면 마지막에 ContestEditor가 평가표 기준으로 문체·어투·문장을 점검하고 다듬는다. 그 뒤 ContestJudge |
+| 3 | 여러 세션이 드는 결과물 | 정책 아이디어 논문, 간단한 실험으로 증명되는 논문, 간단한 정책 관련 서비스, 불법광고 탐지 서비스 정도의 프로젝트 | HQ(이 세션이 ContestHQ 절차로 SPEC·PLAN·TASKS) + DomainResearcher(필요 시 ArticleResearcher) + OpenSourceScout(결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 필수) + 서브에이전트 워커 웨이브 + 리뷰어(체크포인트마다 ContestJudge, 글이면 ContestEditor, 코드면 omp 기본 `reviewer`) |
+| 4 | 실험·피드백 루프가 있는 큰 프로젝트 | 며칠 서버를 써서 실험하는 연구 대회, 데이콘처럼 제출→결과→분석→개선을 반복하는 대회 | 레벨 3 구성 + OpenSourceScout 필수(사전학습 모델·공개 베이스라인·이전 우승 해법) + 실험 루프(LEDGER.md에 모든 실험·제출), 서버 계산(GPU 서버 또는 클라우드 GPU, 끝나면 바로 삭제. 구체 장비는 `data/local-rules.md`), 긴 작업은 Orca orchestration 워커 |
+| 5 | 1달 이상, 실제 프로덕션 수준 | Meta AI 해커톤, 하나비 프로젝트처럼 실사용 품질이 필요한 제품 | 1) ReferenceScout가 웹에서 이미 있는 프로덕션 레퍼런스를 찾아 분석(이미 있는 프로덕션이 교본) → 2) SPEC 초안 뒤 DomainResearcher·OpenSourceScout 조사 웨이브 → 3) 레퍼런스와 재사용 결정을 본 뒤 SPEC·PLAN → 4) `plan_review`로 사람 검수를 요청하고 멈춤 → 5) 승인 뒤 구현: HQ + 워커 웨이브 + UxReviewer(UI/UX 점검) + omp 기본 `security-reviewer` + 최적화(UX에 영향이 없을 만큼만, 과하게 하지 않음) + ContestJudge |
 
 <p>표 1. 레벨 정의와 실행 구성</p>
 
-서브에이전트 기능이 없는 러너(10절)에서는 `harness launch`가 실행 지시문 끝에 "같은 세션에서 차례로 수행한다"는 절을 덧붙인다. 위 표에서 서브에이전트·워커 웨이브로 하는 단계는 그 세션이 하나씩 직접 수행한다(pi는 `contest_agent` 도구로 에이전트 하나를 별도 프로세스로 돌릴 수 있다).
+오픈소스 재사용 조사(OpenSourceScout): 결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면(레벨 3~5 만들기형, 레벨 4 모델·연구 대회) SPEC 확정·PLAN 전에 반드시 돌린다. 레벨 2는 PoC를 계획할 때만 선택이고, 레벨 1과 글·창작만 하는 작업에는 쓰지 않는다. DomainResearcher와 같은 조사 웨이브에서 나란히 돌며 그것을 대신하지 않는다. 결과 `research/oss.md`의 구성 요소별 결정(`reuse`/`fork`/`reference`/`build`)을 기획 채점 후보와 SPEC·PLAN의 `## 오픈소스 재사용` 절이 따른다. 맞는 것이 없는 부분만 만들고, 재사용으로 아낀 품은 배점이 큰 심사기준에 돌린다. 사용한 오픈소스는 SUBMISSION.md와 결과물에 고지한다. ReferenceScout(프로덕션이 어떻게 하는지 배운다)와는 다르다.
+
+서브에이전트 기능이 없는 러너(10절)에서는 `harness launch`가 실행 지시문 끝에 "같은 세션에서 차례로 수행한다"는 절을 덧붙인다. 위 표에서 서브에이전트·워커 웨이브로 하는 단계는 그 세션이 하나씩 직접 수행한다.
 
 레벨 매기는 규칙(ContestGate):
 
@@ -150,18 +152,18 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 
 ### 설정
 
-`data/config.json`(git 제외, 개인 설정)을 `src/config.rs`의 기본값 위에 덮어 읽는다. 처음에는 `data/config.example.json`을 `data/config.json`으로 복사해 고친다. 적지 않은 키는 기본값을 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`)는 적은 키만 덮는다. 예: `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
+`data/config.json`(git 제외, 개인 설정)을 `src/config.rs`의 기본값 위에 덮어 읽는다. 처음에는 `data/config.example.json`을 `data/config.json`으로 복사해 고친다. 적지 않은 키는 기본값을 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`)는 적은 키만 덮는다. 예: `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
 
 | 키 | 기본값 | 뜻 |
 |---|---|---|
 | `github_org` | `""` | `route`가 `gh`로 공모전마다 private 저장소를 만드는 GitHub 조직 또는 사용자. 빈 값이면 `gh`에 로그인한 사용자 계정에 만든다 |
 | `contests_root` | `"~/contests"` | 공모전 폴더를 두는 곳. `dedupe-check`가 `<contests_root>/*/README.md`와 `.shared/existing_contests.md`를 읽는다 |
 | `orca_repo_path` | `null`(= `contests_root`) | `orca` 작업 환경이 공모전 worktree를 만드는 git 저장소. Orca에 추가돼 있어야 한다 |
-| `runner` | `"omp"` | 공모전 세션·정기 실행·메인 세션의 기본 러너. `omp`, `pi`, `claude`, `codex`, `dsh` 중 하나(10절) |
+| `runner` | `"omp"` | 공모전 세션·정기 실행·메인 세션의 기본 러너 어댑터 이름. 코어에 들어 있는 어댑터는 `omp`뿐이다(10절) |
 | `workspace` | `"orca"` | 공모전 세션의 작업 환경. `orca`, `tmux`, `headless` 중 하나(`terminal`은 `launch`가 거절한다) |
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | omp 전용. 레벨별 `~/.omp/agent/config.yml` `modelPresets` 이름(예: `{"2": "ResearchPreset"}`). 실행마다 `.harness/omp-preset.yml` 덮개를 만들어 `--config`로 넘기므로 전역 omp 설정은 바뀌지 않는다. `null`이면 프리셋 없이 띄운다. `launch --preset`을 주면 그 값을 쓴다 |
-| `model_by_level` | `{}` | omp 밖 러너의 레벨별 모델 id(`--model`, codex는 `-m`). omp도 프리셋이 없을 때 이 값을 쓴다. dsh는 모델 인자를 받지 않는다 |
-| `runner_args` | `{"omp": [], "pi": [], "claude": ["--permission-mode", "acceptEdits"], "codex": ["--sandbox", "workspace-write"], "dsh": []}` | 러너 명령에 그대로 덧붙이는 인자 |
+| `model_by_level` | `{}` | 레벨별 모델 id. 러너 어댑터가 자기 모델 지정 인자로 넘긴다. omp는 프리셋이 없을 때 `--model`로 쓴다 |
+| `runner_args` | `{"omp": []}` | 러너 이름별로 러너 명령에 그대로 덧붙이는 인자(`runner_args.<러너>`) |
 | `max_running` | `6` | 진행 중 세션의 전체 상한 |
 | `max_running_by_level` | `{"1": 3, "2": 2, "3": 2, "4": 1, "5": 1}` | 레벨별 진행 중 상한. 0이면 그 레벨은 실행하지 않는다 |
 | `ram_reserve_gb` | `8` | 사용자가 쓰는 앱 몫으로 남겨 둘 메모리(GB) |
@@ -177,6 +179,9 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `persona.file` | `"data/persona.md"` | 운영자 페르소나 파일(git 제외, 예시 `data/persona.example.md`) |
 | `persona.call_user` | `""` | 페르소나가 사용자를 부르는 말(`{{call_user}}` 자리). 페르소나 검사 대상에도 들어간다 |
 | `persona.guard_terms` | `[]` | 공모전 결과물·커밋 메시지에 있으면 안 되는 페르소나 흔적(12절). 운영자가 페르소나 이름·호칭·말투 표지(웃음 표기 등)를 넣는다 |
+| `schedule.cron` | `"0 */6 * * *"` | 정기 실행(`automation.md`) 주기. 5필드 cron, 이 컴퓨터의 현지 시각(6절 정기 실행) |
+| `schedule.scheduler` | `"orca"` | 정기 실행을 맡길 스케줄러. `orca`(Orca automation) 또는 `launchd`. `harness schedule install`·`remove`의 기본값 |
+| `schedule.scout_hours` | `"0-5"` | 정기 실행이 ContestScout 웹 검색을 함께 하는 시(cron 시 필드 문법, 현지 시각). 빈 값이면 하지 않는다 |
 
 <p>표 2. 설정 키</p>
 
@@ -211,13 +216,13 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `harness budget` | `omp usage --json`으로 공급자별 남은 한도와 pace를 계산해 권장 병렬 수를 낸다 |
 | `harness capacity` | 한도·메모리·진행 중 세션 수를 합쳐 지금 새로 띄울 수 있는 세션 수를 낸다(필드는 아래) |
 | `harness board` | 상태별 보드 `BOARD.md`를 쓴다 |
-| `harness tick [--no-collect] [--auto-launch]` | 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). 끝에 `BOARD.md`를 갱신한다 |
-| `harness install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장을 설치한다(10절). 기본은 설정 `runner`, `--runner`는 여러 번 줄 수 있고, `--all`은 실행 파일이 PATH에 있는 러너 전부 |
+| `harness tick [--no-collect] [--auto-launch]` | 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). 끝에 `BOARD.md`를 갱신한다. JSON은 `collect`, `scout`, `needs_gate`, `launched`, `waiting`, `errors`다. `scout`는 수집했을 때 지금 현지 시가 `schedule.scout_hours` 안이면 `true`(수집하지 않으면 `false`), 텍스트 출력은 `웹 검색(ContestScout) 이번 회차: 실행\|안 함` 줄이다 |
+| `harness install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장을 설치한다(10절). 기본은 설정 `runner`, `--runner`는 여러 번 줄 수 있고, `--all`은 코어에 들어 있는 어댑터 중 실행 파일이 PATH에 있는 것 전부 |
 | `harness chat [--runner R] [--workspace terminal\|orca\|tmux]` | 저장소 루트에서 메인 인터페이스 세션을 연다(12절). 기본 러너는 설정 `runner`, 기본 작업 환경은 `terminal` |
-| `harness autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 수행하고 `data/logs/autorun-*.log`에 남긴다 |
-| `harness schedule install [--every-hours N]` | `harness autorun`을 N시간(기본 6)마다 돌리는 launchd 작업을 쓰고 불러온다. 작업에는 하네스 루트(`HARNESS_HOME`)와 설치 시점의 `PATH`가 고정된다 |
-| `harness schedule remove` | launchd 작업을 내리고 plist를 지운다 |
-| `harness schedule status` | 설치·적재 여부, 주기, 마지막 종료 코드, 마지막 `autorun` 로그 |
+| `harness autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd 작업이 이 명령을 돈다 |
+| `harness schedule install [--scheduler orca\|launchd]` | 설정 `schedule.cron` 주기로 정기 실행을 등록하거나, 이미 있으면 갱신한다. 기본 스케줄러는 설정 `schedule.scheduler`. 다른 스케줄러에도 정기 실행이 있으면 결과에 `warning`을 낸다(6절 정기 실행) |
+| `harness schedule remove [--scheduler orca\|launchd]` | `orca`는 하네스 automation을 지운다(그 worktree는 남기고 id를 알려 준다). `launchd`는 작업을 내리고 plist를 지운다 |
+| `harness schedule status` | 설정 주기와 두 스케줄러의 실제 상태(아래 정기 실행 절의 필드) |
 
 <p>표 3. CLI 명령</p>
 
@@ -245,6 +250,18 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `providers` | 공급자별 남은 한도와 `mode`(`harness budget`과 같은 계산) |
 
 <p>표 5. capacity 필드</p>
+
+### 정기 실행
+
+정기 실행은 러너 세션 하나가 `harness/prompts/automation.md`를 한 번 수행하는 것이다(수집 → 1차 거름 → 게이트 → 필요하면 ContestScout → 실행 → 정리). `harness schedule install`이 설정 `schedule`대로 스케줄러에 등록한다. 시각은 모두 이 컴퓨터의 현지 시각이다.
+
+- 주기 `schedule.cron`: 5필드 cron(분 시 일 월 요일). 필드 값은 `*`, `n`, `a-b`, `*/n`, `a/n`, `a-b/n`과 이들의 쉼표 목록이다. 이름(`MON`, `JAN`)과 매크로(`@daily`)는 받지 않는다(Orca와 launchd가 같은 주기를 읽게 하려고). 요일은 0~7이고 0과 7이 일요일이다. 일과 요일이 둘 다 제한돼 있으면(어느 쪽도 `*`로 시작하지 않으면) cron 규칙대로 둘 중 하나만 맞아도 돈다.
+- 스케줄러 `schedule.scheduler`(`--scheduler`로 바꿀 수 있다):
+  - `orca`: 하네스 automation은 프롬프트에 이 클론의 `harness/prompts/automation.md` 절대 경로가 든 Orca automation이다. 있으면 `orca automations edit --id <id> --trigger <cron> --provider <러너의 Orca 에이전트> --enabled`로 갱신한다(같은 automation이 더 있으면 `duplicates`로 알린다). 없으면 `orca_repo_path` 저장소에 worktree `Autocontest-Harness`를 만들고, 그 worktree에서 automation `Autocontest-Harness`를 만든다(`--trigger <cron> --prompt "<automation.md 경로> 파일을 읽고 그 절차를 그대로 실행해." --provider <러너의 Orca 에이전트> --workspace id:<worktree> --enabled --timezone <현지 IANA 시간대>`). 설정 러너에 Orca 에이전트 id(10절 `orca_agent`)가 없거나 `orca` CLI가 PATH에 없으면 거절한다. `remove`는 하네스 automation을 지우고, 그 worktree는 다른 터미널이 있을 수 있어 남긴 채 id만 알려 준다.
+  - `launchd`: `~/Library/LaunchAgents/io.github.fmsongx2.autocontest-harness.plist`를 쓰고 `launchctl bootstrap`으로 불러온다(이미 있으면 내리고 다시 부른다). 작업은 `harness autorun`을 돌리고, 하네스 루트(`HARNESS_HOME`)와 설치 시점의 `PATH`가 고정된다. cron은 `StartCalendarInterval` 항목으로 바꾸고 원문은 plist의 `<!-- cron: … -->` 주석에 남긴다. 일이 `*`로 시작하는 간격(`*/2`)과 요일을 함께 건 cron(`0 9 */2 * 1`)은 launchd로 옮기지 못해 거절하고, 항목이 1000개를 넘는 cron도 거절한다. `remove`는 작업을 내리고(`bootout`) plist를 지운다.
+- 두 스케줄러에 모두 정기 실행이 있으면 두 실행이 같은 공모전을 함께 게이트·실행하므로, `install` 결과에 `warning`(`harness schedule remove --scheduler <다른 쪽>` 안내)을 낸다. 한쪽만 둔다.
+- 웹 검색 시간대 `schedule.scout_hours`: cron 시 필드 문법(`0-5`, `0,12`, `*`). 수집하는 `harness tick`이 지금 시가 이 안이면 `scout: true`를 내고, `automation.md`는 그때만 ContestScout를 한 번 돌린다. 빈 값이면 돌리지 않는다.
+- `harness schedule status --json`: `{cron, cron_error, scheduler, scout_hours, launchd: {plist, installed, loaded, cron, in_sync, last_exit, last_log}, orca: {available, automations: [{id, name, cron, timezone, enabled, agent, workspace_id, next_run, last_run, in_sync}]}}`. `in_sync`는 등록된 주기가 설정 `schedule.cron`과 같은지다(Orca는 켜져 있고 에이전트도 설정 러너와 같아야 한다). `last_exit`는 launchd가 기록한 마지막 종료 코드, `last_log`는 가장 최근 `autorun` 로그, `next_run`·`last_run`은 현지 시각이다.
 
 ### 수집 출처
 
@@ -305,7 +322,8 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | `ContestHQ` | SPEC·PLAN·TASKS를 쓰고 워커 웨이브를 지휘, 체크포인트마다 Judge. 레벨 5는 `plan_review` 관문을 지킨다 | 3~5 | `@plan` | 공모전 폴더 |
 | `DomainResearcher` | 정책·통계·보도·이전 수상작 등 논문 밖 근거를 인용과 함께 모은다 | 2~5 | `@DomainResearcher`(없으면 `@task`) | 없음(결과 반환) |
 | `ContestEditor` | 평가표(`gate.criteria`) 기준으로 글 산출물의 문체·어투·문장을 점검하고 다듬는다. 내용·수치·주장은 바꾸지 않는다 | 2 이상 글 산출물 | `@task` | 호출자가 준 결과물 파일만 |
-| `ReferenceScout` | 웹에서 실제 프로덕션 레퍼런스를 찾아 분석하고 `research/references.md`로 남긴다 | 5 필수, 3~4 서비스형 선택 | `@task` | `research/references.md`만 |
+| `ReferenceScout` | 웹에서 실제 프로덕션 레퍼런스를 찾아 어떻게 하는지(흐름·UI 패턴·아키텍처)를 분석하고 `research/references.md`로 남긴다. 배우는 교본이고, 재사용 결정은 하지 않는다 | 5 필수, 3~4 서비스형 선택 | `@task` | `research/references.md`만 |
+| `OpenSourceScout` | 처음부터 만들지 않도록 재사용할 오픈소스(통째로 같은 일을 하는 프로젝트, 라이브러리, 사전학습 모델, 공개 베이스라인·이전 우승 해법, 템플릿)를 찾아 라이선스·유지보수·성숙도·적합도·설치 비용·공고의 외부 코드·모델·데이터 규칙을 대조하고, 구성 요소별 `reuse`/`fork`/`reference`/`build` 결정과 제출물 고지 문안을 `research/oss.md`로 남긴다 | 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 있는 3~5 필수(4는 항상), 2는 PoC를 계획할 때 선택 | `@task` | `research/oss.md`만 |
 | `UxReviewer` | 화면이 있는 결과물의 UI/UX를 Orca 내장 브라우저로 점검한다 | 5 필수, 화면이 있는 3~4 선택 | `@task` | 없음(결과 반환, 스크린샷은 `/tmp`에만) |
 | `ContestJudge` | `gate.json`의 심사기준(점수표 `RUBRIC.md`)으로 결과물을 채점하고 고칠 점을 낸다. stage `plan`이면 콘셉트·SPEC·PLAN을 "이대로 완성했을 때"로 예측 채점하고 점수를 올릴 기획 변경을 낸다. 출력 JSON은 `.harness/judge/<stage>-<n>.json`(15절). 최종본의 페르소나 흔적도 확인한다(`harness check`가 못 보는 hwp·pdf 등 포함) | 1~5 | `@slow` | 없음(결과 반환) |
 | `reviewer`(omp 기본) | 코드 리뷰 | 3~5 코드 | omp 기본 정의 | omp 기본 정의 |
@@ -313,7 +331,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 <p>표 7. 에이전트</p>
 
-에이전트 원본은 omp 형식(`agents/*.md`, 앞머리에 이름·설명·도구·모델 역할)이다. 다른 러너에는 `harness install`이 변환하거나 연결한다(10절). 모델 역할(`@task` 등)은 omp에서만 뜻이 있고, 변환한 claude 에이전트는 `model: inherit`(호출한 세션의 모델)를 쓴다. 에이전트·스킬·템플릿·실행 지시문은 사용자를 "사용자"로 부른다. 이 문서들이 공모전 세션의 문서로 그대로 옮겨지기 때문이다.
+에이전트 원본은 omp 형식(`agents/*.md`, 앞머리에 이름·설명·도구·모델 역할)이다. omp는 `harness install`(`omp plugin link`)로 그대로 읽는다. 형식이 다른 러너의 어댑터는 `install`에서 변환하거나 연결한다(10절). 모델 역할(`@task` 등)은 omp에서만 뜻이 있다. 에이전트·스킬·템플릿·실행 지시문은 사용자를 "사용자"로 부른다. 이 문서들이 공모전 세션의 문서로 그대로 옮겨지기 때문이다.
 
 논문 근거는 기존 `ArticleResearcher` 에이전트(이 저장소 밖)를 쓴다. 논문 대회의 연구 도구는 운영자 환경 규칙(`data/local-rules.md`)을 따른다.
 
@@ -333,32 +351,60 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 ## 10. 러너와 작업 환경
 
-러너(에이전트 하네스, `src/runners/<이름>.rs`)는 세션을 띄우는 명령과 설치 방식을 정한다. 작업 환경(`src/workspaces/<이름>.rs`)은 그 명령을 어디서 돌릴지 정한다. 대화형 작업 환경은 러너의 대화형 명령을, 대화형이 아닌 작업 환경(`headless`)은 러너의 한 번 실행 명령을 쓴다. 설정 `runner`와 `workspace`로 고른다.
+러너(에이전트 하네스)는 세션을 띄우는 명령과 설치 방식을 정하고, 러너 어댑터(`src/runners/<이름>.rs`) 하나가 러너 하나를 맡는다. 작업 환경(`src/workspaces/<이름>.rs`)은 그 명령을 어디서 돌릴지 정한다. 대화형 작업 환경은 러너의 대화형 명령을, 대화형이 아닌 작업 환경(`headless`)과 `harness autorun`은 러너의 한 번 실행 명령을 쓴다. 설정 `runner`와 `workspace`로 고른다.
 
-| 러너 | 대화형 명령 | 한 번 실행 명령 | 서브에이전트 | 시스템 프롬프트 덧붙이기(메인 세션) | 모델 지정 |
-|---|---|---|---|---|---|
-| `omp` | `omp --cwd <폴더> @<지시문> "<첫 메시지>"` | 같은 명령 + `-p` | 있음(`task` 도구) | `--append-system-prompt <파일>` | `preset_by_level`(`--config` 덮개) 또는 `--model` |
-| `pi` | `pi @<지시문> "<첫 메시지>"` | `pi -p @<지시문> ...` | 없음. 확장의 `contest_agent` 도구로 에이전트 하나를 별도 pi 프로세스로 돌린다 | `--append-system-prompt <파일>` | `--model` |
-| `claude` | `claude "<지시문 본문>"` | `claude -p ...` | 있음(변환한 서브에이전트) | `--append-system-prompt-file <파일>` | `--model` |
-| `codex` | `codex -C <폴더> "<지시문 본문>"` | `codex exec -C <폴더> ...`(`runner_args`에 샌드박스가 없으면 `--sandbox workspace-write`) | 있음(변환한 custom agent) | `-c developer_instructions=<본문>` | `-m` |
-| `dsh` | `dsh-tui -- "<본문>"`(없으면 `dsh --profile dsh-tui -- -- "<본문>"`) | `dsh --profile headless "<본문>"` | 없음. 같은 세션에서 차례로 수행 | 플래그가 없어 첫 메시지 앞에 붙인다 | 없음 |
+코어에 들어 있는 어댑터는 `omp` 하나다. pi, Claude Code, codex, dsh 어댑터는 코어에서 뺐다. 다른 에이전트 하네스의 어댑터는 풀 리퀘스트로 받는다(방법은 `CONTRIBUTING.md`). 뺀 어댑터의 코드는 커밋 `bf05366`의 `src/runners/`에 있어 풀 리퀘스트의 출발점으로 쓸 수 있다. 등록부에 없는 러너 이름을 주면 CLI는 쓸 수 있는 이름과 `CONTRIBUTING.md`를 가리키는 오류를 낸다.
 
-<p>표 8. 러너별 명령과 지원 기능</p>
+어댑터 인터페이스는 `src/runners/mod.rs`의 트레이트 `Runner`다. 어댑터는 상태 없는 구조체 하나로 만들고 등록부 `runners::ALL`에 한 줄로 더한다.
 
-- 공모전 세션의 시스템 프롬프트에는 아무것도 덧붙이지 않는다(페르소나 없음). 시스템 프롬프트 덧붙이기는 메인 세션(`harness chat`)만 쓴다.
-- `runner_args.<러너>`는 지시문 앞에 그대로 덧붙는다.
-- 서브에이전트가 없는 러너(`pi`, `dsh`)에는 `launch`가 실행 지시문 끝에 "같은 세션에서 차례로" 절을 덧붙인다(5절).
-- pi, claude, dsh는 작업 디렉터리 플래그가 없어 작업 환경이 그 폴더에서 띄운다.
+| 메서드 | 기본 구현 | 뜻 |
+|---|---|---|
+| `name()` | 없음 | 설정 `runner` 값(어댑터 이름) |
+| `binary()` | 없음 | PATH에서 찾는 실행 파일. 모든 명령은 이 이름으로 시작한다 |
+| `available()` | `binary()`가 PATH에 있는지 | `install --all`과 `autorun`이 본다 |
+| `subagents()` | 없음 | 하네스 에이전트를 서브에이전트로 돌릴 수 있는지. `false`면 `launch`가 실행 지시문 끝에 "같은 세션에서 차례로" 절을 덧붙인다(5절) |
+| `presets()` | `false` | 이름 붙은 모델 프리셋(`preset_by_level`, `launch --preset`)이 있는지 |
+| `preset_file(name, dir)` | 오류(프리셋 없음, `model_by_level`을 쓰라는 안내) | 프리셋 `name`을 이번 실행용 파일로 공모전 `.harness/`에 `<러너>-preset.<확장자>`로 쓰고 그 경로를 돌려준다 |
+| `orca_agent()` | 없음(`None`) | Orca automation이 이 러너를 띄울 때 쓰는 에이전트 id. `schedule.scheduler = "orca"`에 필요하다(6절 정기 실행) |
+| `interactive(spec)` | 없음 | 대화형 세션 명령. 지시문 파일을 먼저 읽고 시작한다 |
+| `oneshot(spec)` | 없음 | 터미널 없이 지시문을 한 번 수행하고 끝나는 명령 |
+| `install(root)` | 없음 | 에이전트(`agents/*.md`, 러너 형식이 다르면 변환), 스킬(`skills/contest-harness`), 지원하면 확장 패키지를 설치한다. 여러 번 돌려도 결과가 같아야 한다 |
 
-| 러너 | `harness install`이 하는 일 |
+<p>표 8. 러너 어댑터 인터페이스(`Runner`)</p>
+
+명령을 만드는 입력 `Spec`:
+
+- `cwd`: 세션의 작업 디렉터리(공모전 폴더 또는 저장소 루트).
+- `prompt_file`: 실행 지시문(`.harness/launch-prompt.md`, `harness/prompts/automation.md`, 메인 세션 첫 지시 파일). 에이전트가 무엇보다 먼저 전부 읽어야 한다.
+- `first_message`: 지시문을 따르라는 첫 사용자 메시지. 지시문 본문을 첫 메시지로 넘기는 어댑터는 생략할 수 있다.
+- `system_append`: 덧붙일 시스템 프롬프트(페르소나 + 메인 역할). 메인 세션(`harness chat`)에만 있고, 공모전 세션과 정기 실행에서는 늘 비어 있다(페르소나 없음).
+- `model`: 모델 id(`model_by_level`). 없으면 러너 기본값을 쓴다.
+- `preset_file`: 이번 실행에 `preset_file()`이 쓴 파일(프리셋이 있는 어댑터만).
+- `extra_args`: 설정 `runner_args.<러너>`. 바꾸지 않고 순서대로 넘긴다.
+
+어댑터용 도움 함수(`src/runners/mod.rs`): `which`(PATH의 실행 파일 경로), `prompt_text`(지시문을 첫 메시지로 넘기는 러너용 본문), `system_text`(시스템 프롬프트 덧붙이기를 본문으로 넘기는 러너용), `link`(심볼릭 링크를 건다. 옛 심볼릭 링크는 바꾸고 실제 파일은 덮지 않는다), `write_file`(같은 내용이 이미 있으면 쓰지 않는다), `run_cli`(설치 중 러너 CLI를 돌리고 실패하면 출력과 함께 오류), `AgentDoc`·`agent_docs`(`agents/*.md`의 앞머리와 본문을 읽어 다른 형식으로 변환할 때 쓴다).
+
+계약 테스트 `every_adapter_keeps_the_runner_contract`(`tests/backends.rs`)는 `ALL`의 모든 어댑터에 돈다.
+
+- 대화형·한 번 실행 명령이 `binary()`로 시작한다.
+- 지시문이 에이전트에 닿는다(명령에 지시문 경로나 본문이 있다).
+- `runner_args`가 바뀌지 않고 순서대로 들어간다.
+- 시스템 프롬프트 덧붙이기는 `system_append`가 있을 때만 명령에 나타난다.
+- 한 번 실행 명령은 대화형 명령과 다르다.
+- `presets()`가 `false`면 `preset_file()`이 거절한다.
+
+| 항목 | `omp` 어댑터 |
 |---|---|
-| `omp` | `omp plugin link <저장소>`(확장·스킬·에이전트를 패키지로 읽는다). 예전 방식으로 `~/.omp/agent/agents/`·`~/.omp/agent/skills/contest-harness`에 걸었던, 저장소를 가리키는 심볼릭 링크는 지운다 |
-| `pi` | `pi install <저장소>`(로컬 경로를 `~/.pi/agent/settings.json`에 등록, 확장·스킬·프롬프트 템플릿) |
-| `claude` | `agents/*.md`를 `~/.claude/agents/contest-harness/<이름>.md` 서브에이전트로 변환해 쓰고(omp 도구 이름을 Claude Code 도구 이름으로 바꾸고, 없는 도구는 뺀다), 스킬을 `~/.claude/skills/contest-harness`에 심볼릭 링크한다. 원본에서 사라진 변환본은 지운다 |
-| `codex` | `agents/*.md`를 `~/.codex/agents/contest-<이름>.toml` custom agent로 변환하고, 스킬을 `~/.agents/skills/contest-harness`에 심볼릭 링크한다. 원본에서 사라진 `contest-*.toml`은 지운다 |
-| `dsh` | 스킬을 `~/.agents/skills/contest-harness`에 심볼릭 링크한다 |
+| 대화형 명령 | `omp --cwd <폴더> [--config <프리셋 파일>] [--model M] [--append-system-prompt <파일>] <runner_args> @<지시문> "<첫 메시지>"` |
+| 한 번 실행 명령 | 같은 명령에서 `--cwd <폴더>` 바로 뒤에 `-p` |
+| 서브에이전트 | 있음(`task` 도구) |
+| 프리셋 | `~/.omp/agent/config.yml`의 `modelPresets`. `preset_file`이 그 프리셋을 `.harness/omp-preset.yml` 덮개로 써서 `--config`로 넘기므로 전역 omp 설정은 바뀌지 않는다 |
+| 모델 지정 | 프리셋이 없으면 `model_by_level`을 `--model`로 |
+| 시스템 프롬프트 덧붙이기(메인 세션) | `--append-system-prompt <파일>` |
+| Orca 에이전트 | `omp` |
+| `harness install` | `omp plugin link <저장소>`(확장·스킬·명령·에이전트를 패키지로 읽는다, 11절). 예전 방식으로 `~/.omp/agent/agents/`·`~/.omp/agent/skills/contest-harness`에 걸었던, 저장소를 가리키는 심볼릭 링크는 지운다 |
 
-<p>표 9. 러너별 설치</p>
+<p>표 9. omp 어댑터</p>
 
 | 작업 환경 | 대화형 | `route`가 만드는 것(`workspace_id`) | `launch`가 띄우는 방식(`handle`) | `peek` |
 |---|---|---|---|---|
@@ -371,7 +417,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 ## 11. 패키지와 확장
 
-저장소는 omp와 pi가 함께 읽는 확장 패키지다. `package.json`의 `omp.extensions`와 `pi.extensions`(+ `pi.skills`, `pi.prompts`)가 같은 확장 파일 `extensions/contest-harness.ts`를 가리킨다. `harness install --runner omp`는 `omp plugin link`, `--runner pi`는 `pi install`로 등록한다(10절).
+저장소는 omp가 읽는 확장 패키지다. `package.json`에는 `omp.extensions`(확장 파일 `extensions/contest-harness.ts`)만 있고, `skills/`, `commands/`, `agents/`는 omp 플러그인 로더가 폴더 이름으로 찾아 읽는다. `harness install --runner omp`가 `omp plugin link`로 등록한다(10절). 다른 러너용 확장은 그 러너의 어댑터와 함께 풀 리퀘스트로 더한다.
 
 | 이름 | 종류 | 하는 일 |
 |---|---|---|
@@ -379,13 +425,12 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | `/contest <id>` | 명령 | 공모전 하나의 요약 |
 | `/contest-chat` | 명령 | 메인 세션 여는 법(`harness chat`)과 바이너리 버전 |
 | `/contest-gate <id>` | 프롬프트 템플릿(`commands/contest-gate.md`) | 레지스트리 항목 하나를 ContestGate로 거르고 결과를 요약한다 |
-| `contest_agent {agent, task}` | 도구(pi 전용) | `agents/<agent>.md` 본문을 시스템 프롬프트로 `pi -p --no-session` 하위 프로세스를 돌려 마지막 출력을 돌려준다. 하위 프로세스에서는 이 도구를 등록하지 않는다(재귀 금지) |
 
-<p>표 11. 확장이 등록하는 명령과 도구</p>
+<p>표 11. 확장이 등록하는 명령</p>
 
 - 확장은 모든 정보를 `harness ... --json` 출력에서 얻는다. 바이너리는 `HARNESS_BIN` → 저장소 `target/release/harness` → `target/debug/harness` → `PATH`의 `harness` 순으로 찾는다.
 - 확장은 페르소나를 넣지 않는다. 페르소나와 메인 역할은 `harness chat`만 넣는다.
-- 등록 확인(토큰을 쓰지 않는다): `omp --mode rpc --no-session --no-extensions -e <저장소>`, `pi --mode rpc --no-session -ne -e <저장소> --offline`의 명령 목록.
+- 등록 확인(토큰을 쓰지 않는다): `omp --mode rpc --no-session --no-extensions -e <저장소>`의 명령 목록에 `/contest`, `/contest-chat`, `/contest-gate`가 있다.
 
 ## 12. 메인 인터페이스와 페르소나
 
@@ -395,7 +440,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 1. `data/main-system.md`를 쓴다: `persona.enabled`가 `true`면 `persona.file`(`{{call_user}}`를 `persona.call_user`로 바꾼 것), 이어서 `harness/prompts/main.md`(메인 인터페이스 역할).
 2. `data/main-start.md`에 첫 지시(보드·용량 요약, 사용자에게 물을 것 묶기)를 쓴다.
-3. 러너의 대화형 명령에 `data/main-system.md`를 시스템 프롬프트 덧붙이기로(10절 표 8), `data/main-start.md`를 첫 지시로 넘긴다. `headless`처럼 대화형이 아닌 작업 환경은 거절한다.
+3. 러너의 대화형 명령에 `data/main-system.md`를 시스템 프롬프트 덧붙이기(10절 `Spec.system_append`, omp는 `--append-system-prompt`)로, `data/main-start.md`를 첫 지시로 넘긴다. `headless`처럼 대화형이 아닌 작업 환경은 거절한다.
 
 메인 세션은 사용자의 말을 하네스 명령과 에이전트 작업으로 옮기고 결과를 요약한다. 공모전 결과물(코드·주석·보고서·발표자료·서식·커밋 메시지)은 직접 쓰거나 고치지 않는다. 그 일은 페르소나 없는 공모전 세션(`harness launch`)이 한다.
 

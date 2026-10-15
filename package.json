@@ -1,7 +1,7 @@
 {
   "name": "contest-harness",
   "version": "0.2.0",
-  "description": "Autocontest-Harness extension, skill and agents for omp and pi: /contest board and capacity, contest_agent for pi",
+  "description": "Autocontest-Harness extension, skill, commands and agents for omp: /contest board and capacity",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -9,13 +9,7 @@
     "type": "git",
     "url": "git+https://github.com/FMsongX2/Autocontest-Harness.git"
   },
-  "keywords": ["pi-package"],
   "omp": {
     "extensions": ["./extensions/contest-harness.ts"]
-  },
-  "pi": {
-    "extensions": ["./extensions/contest-harness.ts"],
-    "skills": ["./skills"],
-    "prompts": ["./commands"]
   }
 }

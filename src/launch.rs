@@ -58,16 +58,9 @@ pub fn format_named(template: &str, values: &[(&str, String)]) -> Result<String>
 
 /// What a runner without subagents is told about steps written for subagents.
 fn no_subagents_note(runner: &str) -> String {
-    let mut note = format!(
-        "\n\n## 이 러너({runner})의 서브에이전트\n\n이 러너에는 서브에이전트 기능이 없다. 서브에이전트 기능이 없으면 같은 세션에서 차례로 수행한다. 위에서 서브에이전트(task·agent)나 병렬 웨이브로 하라는 단계는 이 세션에서 하나씩 직접 수행한다."
-    );
-    if runner == "pi" {
-        note.push_str(
-            " 단, 하네스 확장의 `contest_agent` 도구(`{agent, task}`)로 하네스 에이전트 하나(예: `ContestJudge`, `DomainResearcher`)를 별도 pi 프로세스로 돌려 결과를 받을 수 있으니, 독립 검토와 조사처럼 한 번에 끝나는 일은 그 도구로 맡긴다.",
-        );
-    }
-    note.push('\n');
-    note
+    format!(
+        "\n\n## 이 러너({runner})의 서브에이전트\n\n이 러너에는 서브에이전트 기능이 없다. 서브에이전트 기능이 없으면 같은 세션에서 차례로 수행한다. 위에서 서브에이전트(task·agent)나 병렬 웨이브로 하라는 단계는 이 세션에서 하나씩 직접 수행한다.\n"
+    )
 }
 
 /// The launch instructions for `entry` (`launch.md` + `level_<n>.md`), plus a note for runners
@@ -96,18 +89,20 @@ pub fn render_prompt(entry: &Entry, runner: &dyn Runner) -> Result<String> {
     Ok(prompt)
 }
 
-/// `~/.omp/agent/config.yml`'s `modelPresets.<name>` as a `--config` overlay for this run only.
-pub fn preset_overlay(name: &str, config_yml: &Path, target: &Path) -> Result<PathBuf> {
-    let config: Value = serde_yaml_ng::from_str(&read(config_yml)?)?;
-    let preset = config.get("modelPresets").and_then(|p| p.get(name)).filter(|p| !p.is_null());
-    let Some(preset) = preset else { crate::bail!("omp 프리셋이 없다: {name}") };
-    let mut overlay = json!({"modelRoles": preset.get("modelRoles").cloned().unwrap_or_else(|| json!({}))});
-    if let Some(level) = preset.get("defaultThinkingLevel").filter(|v| !v.is_null() && v.as_str() != Some("")) {
-        overlay["defaultThinkingLevel"] = level.clone();
+/// The preset for this launch: `--preset`, else `preset_by_level` for runners with presets.
+/// `--preset` on a runner without presets is an error; `preset_by_level` is then ignored.
+pub fn pick_preset(runner: &dyn Runner, config: &Config, level: u8, preset: Option<&str>) -> Result<Option<String>> {
+    if !runner.presets() {
+        if let Some(p) = preset {
+            crate::bail!("러너 {}는 프리셋을 지원하지 않는다(--preset {p}). model_by_level을 쓴다", runner.name());
+        }
+        return Ok(None);
     }
-    // JSON is valid YAML, and omp reads the overlay as YAML.
-    std::fs::write(target, serde_json::to_string_pretty(&overlay)? + "\n")?;
-    Ok(target.to_path_buf())
+    Ok(match preset {
+        Some(p) => Some(p.to_string()),
+        None => config.preset_by_level.get(&level).cloned().flatten(),
+    }
+    .filter(|p| !p.is_empty()))
 }
 
 fn session_field<'a>(entry: &'a Entry, key: &str) -> Option<&'a str> {
@@ -146,40 +141,21 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
     let prompt_path = meta.join("launch-prompt.md");
     std::fs::write(&prompt_path, render_prompt(entry, runner)?)?;
 
-    // Presets are omp model-role sets; other runners take `model_by_level`.
-    let preset: Option<String> = if runner.name() == "omp" {
-        match preset {
-            Some(p) => Some(p.to_string()),
-            None => config.preset_by_level.get(&level).cloned().flatten(),
-        }
-        .filter(|p| !p.is_empty())
-    } else if let Some(p) = preset {
-        crate::bail!(
-            "--preset {p}는 omp 러너 전용이다(지금 러너 {}). 다른 러너는 model_by_level을 쓴다",
-            runner.name()
-        );
-    } else {
-        None
-    };
-    let preset_overlay = match &preset {
-        Some(name) => {
-            Some(preset_overlay(name, &paths::omp_agent_dir().join("config.yml"), &meta.join("omp-preset.yml"))?)
-        }
-        None => None,
-    };
+    let preset = pick_preset(runner, config, level, preset)?;
+    let preset_file = preset.as_deref().map(|name| runner.preset_file(name, &meta)).transpose()?;
     let spec = Spec {
         cwd: folder.clone(),
         prompt_file: prompt_path.clone(),
         first_message: FIRST_MESSAGE.to_string(),
         // Contest sessions never get the persona: their code, reports and commits must not carry it.
         system_append: None,
-        // A preset already picks omp's model roles.
-        model: if preset_overlay.is_some() {
+        // A preset already picks the models.
+        model: if preset_file.is_some() {
             None
         } else {
             config.model_by_level.get(&level).filter(|m| !m.is_empty()).cloned()
         },
-        preset_overlay,
+        preset_file,
         extra_args: config.runner_args(runner.name()),
     };
     let argv = if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? };
@@ -287,7 +263,7 @@ pub fn chat(config: &Config, runner: Option<&str>, workspace: Option<&str>) -> R
         first_message: "첨부한 지시대로 메인 인터페이스를 시작해.".to_string(),
         system_append: Some(main_system_prompt(config)?),
         model: None,
-        preset_overlay: None,
+        preset_file: None,
         extra_args: config.runner_args(runner.name()),
     };
     let argv = runner.interactive(&spec)?;

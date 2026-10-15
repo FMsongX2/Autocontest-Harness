@@ -45,7 +45,7 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 | `harness list [--state S] [--type T]` / `harness show <id>` | 목록 / 항목 전체 |
 | `harness gate <id> --file gate.json` | 게이트 결과 기록 → `gate_pass`/`rejected`/`hold` |
 | `harness route <id> [--folder 이름] [--no-repo] [--no-workspace]` | 폴더·private 저장소(config `github_org`, 비면 로그인한 사용자 계정)·작업 환경(config `workspace`: orca·tmux·headless)·`CONTEST.md` 생성 → `routed`. 항목의 `session`에 `workspace`·`runner`가 남는다. 제출 기록부에 같은 공모전이 있으면 거절한다 |
-| `harness launch <id> [--preset 이름] [--dry-run] [--force]` | 공모전 폴더에서 config `runner`(omp·pi·claude·codex·dsh)로 세션 시작 → `running`. `--preset`은 omp 전용(다른 러너는 `model_by_level`). 전체·그 레벨의 동시 실행 상한이나 메모리 예산에 여유가 없으면 거절 |
+| `harness launch <id> [--preset 이름] [--dry-run] [--force]` | 공모전 폴더에서 config `runner`(러너 어댑터 이름, 코어에는 `omp`뿐)로 세션 시작 → `running`. `--preset`은 프리셋이 있는 러너(omp)만, 그 밖에는 `model_by_level`. 전체·그 레벨의 동시 실행 상한이나 메모리 예산에 여유가 없으면 거절 |
 | `harness peek <id> [--lines N]` | 실행 중인 세션의 화면·로그 끝 확인 |
 | `harness check <id>` | 공모전 폴더의 텍스트 파일과 커밋 메시지에서 페르소나 흔적 검사(있으면 종료 코드 4와 위치). hwp·pdf 안쪽은 못 본다 |
 | `harness transition <id> <상태> [--note N] [--persona-ok 사유] [--score-ok 사유]` | 상태 이동(규칙 검사). 레벨 5: `→ plan_review`는 `plan` 점수가 있어야 하고, `plan_review → running`은 `--note`에 승인 원문·시각 필수, 이 승인 기록 없이는 `awaiting_approval`로 못 간다. `awaiting_approval`은 `harness check`에 흔적이 있으면 거절되고, 작품 속 대사처럼 의도한 표현일 때만 `--persona-ok "<사유>"`(사유와 건수가 기록에 남는다). 레벨 2 이상의 `→ awaiting_approval`은 `plan` 점수가 하나 이상, 가장 최근 `final` 점수가 `ready`이고 `total ≥ target`이어야 한다. 마감 등으로 목표 미달로 내야 하면 `--score-ok "<사유>"`(사유와 점수가 기록에 남는다) |
@@ -55,10 +55,10 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 | `harness clean <id> [--dry-run] [--purge] [--force]` / `harness clean --all [--dry-run]` | 제출 끝난 공모전 정리: 세션 닫기 + git이 추적하지 않는 제출본과 `.private/`를 `data/archive/<id>/`에 보관 + 로컬 폴더를 휴지통으로(`--purge`면 완전 삭제). 조건(`submitted`·`closed`, 제출 기록부에 있음, git 작업 트리 깨끗·push 완료, 제출본이 git이나 폴더에 있음)이 하나라도 어긋나면 이유(`problems`)만 내고 지우지 않는다(`--force`는 검사 생략). 레지스트리 `folder_removed_at`, 기록부 `repo`·`archive`로 나중에 되살린다. `--all`은 `submitted`·`closed` 전부 |
 | `harness profile path\|eligibility\|show [--json]` | 사용자 정보(`data/profile.md`, 사용자가 직접 쓰는 마크다운, git 제외). 하네스는 읽기만 한다. 게이트는 `eligibility --json`(`## 참가 자격` 절)만, 개인 값은 승인된 제출 단계에서만 `show --json`(파일 전체) |
 | `harness budget` / `harness capacity --json` | 공급자 한도 기반 권장 병렬 수 / 지금 새로 띄울 수 있는 세션 수: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`available_gb`, `reserve_gb`, `budget_gb`, `pressure`), `limits`, `providers` |
-| `harness tick [--no-collect] [--auto-launch]` / `harness board` | 주기 실행(config `auto_launch`가 `true`면 플래그 없이도 실행까지) / `BOARD.md` 갱신 |
-| `harness autorun` / `harness schedule install\|remove\|status [--every-hours N]` | 러너 한 번 실행으로 `harness/prompts/automation.md` 정기 실행(로그 `data/logs/`) / macOS launchd로 주기 등록 |
+| `harness tick [--no-collect] [--auto-launch]` / `harness board` | 주기 실행(config `auto_launch`가 `true`면 플래그 없이도 실행까지). 수집하면 `scout`(지금 현지 시가 config `schedule.scout_hours` 안인지, ContestScout를 이번 회차에 돌릴지)를 낸다 / `BOARD.md` 갱신 |
+| `harness autorun` / `harness schedule install\|remove [--scheduler orca\|launchd]` / `harness schedule status` | 러너 한 번 실행으로 `harness/prompts/automation.md` 정기 실행(로그 `data/logs/`) / config `schedule.cron`(5필드 cron, 현지 시각) 주기로 Orca automation(기본) 또는 macOS launchd에 등록·갱신·삭제 / 설정 주기와 두 스케줄러의 실제 상태. 두 스케줄러에 다 있으면 `install`이 `warning`을 낸다 |
 | `harness chat [--runner R] [--workspace terminal\|orca\|tmux]` | 저장소 루트에서 메인 인터페이스 세션 열기(공모전 세션이 아니다) |
-| `harness install [--runner R ...] [--all]` | 러너별로 에이전트·스킬·확장 설치 |
+| `harness install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장 설치(omp는 `omp plugin link`). `--all`은 코어에 있는 어댑터 중 CLI가 PATH에 있는 것 전부 |
 
 ## 레벨
 
@@ -67,18 +67,20 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 | 레벨 | 크기 | 실행 |
 |---|---|---|
 | 1 | 하루 안 산출물 하나(숏폼·포스터·슬로건·짧은 수기) | 세션 하나가 유형 플레이북대로 → 마지막에 ContestJudge 1회(점수 루프는 강제하지 않는다) |
-| 2 | 조사 근거가 필요한 문서 하나(아이디어 제안서, 짧은 기획서) | 메인 세션 + 점수 루프 + DomainResearcher 1(논문 근거는 ArticleResearcher) → 평가표가 있으면 ContestEditor → 최종 채점 |
-| 3 | 여러 세션이 드는 결과물(정책 논문, 간단한 실험 논문, 간단한 서비스) | ContestHQ 절차로 SPEC·PLAN·TASKS + 점수 루프 + DomainResearcher + 러너의 서브에이전트 워커 웨이브 + 체크포인트마다 ContestJudge(글이면 ContestEditor, 코드면 `reviewer`) |
-| 4 | 실험·피드백 루프가 있는 큰 프로젝트(며칠 서버 실험하는 연구형 대회, 데이콘) | 레벨 3 + LEDGER.md 실험 루프 + 원격 계산(GPU 서버나 클라우드 GPU, 끝나면 삭제) + 긴 작업은 작업 환경이 orca일 때 Orca orchestration 워커 |
-| 5 | 1달 이상, 실제 프로덕션 수준 | ReferenceScout 레퍼런스 분석 → SPEC·PLAN → `plan_review`에서 멈춤 → 승인 뒤 HQ + 워커 웨이브 + UxReviewer + `security-reviewer` + UX를 해치지 않는 최적화 + ContestJudge |
+| 2 | 조사 근거가 필요한 문서 하나(아이디어 제안서, 짧은 기획서) | 메인 세션 + 점수 루프 + DomainResearcher 1(논문 근거는 ArticleResearcher, PoC를 계획하면 OpenSourceScout 선택) → 평가표가 있으면 ContestEditor → 최종 채점 |
+| 3 | 여러 세션이 드는 결과물(정책 논문, 간단한 실험 논문, 간단한 서비스) | ContestHQ 절차로 SPEC·PLAN·TASKS + 점수 루프 + DomainResearcher(결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 같은 웨이브에 OpenSourceScout 필수) + 러너의 서브에이전트 워커 웨이브 + 체크포인트마다 ContestJudge(글이면 ContestEditor, 코드면 `reviewer`) |
+| 4 | 실험·피드백 루프가 있는 큰 프로젝트(며칠 서버 실험하는 연구형 대회, 데이콘) | 레벨 3 + OpenSourceScout 필수(사전학습 모델·공개 베이스라인·우승 해법) + LEDGER.md 실험 루프 + 원격 계산(GPU 서버나 클라우드 GPU, 끝나면 삭제) + 긴 작업은 작업 환경이 orca일 때 Orca orchestration 워커 |
+| 5 | 1달 이상, 실제 프로덕션 수준 | ReferenceScout 레퍼런스 분석 → SPEC 초안 → DomainResearcher·OpenSourceScout 조사 → SPEC·PLAN → `plan_review`에서 멈춤 → 승인 뒤 HQ + 워커 웨이브 + UxReviewer + `security-reviewer` + UX를 해치지 않는 최적화 + ContestJudge |
 
 <p>표 1. 레벨 요약(정본: `docs/CONTRACT.md` 5절)</p>
 
-워커는 세션을 띄운 러너의 서브에이전트(omp·claude·codex의 task·agent 도구)로 띄운다. 서브에이전트가 없는 러너(pi·dsh)는 같은 세션에서 차례로 하고, pi는 한 번에 끝나는 검토·조사를 `contest_agent` 도구로 맡길 수 있다. 러너와 작업 환경은 `harness show <id> --json`의 `session`에 있다.
+OpenSourceScout는 결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 SPEC 확정·PLAN 전에 반드시 돌려 `research/oss.md`에 구성 요소별 `reuse`/`fork`/`reference`/`build`를 받는다. DomainResearcher와 같은 조사 웨이브에서 나란히 돌고, 그것을 대신하지 않는다. 레벨 2는 PoC를 계획할 때만 선택, 레벨 1과 글·창작만 하는 작업에는 쓰지 않는다. 기획 채점과 SPEC·PLAN은 이 결정을 따른다: 맞는 것이 없는 부분만 만들고, 아낀 품은 배점이 큰 심사기준에 돌린다.
+
+워커는 세션을 띄운 러너의 서브에이전트(omp는 `task` 도구)로 띄운다. 서브에이전트 기능이 없는 러너는 해당 에이전트 지시문(`agents/<이름>.md`)을 읽고 같은 세션에서 차례로 한다. 러너와 작업 환경은 `harness show <id> --json`의 `session`에 있다.
 
 레벨 1 세션 순서: `CONTEST.md`·`.harness/gate.json` 읽기 → 심사기준·이전 수상작 확인 → 플레이북 실행 → ContestJudge → `SUBMISSION.md` 작성 → `harness transition <id> awaiting_approval --note "<요약>"`.
 
-레벨 5 세션 순서: ReferenceScout로 `research/references.md` → `RUBRIC.md` → SPEC·PLAN(`## 레퍼런스` 절 필수) → 기획 채점(stage `plan`, `harness score`) → `harness transition <id> plan_review --note "<검수 요청 요약과 예측 점수>"` → 사용자에게 검수 요청하고 멈춤 → 승인되면 `harness transition <id> running --note "승인: <원문·시각>"` → 구현.
+레벨 5 세션 순서: ReferenceScout로 `research/references.md` → `RUBRIC.md`·SPEC 초안 → 조사 웨이브(DomainResearcher·OpenSourceScout 병렬, `research/oss.md`) → SPEC·PLAN(`## 레퍼런스`·`## 오픈소스 재사용` 절 필수) → 기획 채점(stage `plan`, `harness score`) → `harness transition <id> plan_review --note "<검수 요청 요약과 예측 점수>"` → 사용자에게 검수 요청하고 멈춤 → 승인되면 `harness transition <id> running --note "승인: <원문·시각>"` → 구현.
 
 ## 점수 루프(레벨 2 이상)
 
@@ -138,4 +140,4 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 | `playbooks/software-hackathon.md` | `software` — 제품 해커톤, 데모, 배포, 레벨 5 프로덕션 흐름 |
 | `playbooks/essay-short-doc.md` | `essay`, `other`(슬로건·수기·짧은 신청서) |
 
-에이전트: `ContestScout`, `ContestGate`, `ContestHQ`, `DomainResearcher`, `ContestEditor`, `ReferenceScout`, `UxReviewer`, `ContestJudge`(이 저장소 `agents/`, `harness install`이 러너별로 설치), 논문 근거는 기존 `ArticleResearcher`, 코드·보안 리뷰는 러너의 기본 `reviewer`·`security-reviewer`(없으면 세션이 같은 관점으로 직접 검토). 역할·레벨은 계약 8절.
+에이전트: `ContestScout`, `ContestGate`, `ContestHQ`, `DomainResearcher`, `OpenSourceScout`, `ContestEditor`, `ReferenceScout`, `UxReviewer`, `ContestJudge`(이 저장소 `agents/`, `harness install`이 러너별로 설치), 논문 근거는 기존 `ArticleResearcher`, 코드·보안 리뷰는 러너의 기본 `reviewer`·`security-reviewer`(없으면 세션이 같은 관점으로 직접 검토). 역할·레벨은 계약 8절.

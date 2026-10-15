@@ -1,7 +1,11 @@
+//! The omp adapter (reference implementation of [`Runner`]).
+
 use std::path::{Path, PathBuf};
 
+use serde_json::{Value, json};
+
 use super::{Runner, Spec, run_cli};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::paths;
 
 pub struct Omp;
@@ -11,8 +15,8 @@ fn command(spec: &Spec, print: bool) -> Vec<String> {
     if print {
         argv.push("-p".into());
     }
-    if let Some(overlay) = &spec.preset_overlay {
-        argv.extend(["--config".into(), overlay.display().to_string()]);
+    if let Some(preset) = &spec.preset_file {
+        argv.extend(["--config".into(), preset.display().to_string()]);
     }
     if let Some(model) = &spec.model {
         argv.extend(["--model".into(), model.clone()]);
@@ -24,6 +28,21 @@ fn command(spec: &Spec, print: bool) -> Vec<String> {
     argv.push(format!("@{}", spec.prompt_file.display()));
     argv.push(spec.first_message.clone());
     argv
+}
+
+/// `config_yml`'s `modelPresets.<name>` as a `--config` overlay for one run, written to `target`.
+pub fn preset_overlay(name: &str, config_yml: &Path, target: &Path) -> Result<PathBuf> {
+    let text = std::fs::read_to_string(config_yml).map_err(|e| Error(format!("{}: {e}", config_yml.display())))?;
+    let config: Value = serde_yaml_ng::from_str(&text)?;
+    let preset = config.get("modelPresets").and_then(|p| p.get(name)).filter(|p| !p.is_null());
+    let Some(preset) = preset else { crate::bail!("omp 프리셋이 없다: {name}") };
+    let mut overlay = json!({"modelRoles": preset.get("modelRoles").cloned().unwrap_or_else(|| json!({}))});
+    if let Some(level) = preset.get("defaultThinkingLevel").filter(|v| !v.is_null() && v.as_str() != Some("")) {
+        overlay["defaultThinkingLevel"] = level.clone();
+    }
+    // JSON is valid YAML, and omp reads the overlay as YAML.
+    std::fs::write(target, serde_json::to_string_pretty(&overlay)? + "\n")?;
+    Ok(target.to_path_buf())
 }
 
 /// Whether `link` is a symlink whose target lies inside `root` (the old per-file install).
@@ -78,6 +97,19 @@ impl Runner for Omp {
         true
     }
 
+    /// omp `modelPresets` (model-role sets in `~/.omp/agent/config.yml`).
+    fn presets(&self) -> bool {
+        true
+    }
+
+    fn preset_file(&self, name: &str, dir: &Path) -> Result<PathBuf> {
+        preset_overlay(name, &paths::omp_agent_dir().join("config.yml"), &dir.join("omp-preset.yml"))
+    }
+
+    fn orca_agent(&self) -> Option<&'static str> {
+        Some("omp")
+    }
+
     fn interactive(&self, spec: &Spec) -> Result<Vec<String>> {
         Ok(command(spec, false))
     }
@@ -86,7 +118,7 @@ impl Runner for Omp {
         Ok(command(spec, true))
     }
 
-    /// `omp plugin link` loads the extension, skills and agents from the package; the old
+    /// `omp plugin link` loads the extension, skills, commands and agents from the package; the old
     /// per-file symlinks would shadow them, so they go.
     fn install(&self, root: &Path) -> Result<Vec<String>> {
         let root_text = root.display().to_string();

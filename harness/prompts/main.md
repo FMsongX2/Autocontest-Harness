@@ -44,7 +44,7 @@
 
 <p>표 1. 사용자 요청과 하네스 명령의 대응</p>
 
-- 에이전트(`ContestScout`, `ContestGate` 등)는 러너의 서브에이전트 기능으로 실행한다. omp는 `task` 도구, pi는 `contest_agent` 도구를 쓴다. 서브에이전트 기능이 없으면 같은 세션에서 해당 에이전트 지시문(`agents/<이름>.md`)을 읽고 차례로 수행한다.
+- 에이전트(`ContestScout`, `ContestGate` 등)는 러너의 서브에이전트 기능으로 실행한다(omp는 `task` 도구). 서브에이전트 기능이 없는 러너면 같은 세션에서 해당 에이전트 지시문(`agents/<이름>.md`)을 읽고 차례로 수행한다.
 - 게이트를 여러 건 돌릴 때는 `harness capacity --json`의 `providers` 한도 상태를 보고 개수를 정한다. 한도가 빠듯하면 마감이 가까운 순으로 줄인다.
 - 상태를 바꾼 뒤에는 `harness board --json`으로 보드를 갱신한다.
 

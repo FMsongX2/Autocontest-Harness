@@ -1,12 +1,14 @@
-//! Runner command lines, workspace helpers, launch rendering, install conversions and the launchd job.
+//! Runner adapters (the contract every adapter keeps, the omp adapter, install helpers), workspace
+//! helpers, launch rendering, and the schedule (cron, scout hours, launchd job).
 
 use std::path::{Path, PathBuf};
 
 use harness::config::{self, Config};
+use harness::error::Result;
 use harness::launch;
 use harness::registry::{self, Entry, NewEntry};
-use harness::runners::{self, AgentDoc, Spec, claude, codex, dsh, omp};
-use harness::schedule;
+use harness::runners::{self, AgentDoc, Runner, Spec, omp};
+use harness::schedule::{self, Cron};
 use harness::workspaces::{self, Open, headless, orca, shell_command, shell_quote};
 use serde_json::{Value, json};
 
@@ -37,7 +39,7 @@ fn spec(dir: &Path, system: bool, model: bool, overlay: bool, extra: &[&str]) ->
         first_message: "시작해.".into(),
         system_append: system.then_some(system_file),
         model: model.then(|| "opus".to_string()),
-        preset_overlay: overlay.then(|| dir.join("omp-preset.yml")),
+        preset_file: overlay.then(|| dir.join("omp-preset.yml")),
         extra_args: s(extra),
     }
 }
@@ -72,114 +74,95 @@ fn omp_commands() {
     );
 }
 
-#[test]
-fn pi_commands() {
-    let dir = scratch("pi");
-    let d = dir.display().to_string();
-    let runner = runners::get("pi").unwrap();
-    assert!(!runner.subagents());
-    let full = spec(&dir, true, true, true, &[]);
-    assert_eq!(
-        runner.interactive(&full).unwrap(),
-        vec![
-            "pi".into(),
-            "--model".into(),
-            "opus".into(),
-            "--append-system-prompt".into(),
-            format!("{d}/system.md"),
-            format!("@{d}/launch-prompt.md"),
-            "시작해.".into()
-        ]
-    );
+/// A minimal adapter without subagents or presets, shaped like one a contributor would add: it
+/// passes the system prompt and the instructions inline. It exercises the branches omp does not.
+struct Plain;
+
+impl Runner for Plain {
+    fn name(&self) -> &'static str {
+        "plain"
+    }
+
+    fn binary(&self) -> &'static str {
+        "plain-agent"
+    }
+
+    fn subagents(&self) -> bool {
+        false
+    }
+
+    fn interactive(&self, spec: &Spec) -> Result<Vec<String>> {
+        let mut argv = vec!["plain-agent".to_string()];
+        if let Some(text) = runners::system_text(spec)? {
+            argv.extend(["--system".into(), text]);
+        }
+        argv.extend(spec.extra_args.iter().cloned());
+        argv.push(runners::prompt_text(spec)?);
+        Ok(argv)
+    }
+
+    fn oneshot(&self, spec: &Spec) -> Result<Vec<String>> {
+        let mut argv = self.interactive(spec)?;
+        argv.insert(1, "--print".into());
+        Ok(argv)
+    }
+
+    fn install(&self, _root: &Path) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+}
+
+/// The rules in CONTRIBUTING.md that every adapter keeps, whatever its flags look like.
+fn check_contract(runner: &dyn Runner) {
+    let name = runner.name();
+    let dir = scratch(&format!("contract-{name}"));
+    let full = spec(&dir, true, false, false, &["--extra", "v w"]);
+    let prompt = full.prompt_file.display().to_string();
+    let system = full.system_append.clone().unwrap().display().to_string();
+    let interactive = runner.interactive(&full).unwrap();
+    let oneshot = runner.oneshot(&full).unwrap();
+    assert_ne!(interactive, oneshot, "{name}: the one-shot command must differ from the interactive one");
+    for argv in [&interactive, &oneshot] {
+        assert_eq!(argv[0], runner.binary(), "{name}: commands start with binary(): {argv:?}");
+        assert!(
+            argv.iter().any(|a| a.contains(&prompt) || a.contains("# 지시\n본문")),
+            "{name}: the instructions do not reach the agent: {argv:?}"
+        );
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--extra" && w[1] == "v w"),
+            "{name}: runner_args must pass through unchanged and in order: {argv:?}"
+        );
+        assert!(
+            argv.iter().any(|a| a.contains(&system) || a.contains("페르소나")),
+            "{name}: the system prompt addition is missing: {argv:?}"
+        );
+    }
+    // Contest sessions and scheduled runs have no system addition (the persona stays out of them).
     let bare = spec(&dir, false, false, false, &[]);
-    assert_eq!(
-        runner.oneshot(&bare).unwrap(),
-        vec!["pi".into(), "-p".into(), format!("@{d}/launch-prompt.md"), "시작해.".into()]
-    );
+    for argv in [runner.interactive(&bare).unwrap(), runner.oneshot(&bare).unwrap()] {
+        assert!(
+            !argv.iter().any(|a| a.contains("system.md") || a.contains("페르소나")),
+            "{name}: system text without system_append: {argv:?}"
+        );
+    }
+    if !runner.presets() {
+        assert!(runner.preset_file("P", &dir).is_err(), "{name}: no presets, so preset_file must refuse");
+    }
 }
 
 #[test]
-fn claude_commands() {
-    let dir = scratch("claude");
-    let d = dir.display().to_string();
-    let runner = runners::get("claude").unwrap();
-    let full = spec(&dir, true, true, false, &["--permission-mode", "acceptEdits"]);
-    assert_eq!(
-        runner.interactive(&full).unwrap(),
-        vec![
-            "claude".into(),
-            "--model".into(),
-            "opus".into(),
-            "--append-system-prompt-file".into(),
-            format!("{d}/system.md"),
-            "--permission-mode".into(),
-            "acceptEdits".into(),
-            "# 지시\n본문".into(),
-        ]
-    );
-    let bare = spec(&dir, false, false, false, &[]);
-    assert_eq!(runner.oneshot(&bare).unwrap(), s(&["claude", "-p", "# 지시\n본문"]));
-}
-
-#[test]
-fn codex_commands() {
-    let dir = scratch("codex");
-    let d = dir.display().to_string();
-    let runner = runners::get("codex").unwrap();
-    let full = spec(&dir, true, true, false, &["--sandbox", "workspace-write"]);
-    let instructions = r#"developer_instructions="페르소나 \"따옴표\"\n둘째 줄""#.to_string();
-    assert_eq!(
-        runner.interactive(&full).unwrap(),
-        vec![
-            "codex".into(),
-            "-C".into(),
-            d.clone(),
-            "-m".into(),
-            "opus".into(),
-            "-c".into(),
-            instructions,
-            "--sandbox".into(),
-            "workspace-write".into(),
-            "# 지시\n본문".into(),
-        ]
-    );
-    // exec adds workspace-write only when runner_args has no sandbox of its own.
-    let own = runner.oneshot(&full).unwrap();
-    assert_eq!(own.iter().filter(|a| *a == "--sandbox").count(), 1);
-    let bare = spec(&dir, false, false, false, &[]);
-    assert_eq!(
-        runner.oneshot(&bare).unwrap(),
-        vec![
-            "codex".into(),
-            "exec".into(),
-            "-C".into(),
-            d,
-            "--sandbox".into(),
-            "workspace-write".into(),
-            "# 지시\n본문".into()
-        ]
-    );
-}
-
-#[test]
-fn dsh_commands() {
-    let dir = scratch("dsh");
-    let runner = runners::get("dsh").unwrap();
-    assert!(!runner.subagents());
-    let full = spec(&dir, true, true, false, &[]);
-    let message = "페르소나 \"따옴표\"\n둘째 줄\n\n---\n\n# 지시\n본문".to_string();
-    assert_eq!(dsh::interactive_argv(&full, true).unwrap(), vec!["dsh-tui".into(), "--".into(), message.clone()]);
-    assert_eq!(
-        dsh::interactive_argv(&full, false).unwrap(),
-        vec!["dsh".into(), "--profile".into(), "dsh-tui".into(), "--".into(), "--".into(), message]
-    );
-    let bare = spec(&dir, false, false, false, &[]);
-    assert_eq!(runner.oneshot(&bare).unwrap(), s(&["dsh", "--profile", "headless", "# 지시\n본문"]));
-}
-
-#[test]
-fn toml_strings_escape() {
-    assert_eq!(runners::toml_string("a\"b\\c\nd\te\u{1}"), r#""a\"b\\c\nd\te\u0001""#);
+fn every_adapter_keeps_the_runner_contract() {
+    let names = runners::names();
+    let mut unique = names.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "duplicate adapter names: {names:?}");
+    for runner in runners::ALL {
+        assert_eq!(runners::get(runner.name()).unwrap().name(), runner.name());
+        check_contract(*runner);
+    }
+    check_contract(&Plain);
+    assert!(runners::get("nope").err().unwrap().0.contains("CONTRIBUTING.md"));
 }
 
 #[test]
@@ -188,7 +171,7 @@ fn shell_quoting() {
     assert_eq!(shell_quote("@/tmp/a.md"), "@/tmp/a.md");
     assert_eq!(shell_quote("it's 시작"), r"'it'\''s 시작'");
     assert_eq!(shell_quote(""), "''");
-    assert_eq!(shell_command(Path::new("/a b"), &s(&["pi", "-p", "x y"])), "cd '/a b' && pi -p 'x y'");
+    assert_eq!(shell_command(Path::new("/a b"), &s(&["omp", "-p", "x y"])), "cd '/a b' && omp -p 'x y'");
 }
 
 #[test]
@@ -231,12 +214,9 @@ fn render_prompt_fills_placeholders_and_notes_missing_subagents() {
     let level = std::fs::read_to_string(root().join("harness/prompts/level_3.md")).unwrap();
     assert!(omp.contains(level.trim()));
     assert!(!omp.contains("서브에이전트 기능이 없으면"));
-    let pi = launch::render_prompt(&entry, runners::get("pi").unwrap()).unwrap();
-    assert!(pi.contains("서브에이전트 기능이 없으면 같은 세션에서 차례로 수행한다"));
-    assert!(pi.contains("contest_agent"));
-    let dsh = launch::render_prompt(&entry, runners::get("dsh").unwrap()).unwrap();
-    assert!(dsh.contains("서브에이전트 기능이 없으면 같은 세션에서 차례로 수행한다"));
-    assert!(!dsh.contains("contest_agent"));
+    let plain = launch::render_prompt(&entry, &Plain).unwrap();
+    assert!(plain.contains("## 이 러너(plain)의 서브에이전트"));
+    assert!(plain.contains("서브에이전트 기능이 없으면 같은 세션에서 차례로 수행한다"));
 }
 
 #[test]
@@ -244,13 +224,13 @@ fn preset_overlay_from_omp_config() {
     let dir = scratch("preset");
     let yml = dir.join("config.yml");
     std::fs::write(&yml, "modelPresets:\n  P:\n    modelRoles:\n      default: a/b:high\n      task: c/d\n    defaultThinkingLevel: high\n  Q:\n    modelRoles:\n      default: x/y\n").unwrap();
-    let out = launch::preset_overlay("P", &yml, &dir.join("o.yml")).unwrap();
+    let out = omp::preset_overlay("P", &yml, &dir.join("o.yml")).unwrap();
     let overlay: Value = serde_json::from_str(&std::fs::read_to_string(out).unwrap()).unwrap();
     assert_eq!(overlay, json!({"modelRoles": {"default": "a/b:high", "task": "c/d"}, "defaultThinkingLevel": "high"}));
-    let q = launch::preset_overlay("Q", &yml, &dir.join("q.yml")).unwrap();
+    let q = omp::preset_overlay("Q", &yml, &dir.join("q.yml")).unwrap();
     let overlay: Value = serde_json::from_str(&std::fs::read_to_string(q).unwrap()).unwrap();
     assert_eq!(overlay, json!({"modelRoles": {"default": "x/y"}}));
-    assert!(launch::preset_overlay("Missing", &yml, &dir.join("m.yml")).unwrap_err().0.contains("Missing"));
+    assert!(omp::preset_overlay("Missing", &yml, &dir.join("m.yml")).unwrap_err().0.contains("Missing"));
 }
 
 fn config_with(runner: &str, workspace: &str) -> Config {
@@ -263,19 +243,14 @@ fn config_with(runner: &str, workspace: &str) -> Config {
 }
 
 #[test]
-fn launch_dry_run_per_runner() {
+fn launch_dry_run_per_workspace() {
     let dir = scratch("launch");
     let d = dir.display().to_string();
     let prompt = format!("{d}/.harness/launch-prompt.md");
     for (runner, workspace, expect) in [
         ("omp", "tmux", format!("cd {d} && omp --cwd {d} --model opus @{prompt} ")),
-        ("pi", "orca", format!("cd {d} && pi --model opus @{prompt} ")),
-        ("pi", "headless", format!("cd {d} && pi --model opus -p @{prompt} ")),
-        ("claude", "tmux", format!("cd {d} && claude --model opus --permission-mode acceptEdits '# 하네스")),
-        ("claude", "headless", format!("cd {d} && claude -p --model opus --permission-mode acceptEdits '# 하네스")),
-        ("codex", "tmux", format!("cd {d} && codex -C {d} -m opus --sandbox workspace-write '# 하네스")),
-        ("codex", "headless", format!("cd {d} && codex exec -C {d} -m opus --sandbox workspace-write '# 하네스")),
-        ("dsh", "headless", format!("cd {d} && dsh --profile headless '# 하네스")),
+        ("omp", "orca", format!("cd {d} && omp --cwd {d} --model opus @{prompt} ")),
+        ("omp", "headless", format!("cd {d} && omp --cwd {d} -p --model opus @{prompt} ")),
     ] {
         let cfg = config_with(runner, workspace);
         let mut entry = routed_entry(&dir);
@@ -292,7 +267,7 @@ fn launch_dry_run_per_runner() {
 }
 
 #[test]
-fn launch_rejects_wrong_state_terminal_and_foreign_preset() {
+fn launch_rejects_wrong_state_terminal_and_missing_level() {
     let dir = scratch("reject");
     let mut entry = routed_entry(&dir);
     entry.state = "gate_pass".into();
@@ -301,14 +276,22 @@ fn launch_rejects_wrong_state_terminal_and_foreign_preset() {
     );
     let mut entry = routed_entry(&dir);
     assert!(launch::launch(&mut entry, &config_with("omp", "terminal"), None, true).is_err());
-    assert!(
-        launch::launch(&mut entry, &config_with("claude", "tmux"), Some("P"), true)
-            .unwrap_err()
-            .0
-            .contains("omp 러너 전용")
-    );
+    assert!(launch::launch(&mut entry, &config_with("nope", "tmux"), None, true).is_err());
     entry.level = None;
     assert!(launch::launch(&mut entry, &config_with("omp", "tmux"), None, true).unwrap_err().0.contains("레벨이 없다"));
+}
+
+#[test]
+fn presets_follow_the_adapter() {
+    let mut cfg = config_with("omp", "tmux");
+    cfg.preset_by_level.insert(3, Some("Deep".into()));
+    let omp = runners::get("omp").unwrap();
+    assert_eq!(launch::pick_preset(omp, &cfg, 3, None).unwrap().as_deref(), Some("Deep"));
+    assert_eq!(launch::pick_preset(omp, &cfg, 3, Some("Fast")).unwrap().as_deref(), Some("Fast"));
+    assert_eq!(launch::pick_preset(omp, &cfg, 2, None).unwrap(), None);
+    // An adapter without presets ignores preset_by_level and refuses an explicit --preset.
+    assert_eq!(launch::pick_preset(&Plain, &cfg, 3, None).unwrap(), None);
+    assert!(launch::pick_preset(&Plain, &cfg, 3, Some("Fast")).unwrap_err().0.contains("프리셋을 지원하지 않는다"));
 }
 
 #[test]
@@ -322,60 +305,27 @@ fn agent_docs_parse() {
 }
 
 #[test]
-fn claude_agent_conversion() {
-    let doc = AgentDoc::parse(
-        "---\nname: Demo\ndescription: \"Does: things\"\ntools:\n  - read\n  - web_search\n  - task\n  - todo\n  - weird\nmodel:\n  - \"@slow\"\nautoloadSkills:\n  - contest-harness\noutput:\n  properties:\n    verdict:\n      enum: [ready, revise]\n---\n본문\n",
-    )
-    .unwrap();
-    let out = claude::convert_agent(&doc);
-    assert!(out.starts_with("---\nname: \"Demo\"\ndescription: \"Does: things\"\ntools: Read, WebSearch, WebFetch, Agent, TodoWrite\nmodel: inherit\nskills:\n  - \"contest-harness\"\n---\n\n본문\n\n## 마지막 답변 형식\n"));
-    assert!(out.contains("\"verdict\""));
-    // The frontmatter must stay valid YAML.
-    let head = out.split("---\n").nth(1).unwrap();
-    let meta: Value = serde_yaml_ng::from_str(head).unwrap();
-    assert_eq!(meta["model"], "inherit");
-}
-
-#[test]
-fn codex_agent_conversion() {
-    let doc = AgentDoc::parse("---\nname: Demo\ndescription: d \"q\"\n---\n줄1\n줄2\n").unwrap();
-    assert_eq!(codex::file_name(&doc), "contest-Demo.toml");
-    assert_eq!(
-        codex::convert_agent(&doc),
-        "name = \"Demo\"\ndescription = \"d \\\"q\\\"\"\ndeveloper_instructions = \"줄1\\n줄2\\n\"\n"
-    );
-}
-
-#[test]
-fn install_claude_codex_dsh_into_scratch_home() {
-    let home = scratch("home");
-    let done = claude::install_at(&root(), &home).unwrap();
-    let agents = home.join(".claude/agents/contest-harness");
-    assert!(agents.join("ContestJudge.md").is_file());
-    assert!(std::fs::read_to_string(agents.join("ContestJudge.md")).unwrap().contains("model: inherit"));
-    let skill = home.join(".claude/skills/contest-harness");
-    assert_eq!(
-        std::fs::canonicalize(&skill).unwrap(),
-        std::fs::canonicalize(root().join("skills/contest-harness")).unwrap()
-    );
-    assert!(done.iter().any(|l| l.starts_with("linked")));
-    // Re-running is a no-op; stale agents are removed.
-    std::fs::write(agents.join("Gone.md"), "x").unwrap();
-    let again = claude::install_at(&root(), &home).unwrap();
-    assert!(again.iter().any(|l| l.starts_with("removed") && l.ends_with("Gone.md")));
-    assert!(again.iter().filter(|l| !l.starts_with("removed")).all(|l| l.starts_with("ok")), "{again:?}");
-
-    codex::install_at(&root(), &home).unwrap();
-    let toml = std::fs::read_to_string(home.join(".codex/agents/contest-ContestJudge.toml")).unwrap();
-    assert!(toml.starts_with("name = \"ContestJudge\"\n"));
-    assert_eq!(toml.lines().count(), 3);
-    assert!(home.join(".agents/skills/contest-harness").is_dir());
-    assert!(dsh::install_at(&root(), &home).unwrap()[0].starts_with("ok"));
-
-    // A real directory where the link goes is left alone.
-    let other = scratch("home-real");
-    std::fs::create_dir_all(other.join(".agents/skills/contest-harness")).unwrap();
-    assert!(dsh::install_at(&root(), &other).is_err());
+fn install_helpers_link_and_write_without_clobbering() {
+    let base = scratch("helpers");
+    let src = base.join("skill");
+    let other = base.join("other");
+    let real = base.join("real");
+    for dir in [&src, &other, &real] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let dst = base.join("home/.agents/skills/contest-harness");
+    assert!(runners::link(&src, &dst).unwrap().starts_with("linked"));
+    assert!(runners::link(&src, &dst).unwrap().starts_with("ok"));
+    // A stale symlink is repointed; a real directory or a missing source is refused.
+    assert!(runners::link(&other, &dst).unwrap().starts_with("linked"));
+    assert_eq!(std::fs::canonicalize(&dst).unwrap(), std::fs::canonicalize(&other).unwrap());
+    assert!(runners::link(&src, &real).is_err());
+    assert!(runners::link(&base.join("missing"), &base.join("x")).is_err());
+    let file = base.join("out/agent.md");
+    assert!(runners::write_file(&file, "a").unwrap().starts_with("wrote"));
+    assert!(runners::write_file(&file, "a").unwrap().starts_with("ok"));
+    assert!(runners::write_file(&file, "b").unwrap().starts_with("wrote"));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "b");
 }
 
 #[test]
@@ -404,14 +354,85 @@ fn omp_removes_only_legacy_links_into_the_repo() {
 }
 
 #[test]
+fn cron_parses_fields_and_maps_to_launchd_calendar() {
+    let every6 = Cron::parse(" 0  */6 * * * ").unwrap();
+    assert_eq!(every6.text, "0 */6 * * *");
+    assert_eq!(every6.hour, Some(vec![0, 6, 12, 18]));
+    assert_eq!(every6.day, None);
+    assert_eq!(
+        every6.calendar().unwrap(),
+        [0, 6, 12, 18].map(|h| vec![("Minute", 0), ("Hour", h)]).to_vec(),
+        "a bare * is left out (launchd wildcard)"
+    );
+    // Lists, ranges, `a/n`, and Sunday written as 7.
+    let mixed = Cron::parse("30 9,21 * 1-3 7").unwrap();
+    assert_eq!((mixed.month.clone(), mixed.weekday.clone()), (Some(vec![1, 2, 3]), Some(vec![0])));
+    let calendar = mixed.calendar().unwrap();
+    assert_eq!(calendar.len(), 6);
+    assert!(calendar.iter().all(|e| e.contains(&("Weekday", 0)) && e.contains(&("Minute", 30))));
+    assert_eq!(Cron::parse("5/20 * * * *").unwrap().minute, Some(vec![5, 25, 45]));
+    // Day and weekday both restricted: cron runs on either match, so each gets its own entries.
+    assert_eq!(
+        Cron::parse("0 8 1,15 * 1").unwrap().calendar().unwrap(),
+        vec![
+            vec![("Minute", 0), ("Hour", 8), ("Day", 1)],
+            vec![("Minute", 0), ("Hour", 8), ("Day", 15)],
+            vec![("Minute", 0), ("Hour", 8), ("Weekday", 1)],
+        ]
+    );
+    // A starred day step with a weekday means both must match, which launchd cannot express.
+    assert!(Cron::parse("0 8 */2 * 1").unwrap().calendar().is_err());
+    assert!(Cron::parse("*/1 */1 * * *").unwrap().calendar().is_err(), "more entries than launchd should get");
+    for bad in [
+        "",
+        "0 */6 * *",
+        "0 */6 * * * *",
+        "60 * * * *",
+        "0 24 * * *",
+        "0 * 0 * *",
+        "0 * * 13 *",
+        "0 * * * 8",
+        "0 */0 * * *",
+        "0 5-1 * * *",
+        "0 1,,2 * * *",
+        "0 * * * MON",
+        "@daily",
+    ] {
+        assert!(Cron::parse(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn scout_hours_pick_the_runs_that_search_the_web() {
+    assert!(schedule::scout_at("0-5", 0).unwrap());
+    assert!(schedule::scout_at("0-5", 5).unwrap());
+    assert!(!schedule::scout_at("0-5", 6).unwrap());
+    assert!(schedule::scout_at("2,14", 14).unwrap());
+    assert!(schedule::scout_at("*", 13).unwrap());
+    assert!(!schedule::scout_at("", 0).unwrap(), "empty means never");
+    assert!(schedule::scout_at("24", 0).is_err());
+}
+
+#[test]
 fn launchd_plist() {
-    let xml = schedule::plist(Path::new("/opt/bin/harness"), Path::new("/repo & co"), 6, "/usr/bin:/bin");
+    let cron = Cron::parse("0 */6 * * *").unwrap();
+    let xml = schedule::plist(Path::new("/opt/bin/harness"), Path::new("/repo & co"), &cron, "/usr/bin:/bin").unwrap();
     assert!(xml.contains("<string>io.github.fmsongx2.autocontest-harness</string>"));
     assert!(xml.contains("<string>/opt/bin/harness</string>\n    <string>autorun</string>"));
     assert!(xml.contains("<key>HARNESS_HOME</key>\n    <string>/repo &amp; co</string>"));
-    assert!(xml.contains("<integer>21600</integer>"));
+    assert!(xml.contains(
+        "<key>StartCalendarInterval</key>\n  <array>\n    <dict>\n      <key>Minute</key>\n      <integer>0</integer>\n      <key>Hour</key>\n      <integer>0</integer>\n    </dict>"
+    ));
+    assert_eq!(xml.matches("<key>Hour</key>").count(), 4);
     assert!(xml.contains("<string>/repo &amp; co/data/logs/launchd.log</string>"));
+    assert_eq!(schedule::plist_cron(&xml).as_deref(), Some("0 */6 * * *"));
     assert!(schedule::plist_path().ends_with("Library/LaunchAgents/io.github.fmsongx2.autocontest-harness.plist"));
+    if Path::new("/usr/bin/plutil").exists() {
+        let file = scratch("plist").join("job.plist");
+        std::fs::write(&file, &xml).unwrap();
+        let lint = std::process::Command::new("/usr/bin/plutil").arg("-lint").arg(&file).output().unwrap();
+        assert!(lint.status.success(), "{}", String::from_utf8_lossy(&lint.stdout));
+    }
 }
 
 #[test]

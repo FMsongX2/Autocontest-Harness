@@ -67,6 +67,17 @@ fn field<'a>(result: &'a Value, outer: &str, keys: &[&str]) -> Option<&'a str> {
         .or_else(|| keys.iter().find_map(|k| result.get(*k).and_then(Value::as_str)))
 }
 
+/// The workspace id in the answer of `orca worktree create`.
+pub fn created_worktree_id(result: &Value) -> Result<String> {
+    match field(result, "worktree", &["id", "worktreeId"]) {
+        Some(id) => Ok(id.to_string()),
+        None => {
+            let text: String = result.to_string().chars().take(300).collect();
+            crate::bail!("Orca 작업 공간 id를 받지 못했다: {text}")
+        }
+    }
+}
+
 impl Workspace for Orca {
     fn name(&self) -> &'static str {
         "orca"
@@ -87,13 +98,7 @@ impl Workspace for Orca {
         let comment = format!("harness {}", entry.id);
         let result =
             orca_json(&["worktree", "create", "--repo", &repo, "--name", &name, "--no-parent", "--comment", &comment])?;
-        match field(&result, "worktree", &["id", "worktreeId"]) {
-            Some(id) => Ok(Some(id.to_string())),
-            None => {
-                let text: String = result.to_string().chars().take(300).collect();
-                crate::bail!("Orca 작업 공간 id를 받지 못했다: {text}")
-            }
-        }
+        created_worktree_id(&result).map(Some)
     }
 
     /// Without a workspace id Orca uses the current worktree (the main session from inside Orca).

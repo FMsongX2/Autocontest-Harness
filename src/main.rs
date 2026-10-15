@@ -198,11 +198,11 @@ enum Command {
         #[arg(long)]
         no_collect: bool,
     },
-    /// Install agents, the skill and the extension for runners (default: the configured runner).
+    /// Install agents, the skill and the extension for runner adapters (default: the configured runner).
     Install {
         #[arg(long = "runner")]
         runners: Vec<String>,
-        /// Every runner whose CLI is installed.
+        /// Every compiled-in runner whose CLI is installed.
         #[arg(long)]
         all: bool,
     },
@@ -213,9 +213,9 @@ enum Command {
         #[arg(long)]
         workspace: Option<String>,
     },
-    /// Run the scheduled automation once with the configured runner (for cron/launchd).
+    /// Run the scheduled automation once with the configured runner (what launchd starts).
     Autorun,
-    /// Manage the launchd job that runs `harness autorun` periodically.
+    /// Install, remove or inspect the scheduled run (config `schedule`: cron, scheduler, scout_hours).
     Schedule {
         #[command(subcommand)]
         action: ScheduleAction,
@@ -224,11 +224,18 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ScheduleAction {
+    /// Create or update the scheduled run on the scheduler with `schedule.cron`.
     Install {
-        #[arg(long, default_value_t = 6)]
-        every_hours: u32,
+        /// `orca` or `launchd` (default: config `schedule.scheduler`).
+        #[arg(long)]
+        scheduler: Option<String>,
     },
-    Remove,
+    /// Remove the scheduled run from the scheduler.
+    Remove {
+        #[arg(long)]
+        scheduler: Option<String>,
+    },
+    /// The configured schedule and what Orca and launchd actually have.
     Status,
 }
 
@@ -638,11 +645,7 @@ fn run(cli: &Cli) -> Result<u8> {
         Command::Install { runners: chosen, all } => {
             let cfg = config::load()?;
             let names: Vec<String> = if *all {
-                runners::NAMES
-                    .iter()
-                    .filter(|n| runners::get(n).is_ok_and(|r| r.available()))
-                    .map(|n| n.to_string())
-                    .collect()
+                runners::ALL.iter().filter(|r| r.available()).map(|r| r.name().to_string()).collect()
             } else if chosen.is_empty() {
                 vec![cfg.runner.clone()]
             } else {
@@ -665,10 +668,11 @@ fn run(cli: &Cli) -> Result<u8> {
             Ok(u8::from(result["exit_code"].as_i64().is_some_and(|c| c != 0)))
         }
         Command::Schedule { action } => {
+            let cfg = config::load()?;
             let result = match action {
-                ScheduleAction::Install { every_hours } => schedule::install(*every_hours)?,
-                ScheduleAction::Remove => schedule::remove()?,
-                ScheduleAction::Status => schedule::status()?,
+                ScheduleAction::Install { scheduler } => schedule::install(&cfg, scheduler.as_deref())?,
+                ScheduleAction::Remove { scheduler } => schedule::remove(&cfg, scheduler.as_deref())?,
+                ScheduleAction::Status => schedule::status(&cfg)?,
             };
             emit(json_mode, &result, None)?;
             Ok(0)
@@ -821,10 +825,14 @@ fn capacity_text(cap: &Value, running: &std::collections::BTreeMap<u8, usize>) -
 
 fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
     let cfg = config::load()?;
-    let mut report = json!({"collect": null, "needs_gate": [], "launched": [], "waiting": [], "errors": []});
+    let mut report =
+        json!({"collect": null, "scout": false, "needs_gate": [], "launched": [], "waiting": [], "errors": []});
     if !no_collect {
         let result = collect::collect(&cfg, "all", cfg.collect_pages)?;
         report["collect"] = serde_json::to_value(&result)?;
+        // The scheduled run reads this to decide whether ContestScout searches the web this time.
+        let hour = chrono::Timelike::hour(&chrono::Local::now()) as u8;
+        report["scout"] = json!(schedule::scout_at(&cfg.schedule.scout_hours, hour)?);
     }
     let (needs_gate, running) = registry::read(|reg| {
         let ids: Vec<String> =
@@ -902,6 +910,7 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
             "수집: {}",
             if report["collect"].is_null() { "None".to_string() } else { report["collect"]["seen"].to_string() }
         ),
+        format!("웹 검색(ContestScout) 이번 회차: {}", if report["scout"] == true { "실행" } else { "안 함" }),
         format!(
             "게이트 대기 {}건: {}",
             gate_ids.len(),

@@ -15,6 +15,7 @@
 ## 2. 문제 고르기
 
 - 주최 기관이 풀고 싶어 하는 문제(업무계획, 보도자료, 이전 수상작)를 DomainResearcher로 확인한다.
+- 분석 파이프라인·예측 모델·시각화 도구를 만들기 전에 OpenSourceScout로 쓸 수 있는 라이브러리·공개 분석 코드·사전학습 모델을 찾아 `research/oss.md`에 구성 요소별 `reuse`/`fork`/`reference`/`build`를 받는다(코드·모델을 쓰는 분석이면 필수, DomainResearcher와 같은 웨이브). 분석 도구 제한·외부 데이터 규칙과 대조하고, 맞는 것이 없는 부분만 만든다.
 - 분석 질문 후보 2~3개를 만들어 데이터로 답할 수 있는지(변수·기간·단위가 맞는지) 확인하고, ContestJudge(stage `plan`)가 `RUBRIC.md`로 후보마다 "이대로 완성하면" 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 분석 계획에 반영해 다시 채점한다(예측 총점이 목표 이상이 되거나 3회까지). 매번 `.harness/judge/plan-<n>.json`에 저장하고 `harness score <id> --stage plan --file <경로>`로 기록한다. 근거를 `research/research.md`에 남긴다.
 
 ## 3. 분석

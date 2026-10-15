@@ -1,76 +1,102 @@
-//! Agent harness backends: how to start a session (interactive or one-shot) and how to install the
-//! harness agents, skill and extension for each CLI. Contract: `docs/CONTRACT.md`.
+//! Runner adapters: how the harness drives one agent harness (omp, or another CLI added by a
+//! pull request). An adapter builds the command lines for an interactive and a one-shot session,
+//! says what the harness supports, and installs the agents, skill and extension for it.
+//! Contract: `docs/CONTRACT.md` 10절. How to add one: `CONTRIBUTING.md`.
 
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 
-pub mod claude;
-pub mod codex;
-pub mod dsh;
 pub mod omp;
-pub mod pi;
 
-/// Everything a runner needs to build a command line.
+/// Every adapter compiled in. A new adapter is one module plus one line here; the contract test in
+/// `tests/backends.rs` then runs against it.
+pub static ALL: &[&dyn Runner] = &[&omp::Omp];
+
+/// Everything an adapter needs to build a command line.
 pub struct Spec {
     /// Working directory of the session (a contest folder or the repository root).
     pub cwd: PathBuf,
-    /// The launch instructions (`.harness/launch-prompt.md` or `harness/prompts/automation.md`).
+    /// The instructions (`.harness/launch-prompt.md`, `harness/prompts/automation.md`, or the main
+    /// session's start file). The agent must read all of it before anything else.
     pub prompt_file: PathBuf,
-    /// The first user message that tells the agent to follow the instructions.
+    /// The first user message that tells the agent to follow the instructions. An adapter that
+    /// passes the instructions inline as the first message may leave it out.
     pub first_message: String,
-    /// Extra system prompt: the persona + main role, for the main interface session only.
+    /// Extra system prompt: the persona + main role, for the main interface session only. Contest
+    /// sessions and scheduled runs always get `None`.
     pub system_append: Option<PathBuf>,
-    /// Model id/alias for runners that take one (`model_by_level`).
+    /// Model id or alias (`model_by_level`); `None` keeps the harness default.
     pub model: Option<String>,
-    /// omp only: per-run `--config` overlay built from a `modelPresets` entry.
-    pub preset_overlay: Option<PathBuf>,
-    /// `runner_args.<name>` from the config, appended as is.
+    /// The file [`Runner::preset_file`] wrote for this run (adapters with presets only).
+    pub preset_file: Option<PathBuf>,
+    /// `runner_args.<name>` from the config, passed through unchanged and in order.
     pub extra_args: Vec<String>,
 }
 
+/// One agent harness. Implementations are stateless unit structs registered in [`ALL`].
 pub trait Runner: Sync {
+    /// The config value (`runner`) that selects this adapter.
     fn name(&self) -> &'static str;
-    /// Executable looked up on PATH.
+    /// Executable looked up on PATH; every command line starts with it.
     fn binary(&self) -> &'static str;
     fn available(&self) -> bool {
         which(self.binary()).is_some()
     }
-    /// Whether the harness agents can run as subagents (otherwise steps run in one session).
+    /// Whether the harness agents can run as subagents. Without them, `harness launch` tells the
+    /// session to run subagent steps one by one itself.
     fn subagents(&self) -> bool;
-    /// A command for an interactive session that starts by reading `spec.prompt_file`.
+    /// Whether the harness has named model presets (`preset_by_level`, `harness launch --preset`).
+    fn presets(&self) -> bool {
+        false
+    }
+    /// Write the per-run file for preset `name` under `dir` (the contest's `.harness/`, named
+    /// `<runner>-preset.<ext>`) and return its path; it reaches the command as `Spec::preset_file`.
+    fn preset_file(&self, name: &str, _dir: &Path) -> Result<PathBuf> {
+        crate::bail!("러너 {}는 프리셋을 지원하지 않는다(프리셋 {name}). model_by_level을 쓴다", self.name())
+    }
+    /// The agent id Orca uses for this harness (`orca automations create --provider`), when Orca
+    /// can start it; needed for `schedule.scheduler = "orca"`.
+    fn orca_agent(&self) -> Option<&'static str> {
+        None
+    }
+    /// A command for an interactive session (a TTY) that starts by reading `spec.prompt_file`.
     fn interactive(&self, spec: &Spec) -> Result<Vec<String>>;
     /// A command that runs the instructions once without a TTY and exits.
     fn oneshot(&self, spec: &Spec) -> Result<Vec<String>>;
-    /// Install agents, the skill and (where supported) the extension package from `root`.
-    /// Returns one human-readable line per action.
+    /// Install the agents (`agents/*.md`, converted if the harness uses another format), the skill
+    /// (`skills/contest-harness`) and, where supported, the extension package from `root`. Must be
+    /// idempotent. Returns one human-readable line per action.
     fn install(&self, root: &Path) -> Result<Vec<String>>;
 }
 
-pub const NAMES: &[&str] = &["omp", "pi", "claude", "codex", "dsh"];
+pub fn names() -> Vec<&'static str> {
+    ALL.iter().map(|r| r.name()).collect()
+}
 
 pub fn get(name: &str) -> Result<&'static dyn Runner> {
-    Ok(match name {
-        "omp" => &omp::Omp,
-        "pi" => &pi::Pi,
-        "claude" => &claude::Claude,
-        "codex" => &codex::Codex,
-        "dsh" => &dsh::Dsh,
-        _ => crate::bail!("알 수 없는 러너: {name} (가능: {})", NAMES.join(", ")),
-    })
+    match ALL.iter().find(|r| r.name() == name) {
+        Some(runner) => Ok(*runner),
+        None => crate::bail!(
+            "알 수 없는 러너: {name} (가능: {}). 다른 하네스는 어댑터를 추가한다(CONTRIBUTING.md)",
+            names().join(", ")
+        ),
+    }
 }
+
+// ---- Helpers for adapters ----
 
 /// Full path of `binary` on PATH.
 pub fn which(binary: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")?.to_str()?.split(':').map(|dir| Path::new(dir).join(binary)).find(|p| p.is_file())
 }
 
-/// Read a prompt file for runners that take the instructions as message text.
+/// The instructions as text, for harnesses that take them as the first message.
 pub fn prompt_text(spec: &Spec) -> Result<String> {
     Ok(std::fs::read_to_string(&spec.prompt_file)?)
 }
 
-/// Text of the system-prompt file for runners that take it inline (codex, dsh).
+/// The system-prompt addition as text, for harnesses that take it inline.
 pub fn system_text(spec: &Spec) -> Result<Option<String>> {
     match &spec.system_append {
         Some(path) => Ok(Some(
@@ -195,26 +221,7 @@ pub fn agent_docs(root: &Path) -> Result<Vec<AgentDoc>> {
         .collect()
 }
 
-/// A TOML basic string (also what `codex -c key=value` parses).
-pub fn toml_string(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            c if (c as u32) < 0x20 || c == '\u{7f}' => out.push_str(&format!("\\u{:04X}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-/// Run a runner CLI for install and fail with its output.
+/// Run a harness CLI during install and fail with its output.
 pub fn run_cli(program: &str, args: &[&str]) -> Result<String> {
     let out = std::process::Command::new(program)
         .args(args)
