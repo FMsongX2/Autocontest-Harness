@@ -5,10 +5,11 @@ All notable changes. Versions follow [Semantic Versioning](https://semver.org/);
 ## Unreleased
 
 ### Added
-- `claude` runner adapter for Claude Code: converts the agents into subagent files under `~/.claude/agents/contest-harness/`, links the skill into `~/.claude/skills/`, applies `agent_models` through the `model` field of those files, and defaults `runner_args.claude` to `--permission-mode auto`. Checked against `claude --help` and install tests only; no contest session has run on it.
+- `claude` runner adapter for Claude Code, written by Claude Code from `CONTRIBUTING.md`: converts the agents into subagent files under `~/.claude/agents/contest-harness/`, links the skill into `~/.claude/skills/`, applies `agent_models` through the `model` field of those files, passes the instructions as an `@<path>` mention (as text when the path has whitespace), and defaults `runner_args.claude` to `--permission-mode auto`. A scheduled run (`harness autorun`) on Claude Code 2.1.296 collected a contest and recorded the gate decision through the `ContestGate` subagent. Interactive contest sessions, `harness chat`, per-agent models, and Orca automations have not run on it.
+- `Spec.prompt` for runner adapters: the instructions in memory, which `runners::prompt_text` returns before it reads `prompt_file`.
 
 ### Fixed
-- `harness launch --dry-run` works with adapters that pass the instructions as text (it built the command from a file the dry run never wrote).
+- `harness launch --dry-run` works with adapters that pass the instructions as text. It built the command from a file the dry run never writes; it now passes the text in `Spec.prompt`.
 
 ## 0.4.0 - 2026-10-15
 
@@ -70,10 +71,11 @@ Rust rewrite of the harness: single binary, 11 sources, five execution levels, s
 ### 미배포
 
 #### 추가
-- Claude Code용 러너 어댑터 `claude`. 에이전트를 `~/.claude/agents/contest-harness/`의 서브에이전트 파일로 변환하고, 스킬을 `~/.claude/skills/`에 링크하며, `agent_models`를 그 파일의 `model` 필드로 적용한다. `runner_args.claude` 기본값은 `--permission-mode auto`다. `claude --help`와 설치 테스트로만 확인했고 공모전 세션은 돌려 보지 않았다.
+- Claude Code용 러너 어댑터 `claude`. Claude Code가 `CONTRIBUTING.md`를 따라 직접 썼다. 에이전트를 `~/.claude/agents/contest-harness/`의 서브에이전트 파일로 변환하고, 스킬을 `~/.claude/skills/`에 링크하며, `agent_models`를 그 파일의 `model` 필드로 적용하고, 지시문을 `@<경로>` 언급으로 넘긴다(경로에 공백이 있으면 본문으로). `runner_args.claude` 기본값은 `--permission-mode auto`다. Claude Code 2.1.296에서 정기 실행(`harness autorun`)을 돌려 공모전 하나를 수집하고 `ContestGate` 서브에이전트로 게이트 판정을 기록했다. 대화형 공모전 세션, `harness chat`, 에이전트별 모델, Orca automation은 돌려 보지 않았다.
+- 러너 어댑터용 `Spec.prompt`. 메모리에 든 지시문 본문으로, `runners::prompt_text`가 `prompt_file`보다 먼저 돌려준다.
 
 #### 수정
-- 지시문을 본문으로 넘기는 어댑터에서 `harness launch --dry-run`이 동작한다(dry run이 쓰지 않은 파일로 명령을 만들던 문제).
+- 지시문을 본문으로 넘기는 어댑터에서 `harness launch --dry-run`이 동작한다. dry run이 쓰지 않는 파일로 명령을 만들던 문제로, 이제 본문을 `Spec.prompt`로 넘긴다.
 
 ### 0.4.0 - 2026-10-15
 

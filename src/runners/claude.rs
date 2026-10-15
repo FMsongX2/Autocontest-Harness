@@ -1,10 +1,11 @@
 //! The Claude Code adapter (`claude` CLI).
 //!
 //! Flags were checked against `claude --help` of Claude Code 2.1.296 and the docs at
-//! code.claude.com. Claude Code has no working-directory flag (workspaces already `cd`), no `@file`
-//! argument and no system-prompt *file* flag, so the instructions and the system addition travel
-//! as text. Per-agent models work through the `model` field of each subagent file this adapter
-//! writes; Claude Code has no settings key that sets a model by agent name.
+//! code.claude.com. Claude Code has no working-directory flag (workspaces already `cd`) and no
+//! system-prompt *file* flag for interactive sessions, so the instructions travel as an `@path`
+//! mention and the system addition as text. Per-agent models work through the `model` field of
+//! each subagent file this adapter writes; Claude Code has no settings key that sets a model by
+//! agent name.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -18,9 +19,12 @@ pub struct Claude;
 /// The `model` every converted agent starts with: the model of the session that spawns it.
 pub const INHERIT: &str = "inherit";
 
-/// `claude [-p] [--model M] [--append-system-prompt TEXT] <runner_args> -- <instructions>`.
-/// `--` ends the options: several Claude Code options take a list (`--add-dir`, `--tools`, ...)
-/// and would otherwise swallow the instructions, and a prompt may start with `-`.
+/// `claude [-p] [--model M] [--append-system-prompt TEXT] <runner_args> -- "@<instructions> <first message>"`.
+/// Claude Code reads an `@path` mention into the conversation (checked in print and interactive
+/// mode), which keeps the command line short for Orca and tmux; a path with whitespace, which the
+/// mention syntax cannot carry, falls back to the instructions as text. There is no system-prompt
+/// file flag for interactive sessions, so the system addition travels as text. `--` ends the
+/// options: list options (`--add-dir`, `--tools`, ...) would otherwise swallow the prompt.
 fn command(spec: &Spec, print: bool) -> Result<Vec<String>> {
     let mut argv = vec!["claude".to_string()];
     if print {
@@ -34,7 +38,12 @@ fn command(spec: &Spec, print: bool) -> Result<Vec<String>> {
     }
     argv.extend(spec.extra_args.iter().cloned());
     argv.push("--".into());
-    argv.push(prompt_text(spec)?);
+    let path = spec.prompt_file.display().to_string();
+    if path.chars().any(char::is_whitespace) {
+        argv.push(prompt_text(spec)?);
+    } else {
+        argv.push(format!("@{path} {}", spec.first_message));
+    }
     Ok(argv)
 }
 

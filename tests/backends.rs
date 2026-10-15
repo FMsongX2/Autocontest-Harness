@@ -36,6 +36,7 @@ fn spec(dir: &Path, system: bool, model: bool, overlay: bool, extra: &[&str]) ->
     Spec {
         cwd: dir.to_path_buf(),
         prompt_file: prompt,
+        prompt: None,
         first_message: "시작해.".into(),
         system_append: system.then_some(system_file),
         model: model.then(|| "opus".to_string()),
@@ -80,9 +81,9 @@ fn claude_commands() {
     let runner = runners::get("claude").unwrap();
     assert!(runner.subagents());
     assert_eq!(runner.orca_agent(), Some("claude"));
-    // The system addition and the instructions travel as text; `--` keeps list options from
-    // swallowing the instructions.
+    // The instructions arrive as an `@path` mention; `--` keeps list options from swallowing it.
     let full = spec(&dir, true, true, false, &["--permission-mode", "auto", "--add-dir", "/x"]);
+    let mention = format!("@{}/launch-prompt.md 시작해.", dir.display());
     let expected = s(&[
         "claude",
         "--model",
@@ -94,17 +95,21 @@ fn claude_commands() {
         "--add-dir",
         "/x",
         "--",
-        "# 지시\n본문",
+        &mention,
     ]);
     assert_eq!(runner.interactive(&full).unwrap(), expected);
     let mut print = expected;
     print.insert(1, "-p".into());
     assert_eq!(runner.oneshot(&full).unwrap(), print);
     let bare = spec(&dir, false, false, false, &[]);
-    assert_eq!(runner.interactive(&bare).unwrap(), s(&["claude", "--", "# 지시\n본문"]));
-    assert_eq!(runner.oneshot(&bare).unwrap(), s(&["claude", "-p", "--", "# 지시\n본문"]));
-    // The configured default keeps unattended sessions from stopping at a permission prompt.
-    assert_eq!(config::defaults()["runner_args"]["claude"], json!(["--permission-mode", "auto"]));
+    assert_eq!(runner.interactive(&bare).unwrap(), s(&["claude", "--", &mention]));
+    assert_eq!(runner.oneshot(&bare).unwrap(), s(&["claude", "-p", "--", &mention]));
+    // A path the mention cannot carry (whitespace) sends the instructions as text instead.
+    let spaced = scratch("claude spaced dir");
+    assert_eq!(
+        runner.oneshot(&spec(&spaced, false, false, false, &[])).unwrap(),
+        s(&["claude", "-p", "--", "# 지시\n본문"])
+    );
 }
 
 #[test]
@@ -391,18 +396,26 @@ fn launch_dry_run_per_workspace() {
 }
 
 #[test]
-fn launch_dry_run_works_for_an_adapter_that_passes_the_instructions_as_text() {
+fn launch_dry_run_works_whether_the_adapter_mentions_or_inlines_the_instructions() {
+    // Normal path: Claude Code gets an `@` mention of the file a real launch writes.
     let dir = scratch("launch-claude");
     let d = dir.display().to_string();
     let mut entry = routed_entry(&dir);
     let result = launch::launch(&mut entry, &config_with("claude", "headless"), None, true).unwrap();
     let command = result["command"].as_str().unwrap();
-    let text = result["prompt_text"].as_str().unwrap();
     assert!(command.starts_with(&format!(
-        "cd {d} && env HARNESS_SESSION=demo-contest claude -p --model opus --permission-mode auto -- '"
-    )));
-    assert!(command.contains(text.lines().next().unwrap()), "the instructions are inline: {command}");
+        "cd {d} && env HARNESS_SESSION=demo-contest claude -p --model opus --permission-mode auto -- '@{d}/.harness/launch-prompt.md "
+    )), "{command}");
     assert!(!dir.join(".harness").exists(), "a dry run writes nothing into the contest");
+    // A folder with whitespace: the instructions go inline, read from a scratch copy, since the
+    // dry run must not write the real prompt file.
+    let spaced = scratch("launch claude spaced");
+    let mut entry = routed_entry(&spaced);
+    let result = launch::launch(&mut entry, &config_with("claude", "headless"), None, true).unwrap();
+    let command = result["command"].as_str().unwrap();
+    let text = result["prompt_text"].as_str().unwrap();
+    assert!(command.contains(text.lines().next().unwrap()), "the instructions are inline: {command}");
+    assert!(!spaced.join(".harness").exists());
 }
 
 #[test]

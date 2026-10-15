@@ -4,7 +4,7 @@
 
 Autocontest-Harness finds open contests, checks whether you are eligible, and runs a coding agent on each one until the entry is ready for you to submit.
 
-It is a single Rust binary (`harness`) plus a set of agent prompts. The binary keeps a local registry of contests, moves each one through a fixed set of states, and starts agent sessions. The agents read the official announcements, plan the work, and produce the deliverables. Sessions run on an agent harness through a runner adapter (the core ships the omp adapter; adapters for other harnesses are added by pull request) inside four kinds of workspace (Orca, tmux, a background process, the current terminal). The harness never submits an entry for you.
+It is a single Rust binary (`harness`) plus a set of agent prompts. The binary keeps a local registry of contests, moves each one through a fixed set of states, and starts agent sessions. The agents read the official announcements, plan the work, and produce the deliverables. Sessions run on an agent harness through a runner adapter (the core ships adapters for omp and Claude Code; adapters for other harnesses are added by pull request) inside four kinds of workspace (Orca, tmux, a background process, the current terminal). The harness never submits an entry for you.
 
 [![Rust](https://img.shields.io/badge/rust-1.89%2B-orange)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -60,7 +60,7 @@ Registry states: `discovered → gate_pass | rejected | hold → routed → runn
 ### Architecture
 
 - **Rust core** (`src/`). One binary handles the registry, collectors, dedupe, gate records, routing, capacity, the board, the persona guard, and session launch. It has no runtime dependencies beyond the tools it calls (`git`, `gh`, the runner and workspace CLIs). External commands (`git`, `gh`, `orca`, `tmux`, `omp usage`, `launchctl`, `crontab`, `ps`) run in their own process group with a timeout (120 s for network calls, 30 s for local ones) and are killed when it runs out; git runs with `GIT_TERMINAL_PROMPT=0` and SSH in batch mode, so nothing waits for a password prompt.
-- **Runner adapters** (`src/runners/`). The `Runner` trait is the interface to an agent harness: its interactive and one-shot commands, whether it has subagents and model presets, which Orca agent runs it, and how to install the harness agents, skill, and extension. The core ships the `omp` adapter. Adapters for other harnesses come as pull requests (see [Adding a runner adapter](#adding-a-runner-adapter)).
+- **Runner adapters** (`src/runners/`). The `Runner` trait is the interface to an agent harness: its interactive and one-shot commands, whether it has subagents and model presets, which Orca agent runs it, and how to install the harness agents, skill, and extension. The core ships the `omp` and `claude` (Claude Code) adapters. Adapters for other harnesses come as pull requests (see [Adding a runner adapter](#adding-a-runner-adapter)).
 - **Workspaces** (`src/workspaces/`): `orca`, `tmux`, `headless`, `terminal`. Each workspace knows how to create a per-contest workspace, open a session in it, and read the tail of its screen or log.
 - **omp extension package** (`package.json`, `extensions/contest-harness.ts`, `commands/`, `skills/`, `agents/`). It adds the `/contest` commands to omp.
 
@@ -71,7 +71,7 @@ Prerequisites:
 - macOS or Linux. Windows is not supported.
 - `git` with a commit identity (`git config --global user.name` and `user.email`). `route` makes the first commit in every contest folder.
 - The GitHub CLI `gh`, signed in (`gh auth login`) to an account that can create private repositories in your `github_org` (by default, your own account).
-- [omp](https://github.com/can1357/oh-my-pi) on `PATH`, the agent harness the core has an adapter for. Another harness needs an adapter first (see [Adding a runner adapter](#adding-a-runner-adapter)).
+- [omp](https://github.com/can1357/oh-my-pi) or [Claude Code](https://github.com/anthropics/claude-code) (`claude`) on `PATH`, the agent harnesses the core has adapters for. omp is the one that has run contest sessions end to end. Another harness needs an adapter first (see [Adding a runner adapter](#adding-a-runner-adapter)).
 - A workspace backend for contest sessions: [Orca](https://github.com/stablyai/orca) with its `orca` CLI (the default), or `tmux`. `headless` needs nothing extra.
 - Rust 1.89 or later (`cargo`), only if you build from source.
 
@@ -88,7 +88,7 @@ scripts/install.sh       # prebuilt binary, checksum-verified; links ~/.local/bi
 
 The binary works on one checkout: `HARNESS_HOME` when it is set, otherwise the nearest directory above the real binary path (symlinks resolved) that contains `harness/prompts/launch.md`, otherwise the checkout it was built from. It reads `data/`, prompts, agents, and the skill from there. Every command except `doctor`, `--help`, and `--version` refuses to run when that directory has no `harness/prompts/launch.md`, and creates nothing there.
 
-Next, set up your settings and profile. The easiest way is to let an agent do it: open your coding agent in the clone and ask it to "Read INIT.md and set up the harness." [INIT.md](INIT.md) is the setup procedure written for agents. The agent runs `harness init`, asks you the settings in one batch with a recommended default for each, applies your answers with `harness config set`, helps you fill in your profile (see [User profile](#user-profile)), picks models per level and per agent if you want, runs `harness install` and, if you want a schedule, `harness schedule install`, and repeats `harness doctor` until no check fails. In omp, the prompt template `/contest-init` starts the same procedure once `harness install` has linked the package. Any agent that can run shell commands can do the setup; running contest sessions still needs a runner adapter, and the core has the omp one (see [Adding a runner adapter](#adding-a-runner-adapter)). `harness chat` also starts with this procedure when `data/config.json` is missing or a doctor check fails.
+Next, set up your settings and profile. The easiest way is to let an agent do it: open your coding agent in the clone and ask it to "Read INIT.md and set up the harness." [INIT.md](INIT.md) is the setup procedure written for agents. The agent runs `harness init`, asks you the settings in one batch with a recommended default for each, applies your answers with `harness config set`, helps you fill in your profile (see [User profile](#user-profile)), picks models per level and per agent if you want, runs `harness install` and, if you want a schedule, `harness schedule install`, and repeats `harness doctor` until no check fails. In omp, the prompt template `/contest-init` starts the same procedure once `harness install` has linked the package. Any agent that can run shell commands can do the setup; running contest sessions still needs a runner adapter, and the core has adapters for omp and Claude Code (see [Adding a runner adapter](#adding-a-runner-adapter)). `harness chat` also starts with this procedure when `data/config.json` is missing or a doctor check fails.
 
 To set up by hand instead:
 
@@ -219,7 +219,7 @@ harness config set agent_models.ContestJudge null                # then harness 
 
 ### Adding a runner adapter
 
-The core ships the omp adapter, the one that has run contests end to end, and the Claude Code adapter (`claude`), which is verified against the CLI's flags and installs but has not run a contest. To drive another agent harness (Claude Code, Codex, pi, or your own), implement the `Runner` trait in `src/runners/<name>.rs`, add it to `runners::ALL`, and open a pull request. The contract test `every_adapter_keeps_the_runner_contract` in `tests/backends.rs` runs against every registered adapter. [CONTRIBUTING.md](CONTRIBUTING.md) lists the trait methods, the rules an adapter keeps, and what the pull request needs. Earlier versions carried unverified adapters for pi, Codex, and dsh (and an earlier Claude Code one); their code is at commit `bf05366` under `src/runners/` and can be a starting point.
+The core ships two adapters. The omp adapter has run contests end to end. The Claude Code adapter (`claude`) was written by Claude Code from [CONTRIBUTING.md](CONTRIBUTING.md) and has run the scheduled job headless: it collected a contest and the `ContestGate` subagent recorded the gate decision. Interactive contest sessions have not run on it (see [Limitations](#limitations)). To drive another agent harness (Codex, pi, or your own), implement the `Runner` trait in `src/runners/<name>.rs`, add it to `runners::ALL`, and open a pull request. The contract test `every_adapter_keeps_the_runner_contract` in `tests/backends.rs` runs against every registered adapter. [CONTRIBUTING.md](CONTRIBUTING.md) lists the trait methods, the rules an adapter keeps, and what the pull request needs. Earlier versions carried unverified adapters for pi, Codex, and dsh (and an earlier Claude Code one); their code is at commit `bf05366` under `src/runners/` and can be a starting point.
 
 ## omp extension
 
@@ -362,7 +362,7 @@ The file is validated when it is loaded, and every config error starts with its 
 | `github_org` | `""` | GitHub organization or user where `harness route` creates a private repository per contest via `gh`. Empty means the account `gh` is logged in as |
 | `contests_root` | `"~/contests"` | Directory that holds one folder per contest. `dedupe-check` also reads `<contests_root>/*/README.md` and `<contests_root>/.shared/existing_contests.md` |
 | `orca_repo_path` | `null` (= `contests_root`) | Git repository registered in Orca. Contest workspaces are created as its worktrees |
-| `runner` | `"omp"` | Runner adapter (agent harness) for contest sessions, scheduled runs, and the main session. The core has `omp`; see [Adding a runner adapter](#adding-a-runner-adapter) |
+| `runner` | `"omp"` | Runner adapter (agent harness) for contest sessions, scheduled runs, and the main session. The core has `omp` and `claude` (Claude Code); see [Adding a runner adapter](#adding-a-runner-adapter) |
 | `workspace` | `"orca"` | Where contest sessions run: `orca`, `tmux`, or `headless` |
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | Model preset per level, for adapters with presets. For omp, for example `{"3": "ResearchPreset"}` is taken from `modelPresets` in `~/.omp/agent/config.yml` and passed as a per-launch `--config` overlay, so your global omp config is not modified. `null` uses omp's default roles. A named preset must exist in your omp config, otherwise `launch` fails |
 | `model_by_level` | `{}` | Model id per level, used when no preset applies |
@@ -659,7 +659,7 @@ Contest-Harness/
 ## Limitations
 
 - **Written in Korean for Korean contests.** The agent prompts, skill, playbooks, templates, persona, and contract are in Korean and target Korean contests, and CLI messages and `BOARD.md` are in Korean too. They assume a tool that can edit HWP files, such as Hancom Docs. Operator-specific rules (helper scripts, compute servers, folder conventions) are not in the repository; put yours in `data/local-rules.md`, which agents read first when it exists.
-- **Two runner adapters in the core; only omp has run contests.** The Claude Code adapter (`claude`) is checked against `claude --help` and its install tests, but no contest session has run on it. Agents are written for omp: on Claude Code they start with `model: inherit` (model roles such as `@task` and `@slow` have no equivalent; set a model per agent with `agent_models`), `preset_by_level` does not exist, there is no `/contest` command package, Claude Code subagents cannot spawn subagents (ContestHQ runs as the main session, so this should not matter, but it is untested), and the `todo` tool maps to Claude Code's task-list tools, which only some models have. Unattended sessions default to `--permission-mode auto` (`runner_args.claude`), which is untested here. Any agent with a shell can follow [INIT.md](INIT.md) to set up the harness, but running contest sessions needs an adapter for that harness, added by pull request ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **Two runner adapters in the core; only omp has run contest sessions.** The Claude Code adapter (`claude`) has run the scheduled job headless (`claude -p --permission-mode auto`): it collected a contest, and the `ContestGate` subagent recorded the gate decision. Contest sessions in Orca or tmux, `harness chat --runner claude`, models set per agent through `agent_models`, Orca automations with the `claude` agent, and ContestHQ worker waves (level 3 and up) have not run on it. Agents are written for omp: on Claude Code they start with `model: inherit` (model roles such as `@task` and `@slow` have no equivalent; set a model per agent with `agent_models`), `preset_by_level` does not exist, there is no `/contest` command package, Claude Code subagents cannot spawn subagents (ContestHQ runs as the main session, so this should not matter, but it is untested), and the `todo` tool maps to Claude Code's task-list tools, which only some models have. Any agent with a shell can follow [INIT.md](INIT.md) to set up the harness, but running contest sessions needs an adapter for that harness, added by pull request ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **Token pace comes from omp.** `budget` and `capacity` read `omp usage --json`. Without omp, only the memory and count limits apply.
 - **Headless sessions cannot be answered.** `headless` runs the runner's one-shot command with no TTY. Use `orca` or `tmux` for contests that need concept or plan approval in the session.
 - **The persona guard reads text only.** It does not look inside HWP, PDF, or other binary formats, and it skips data and build directories and files over 4 MB. `ContestJudge` checks the text of the final deliverables separately.
@@ -702,7 +702,7 @@ The design borrows structure and output formats from these projects, not their c
 
 Autocontest-Harness는 접수 중인 공모전을 찾고 참가 자격을 확인한 뒤, 공모전마다 코딩 에이전트를 띄워 사용자가 제출만 하면 되는 단계까지 작업을 진행한다.
 
-Rust 바이너리 하나(`harness`)와 에이전트 지시문 묶음으로 이루어진다. 바이너리는 공모전 레지스트리를 로컬에 두고, 공모전 하나하나를 정해진 상태 순서대로 옮기고, 에이전트 세션을 띄운다. 에이전트는 공식 공고를 읽고 작업을 계획해 결과물을 만든다. 세션은 러너 어댑터를 거쳐 에이전트 하네스에서 돌고(코어에는 omp 어댑터가 들어 있고, 다른 하네스의 어댑터는 pull request로 더한다), 작업 환경 네 가지(Orca, tmux, 백그라운드 프로세스, 현재 터미널) 가운데 하나에서 돌린다. 제출은 하네스가 대신 하지 않는다.
+Rust 바이너리 하나(`harness`)와 에이전트 지시문 묶음으로 이루어진다. 바이너리는 공모전 레지스트리를 로컬에 두고, 공모전 하나하나를 정해진 상태 순서대로 옮기고, 에이전트 세션을 띄운다. 에이전트는 공식 공고를 읽고 작업을 계획해 결과물을 만든다. 세션은 러너 어댑터를 거쳐 에이전트 하네스에서 돌고(코어에는 omp와 Claude Code 어댑터가 들어 있고, 다른 하네스의 어댑터는 pull request로 더한다), 작업 환경 네 가지(Orca, tmux, 백그라운드 프로세스, 현재 터미널) 가운데 하나에서 돌린다. 제출은 하네스가 대신 하지 않는다.
 
 저장소: https://github.com/FMsongX2/Autocontest-Harness. 명령·상태·파일 형식·백엔드 같은 인터페이스 계약은 [docs/CONTRACT.md](docs/CONTRACT.md)에 있다.
 
@@ -755,7 +755,7 @@ flowchart LR
 #### 구조
 
 - **Rust 코어**(`src/`). 바이너리 하나가 레지스트리, 수집기, 중복 판정, 게이트 기록, 라우팅, 용량 계산, 보드, 페르소나 검사, 세션 실행을 맡는다. 부르는 도구(`git`, `gh`, 러너·작업 환경 CLI) 말고는 실행 시 의존성이 없다. 외부 명령(`git`, `gh`, `orca`, `tmux`, `omp usage`, `launchctl`, `crontab`, `ps`)은 따로 만든 프로세스 그룹에서 제한 시간(네트워크 120초, 로컬 30초)을 두고 돌리며, 시간을 넘기면 끝낸다. git은 `GIT_TERMINAL_PROMPT=0`과 batch 모드 SSH로 돌려 암호 입력을 기다리지 않는다.
-- **러너 어댑터**(`src/runners/`). `Runner` trait이 에이전트 하네스와 맞닿는 인터페이스다. 대화형 명령, 한 번 실행 명령, 서브에이전트·모델 프리셋 지원 여부, Orca에서 띄울 에이전트, 하네스 에이전트·스킬·확장 설치법을 정한다. 코어에는 `omp` 어댑터가 들어 있고, 다른 하네스의 어댑터는 pull request로 받는다([러너 어댑터 추가](#러너-어댑터-추가) 참고).
+- **러너 어댑터**(`src/runners/`). `Runner` trait이 에이전트 하네스와 맞닿는 인터페이스다. 대화형 명령, 한 번 실행 명령, 서브에이전트·모델 프리셋 지원 여부, Orca에서 띄울 에이전트, 하네스 에이전트·스킬·확장 설치법을 정한다. 코어에는 `omp`와 `claude`(Claude Code) 어댑터가 들어 있고, 다른 하네스의 어댑터는 pull request로 받는다([러너 어댑터 추가](#러너-어댑터-추가) 참고).
 - **작업 환경**(`src/workspaces/`): `orca`, `tmux`, `headless`, `terminal`. 작업 환경마다 공모전별 작업 공간 만들기, 그 안에서 세션 열기, 화면이나 로그 끝 읽기를 안다.
 - **omp 확장 패키지**(`package.json`, `extensions/contest-harness.ts`, `commands/`, `skills/`, `agents/`). omp에 `/contest` 명령을 더한다.
 
@@ -766,7 +766,7 @@ flowchart LR
 - macOS 또는 Linux. Windows는 지원하지 않는다.
 - 커밋 작성자 정보(`git config --global user.name`과 `user.email`)를 설정한 `git`. `route`가 공모전 폴더마다 첫 커밋을 만든다.
 - GitHub CLI `gh`: `github_org`(기본값은 자기 계정)에 private 저장소를 만들 수 있는 계정으로 로그인해 둔다(`gh auth login`).
-- `PATH`에 [omp](https://github.com/can1357/oh-my-pi). 코어에 어댑터가 있는 에이전트 하네스다. 다른 하네스는 어댑터부터 있어야 한다([러너 어댑터 추가](#러너-어댑터-추가) 참고).
+- `PATH`에 [omp](https://github.com/can1357/oh-my-pi) 또는 [Claude Code](https://github.com/anthropics/claude-code)(`claude`). 코어에 어댑터가 있는 에이전트 하네스다. 공모전 세션을 처음부터 끝까지 돌려 본 것은 omp다. 다른 하네스는 어댑터부터 있어야 한다([러너 어댑터 추가](#러너-어댑터-추가) 참고).
 - 공모전 세션의 작업 환경: [Orca](https://github.com/stablyai/orca)와 `orca` CLI(기본값) 또는 `tmux`. `headless`는 따로 필요한 것이 없다.
 - Rust 1.89 이상(`cargo`). 소스에서 빌드할 때만 필요하다.
 
@@ -783,7 +783,7 @@ scripts/install.sh       # 미리 빌드한 바이너리를 체크섬으로 확�
 
 바이너리가 다루는 클론은 하나다. `HARNESS_HOME`이 있으면 그곳, 없으면 실제 바이너리 경로(심볼릭 링크를 풀어서)의 위쪽 폴더 가운데 `harness/prompts/launch.md`가 있는 가장 가까운 곳, 그것도 없으면 빌드한 클론이다. `data/`, 지시문, 에이전트, 스킬을 그곳에서 읽는다. 그 폴더에 `harness/prompts/launch.md`가 없으면 `doctor`, `--help`, `--version`을 뺀 모든 명령이 실행을 거절하고, 그곳에 아무것도 만들지 않는다.
 
-그다음 설정과 사용자 정보를 채운다. 가장 쉬운 방법은 에이전트에게 맡기는 것이다. 클론 폴더에서 코딩 에이전트를 열고 "INIT.md를 읽고 설정해 줘"라고 말한다. [INIT.md](INIT.md)는 에이전트가 따르도록 쓴 설정 절차다. 에이전트는 `harness init`을 실행하고, 설정을 항목마다 추천 기본값을 붙여 한 번에 묻고, 답을 `harness config set`으로 적용하고, 사용자 정보 채우기를 돕고([사용자 정보](#사용자-정보) 참고), 원하면 레벨별·에이전트별 모델을 고르고, `harness install`과(정기 실행을 원하면) `harness schedule install`을 실행한 뒤, 실패가 없어질 때까지 `harness doctor`를 되풀이한다. omp에서는 `harness install`로 패키지를 연결한 뒤라면 프롬프트 템플릿 `/contest-init`이 같은 절차를 시작한다. 셸 명령을 실행할 수 있는 에이전트라면 어느 것이든 설정을 할 수 있다. 다만 공모전 세션을 띄우려면 러너 어댑터가 있어야 하고, 코어에는 omp 어댑터가 있다([러너 어댑터 추가](#러너-어댑터-추가) 참고). `harness chat`도 `data/config.json`이 없거나 점검에 실패가 있으면 이 절차부터 시작한다.
+그다음 설정과 사용자 정보를 채운다. 가장 쉬운 방법은 에이전트에게 맡기는 것이다. 클론 폴더에서 코딩 에이전트를 열고 "INIT.md를 읽고 설정해 줘"라고 말한다. [INIT.md](INIT.md)는 에이전트가 따르도록 쓴 설정 절차다. 에이전트는 `harness init`을 실행하고, 설정을 항목마다 추천 기본값을 붙여 한 번에 묻고, 답을 `harness config set`으로 적용하고, 사용자 정보 채우기를 돕고([사용자 정보](#사용자-정보) 참고), 원하면 레벨별·에이전트별 모델을 고르고, `harness install`과(정기 실행을 원하면) `harness schedule install`을 실행한 뒤, 실패가 없어질 때까지 `harness doctor`를 되풀이한다. omp에서는 `harness install`로 패키지를 연결한 뒤라면 프롬프트 템플릿 `/contest-init`이 같은 절차를 시작한다. 셸 명령을 실행할 수 있는 에이전트라면 어느 것이든 설정을 할 수 있다. 다만 공모전 세션을 띄우려면 러너 어댑터가 있어야 하고, 코어에는 omp와 Claude Code 어댑터가 있다([러너 어댑터 추가](#러너-어댑터-추가) 참고). `harness chat`도 `data/config.json`이 없거나 점검에 실패가 있으면 이 절차부터 시작한다.
 
 직접 설정하려면:
 
@@ -914,7 +914,7 @@ harness config set agent_models.ContestJudge null                # 다음 harnes
 
 #### 러너 어댑터 추가
 
-코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 omp 어댑터와, CLI 플래그와 설치까지만 확인했고 공모전은 돌려 보지 않은 Claude Code 어댑터(`claude`)가 들어 있다. 다른 에이전트 하네스(Claude Code, Codex, pi, 직접 만든 하네스)로 돌리려면 `src/runners/<이름>.rs`에 `Runner` trait을 구현하고 `runners::ALL`에 한 줄 더한 뒤 pull request를 보낸다. `tests/backends.rs`의 계약 테스트 `every_adapter_keeps_the_runner_contract`가 등록된 어댑터마다 돈다. trait 메서드, 어댑터가 지킬 규칙, pull request에 담을 것은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있다. 예전 버전에는 검증하지 않은 pi·Codex·dsh 어댑터(와 예전 Claude Code 어댑터)가 있었고, 그 코드는 커밋 `bf05366`의 `src/runners/`에 남아 있어 출발점으로 쓸 수 있다.
+코어에는 어댑터가 둘 들어 있다. omp 어댑터로는 공모전을 처음부터 끝까지 실제로 돌렸다. Claude Code 어댑터(`claude`)는 Claude Code가 [CONTRIBUTING.md](CONTRIBUTING.md)를 따라 직접 썼고, 정기 실행을 headless로 돌려 봤다. 공모전 하나를 수집했고 `ContestGate` 서브에이전트가 게이트 판정을 기록했다. 대화형 공모전 세션은 아직 돌려 보지 않았다([한계](#한계) 참고). 다른 에이전트 하네스(Codex, pi, 직접 만든 하네스)로 돌리려면 `src/runners/<이름>.rs`에 `Runner` trait을 구현하고 `runners::ALL`에 한 줄 더한 뒤 pull request를 보낸다. `tests/backends.rs`의 계약 테스트 `every_adapter_keeps_the_runner_contract`가 등록된 어댑터마다 돈다. trait 메서드, 어댑터가 지킬 규칙, pull request에 담을 것은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있다. 예전 버전에는 검증하지 않은 pi·Codex·dsh 어댑터(와 예전 Claude Code 어댑터)가 있었고, 그 코드는 커밋 `bf05366`의 `src/runners/`에 남아 있어 출발점으로 쓸 수 있다.
 
 ### omp 확장
 
@@ -1057,7 +1057,7 @@ harness config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `github_org` | `""` | `harness route`가 `gh`로 공모전마다 private 저장소를 만드는 GitHub 조직 또는 사용자. 비워 두면 `gh`에 로그인한 계정에 만든다 |
 | `contests_root` | `"~/contests"` | 공모전마다 폴더 하나를 두는 곳. `dedupe-check`는 `<contests_root>/*/README.md`와 `<contests_root>/.shared/existing_contests.md`도 읽는다 |
 | `orca_repo_path` | `null`(= `contests_root`) | Orca에 등록된 git 저장소. 공모전 작업 공간은 이 저장소의 worktree로 만든다 |
-| `runner` | `"omp"` | 공모전 세션·정기 실행·메인 세션에 쓸 러너 어댑터(에이전트 하네스). 코어에는 `omp`가 있다. [러너 어댑터 추가](#러너-어댑터-추가) 참고 |
+| `runner` | `"omp"` | 공모전 세션·정기 실행·메인 세션에 쓸 러너 어댑터(에이전트 하네스). 코어에는 `omp`와 `claude`(Claude Code)가 있다. [러너 어댑터 추가](#러너-어댑터-추가) 참고 |
 | `workspace` | `"orca"` | 공모전 세션을 돌릴 곳: `orca`, `tmux`, `headless` |
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | 프리셋을 지원하는 어댑터의 레벨별 모델 프리셋. omp는 예컨대 `{"3": "ResearchPreset"}`을 `~/.omp/agent/config.yml`의 `modelPresets`에서 가져와 실행마다 따로 만드는 `--config` 덮개로 넘기므로, 전역 omp 설정은 바뀌지 않는다. `null`이면 omp 기본 역할을 쓴다. 이름을 적은 프리셋이 omp 설정에 없으면 `launch`가 실패한다 |
 | `model_by_level` | `{}` | 프리셋이 없을 때 쓰는 레벨별 모델 id |
@@ -1354,7 +1354,7 @@ Contest-Harness/
 ### 한계
 
 - **한국어로, 국내 공모전용으로 쓰였다.** 에이전트 지시문, 스킬, 플레이북, 템플릿, 페르소나, 계약은 한국어로 쓰여 있고 국내 공모전을 대상으로 한다. CLI 메시지와 `BOARD.md`도 한국어다. HWP 파일을 다룰 도구(한컴독스 등)를 전제한다. 운영자 환경에 따른 규칙(도우미 스크립트, 계산 서버, 폴더 관례)은 저장소에 없다. 자기 규칙은 `data/local-rules.md`에 적으면 에이전트가 먼저 읽는다.
-- **코어의 러너 어댑터는 둘이고, 공모전을 돌려 본 것은 omp뿐이다.** Claude Code 어댑터(`claude`)는 `claude --help`와 설치 테스트로만 확인했고 공모전 세션은 돌려 보지 않았다. 에이전트는 omp 기준으로 쓰였다. Claude Code에서는 `model: inherit`로 시작하고(`@task`·`@slow` 같은 모델 역할은 대응이 없으니 `agent_models`로 에이전트마다 정한다), `preset_by_level`은 없고, `/contest` 명령 패키지도 없다. Claude Code의 서브에이전트는 서브에이전트를 띄우지 못한다(ContestHQ는 메인 세션으로 돌아 문제가 없을 것이나 시험하지 않았다). `todo` 도구는 일부 모델에만 있는 Claude Code의 작업 목록 도구로 옮긴다. 사람 없는 세션의 기본 인자 `--permission-mode auto`(`runner_args.claude`)도 여기서는 시험하지 않았다. 셸을 쓰는 에이전트라면 [INIT.md](INIT.md)로 하네스를 설정할 수 있지만, 공모전 세션을 띄우려면 그 하네스의 어댑터를 pull request로 더해야 한다([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **코어의 러너 어댑터는 둘이고, 공모전 세션을 돌려 본 것은 omp뿐이다.** Claude Code 어댑터(`claude`)로는 정기 실행을 headless(`claude -p --permission-mode auto`)로 돌려 봤다. 공모전 하나를 수집했고 `ContestGate` 서브에이전트가 게이트 판정을 기록했다. Orca나 tmux의 공모전 세션, `harness chat --runner claude`, `agent_models`로 에이전트마다 정한 모델, `claude` 에이전트를 쓰는 Orca automation, ContestHQ의 작업자 묶음 실행(레벨 3 이상)은 돌려 보지 않았다. 에이전트는 omp 기준으로 쓰였다. Claude Code에서는 `model: inherit`로 시작하고(`@task`·`@slow` 같은 모델 역할은 대응이 없으니 `agent_models`로 에이전트마다 정한다), `preset_by_level`은 없고, `/contest` 명령 패키지도 없다. Claude Code의 서브에이전트는 서브에이전트를 띄우지 못한다(ContestHQ는 메인 세션으로 돌아 문제가 없을 것이나 시험하지 않았다). `todo` 도구는 일부 모델에만 있는 Claude Code의 작업 목록 도구로 옮긴다. 셸을 쓰는 에이전트라면 [INIT.md](INIT.md)로 하네스를 설정할 수 있지만, 공모전 세션을 띄우려면 그 하네스의 어댑터를 pull request로 더해야 한다([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **토큰 속도는 omp에서 읽는다.** `budget`과 `capacity`는 `omp usage --json`을 읽는다. omp가 없으면 메모리와 개수 상한만 적용한다.
 - **headless 세션에는 답할 수 없다.** `headless`는 TTY 없이 러너의 한 번 실행 명령을 돌린다. 세션 안에서 콘셉트나 계획 승인이 필요한 공모전은 `orca`나 `tmux`를 쓴다.
 - **페르소나 검사는 텍스트만 읽는다.** HWP·PDF 같은 이진 형식의 안쪽은 보지 못하고, 데이터·빌드 폴더와 4MB 넘는 파일은 건너뛴다. 최종 결과물의 텍스트는 `ContestJudge`가 따로 확인한다.

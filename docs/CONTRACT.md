@@ -419,14 +419,15 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 명령을 만드는 입력 `Spec`:
 
 - `cwd`: 세션의 작업 디렉터리(공모전 폴더 또는 저장소 루트).
-- `prompt_file`: 실행 지시문(`.harness/launch-prompt.md`, `harness/prompts/automation.md`, 메인 세션 첫 지시 파일). 에이전트가 무엇보다 먼저 전부 읽어야 한다.
+- `prompt_file`: 실행 지시문(`.harness/launch-prompt.md`, `harness/prompts/automation.md`, 메인 세션 첫 지시 파일). 에이전트가 무엇보다 먼저 전부 읽어야 한다. `launch --dry-run`은 이 파일을 쓰지 않으므로 없을 수 있다.
+- `prompt`: 호출한 쪽이 메모리에 들고 있는 같은 지시문 본문(`launch`만 채운다). 어댑터는 직접 읽지 않고 `prompt_text`를 거친다.
 - `first_message`: 지시문을 따르라는 첫 사용자 메시지. 지시문 본문을 첫 메시지로 넘기는 어댑터는 생략할 수 있다.
 - `system_append`: 덧붙일 시스템 프롬프트(페르소나 + 메인 역할). 메인 세션(`harness chat`)에만 있고, 공모전 세션과 정기 실행에서는 늘 비어 있다(페르소나 없음).
 - `model`: 모델 id(`model_by_level`). 없으면 러너 기본값을 쓴다.
 - `preset_file`: 이번 실행에 `preset_file()`이 쓴 파일(프리셋이 있는 어댑터만).
 - `extra_args`: 설정 `runner_args.<러너>`. 바꾸지 않고 순서대로 넘긴다.
 
-어댑터용 도움 함수(`src/runners/mod.rs`): `which`(PATH의 실행 파일 경로), `prompt_text`(지시문을 첫 메시지로 넘기는 러너용 본문), `system_text`(시스템 프롬프트 덧붙이기를 본문으로 넘기는 러너용), `link`(심볼릭 링크를 건다. 옛 심볼릭 링크는 바꾸고 실제 파일은 덮지 않는다), `write_file`(같은 내용이 이미 있으면 쓰지 않는다), `run_cli`(설치 중 러너 CLI를 돌리고 실패하면 출력과 함께 오류), `AgentDoc`·`agent_docs`(`agents/*.md`의 앞머리와 본문을 읽어 다른 형식으로 변환할 때 쓴다).
+어댑터용 도움 함수(`src/runners/mod.rs`): `which`(PATH의 실행 파일 경로), `prompt_text`(지시문을 첫 메시지로 넘기는 러너용 본문. `prompt`가 있으면 그것을, 없으면 `prompt_file`을 읽는다), `system_text`(시스템 프롬프트 덧붙이기를 본문으로 넘기는 러너용), `link`(심볼릭 링크를 건다. 옛 심볼릭 링크는 바꾸고 실제 파일은 덮지 않는다), `write_file`(같은 내용이 이미 있으면 쓰지 않는다), `run_cli`(설치 중 러너 CLI를 돌리고 실패하면 출력과 함께 오류), `AgentDoc`·`agent_docs`(`agents/*.md`의 앞머리와 본문을 읽어 다른 형식으로 변환할 때 쓴다).
 
 계약 테스트 `every_adapter_keeps_the_runner_contract`(`tests/backends.rs`)는 `ALL`의 모든 어댑터에 돈다.
 
@@ -451,7 +452,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 <p>표 9. omp 어댑터</p>
 
-`claude` 어댑터(Claude Code, 공모전 세션은 돌려 보지 않음): 대화형 `claude [--model M] [--append-system-prompt <본문>] <runner_args> -- <지시문 본문>`, 한 번 실행은 `claude` 바로 뒤에 `-p`(`--`는 목록을 받는 옵션이 지시문을 삼키지 않게 한다). 서브에이전트 있음(`Agent` 도구), 프리셋 없음, Orca 에이전트 `claude`, `runner_args.claude` 기본값 `--permission-mode auto`. `install`은 `agents/*.md`를 `~/.claude/agents/contest-harness/<이름>.md` 서브에이전트 파일(`tools`는 Claude Code 이름으로 옮기고 없는 도구는 뺀다, `model: inherit`, `skills`, 출력 스키마는 본문 끝 절)로 변환하고 `agents/`에서 사라진 파일은 지우며, 스킬을 `~/.claude/skills/contest-harness`에 링크한다. 에이전트별 모델은 Claude Code에 이름별 설정 키가 없어서 그 파일의 `model` 필드에 쓴다(별칭 `opus`·`sonnet`·`haiku`·`fable`, 전체 모델 id, `None`은 `inherit`). 다시 설치해도 `inherit`가 아닌 선택은 남고, `agent_models()`와 `installed()`는 그 파일을 읽는다. 확장(`/contest` 명령)은 없다.
+`claude` 어댑터(Claude Code, 정기 실행을 headless로 돌려 봤고 대화형 공모전 세션은 돌려 보지 않음): 대화형 `claude [--model M] [--append-system-prompt <본문>] <runner_args> -- "@<지시문 경로> <첫 메시지>"`, 한 번 실행은 `claude` 바로 뒤에 `-p`. Claude Code는 `@경로` 언급으로 파일을 대화에 읽어 들인다(한 번 실행과 대화형 모두 확인). 경로에 공백이 있으면 언급으로 넘길 수 없어 지시문 본문을 그대로 넘긴다. `--`는 목록을 받는 옵션이 지시문을 삼키지 않게 한다. 서브에이전트 있음(`Agent` 도구), 프리셋 없음, Orca 에이전트 `claude`, `runner_args.claude` 기본값 `--permission-mode auto`. `install`은 `agents/*.md`를 `~/.claude/agents/contest-harness/<이름>.md` 서브에이전트 파일(`tools`는 Claude Code 이름으로 옮기고 없는 도구는 뺀다, `model: inherit`, `skills`, 출력 스키마는 본문 끝 절)로 변환하고 `agents/`에서 사라진 파일은 지우며, 스킬을 `~/.claude/skills/contest-harness`에 링크한다. 에이전트별 모델은 Claude Code에 이름별 설정 키가 없어서 그 파일의 `model` 필드에 쓴다(별칭 `opus`·`sonnet`·`haiku`·`fable`, 전체 모델 id, `None`은 `inherit`). 다시 설치해도 `inherit`가 아닌 선택은 남고, `agent_models()`와 `installed()`는 그 파일을 읽는다. 확장(`/contest` 명령)은 없다.
 
 | 작업 환경 | 대화형 | `route`가 만드는 것(`workspace_id`) | `launch`가 띄우는 방식(`handle`) | `peek` |
 |---|---|---|---|---|

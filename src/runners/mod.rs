@@ -22,6 +22,9 @@ pub struct Spec {
     /// The instructions (`.harness/launch-prompt.md`, `harness/prompts/automation.md`, or the main
     /// session's start file). The agent must read all of it before anything else.
     pub prompt_file: PathBuf,
+    /// The same instructions already in memory, when the caller has them (`harness launch`, whose
+    /// dry run writes no file). Read them through [`prompt_text`], never `prompt_file` directly.
+    pub prompt: Option<String>,
     /// The first user message that tells the agent to follow the instructions. An adapter that
     /// passes the instructions inline as the first message may leave it out.
     pub first_message: String,
@@ -118,7 +121,11 @@ pub fn which(binary: &str) -> Option<PathBuf> {
 
 /// The instructions as text, for harnesses that take them as the first message.
 pub fn prompt_text(spec: &Spec) -> Result<String> {
-    Ok(std::fs::read_to_string(&spec.prompt_file)?)
+    match &spec.prompt {
+        Some(text) => Ok(text.clone()),
+        None => std::fs::read_to_string(&spec.prompt_file)
+            .map_err(|e| crate::error::Error(format!("{}: {e}", spec.prompt_file.display()))),
+    }
 }
 
 /// The system-prompt addition as text, for harnesses that take it inline.

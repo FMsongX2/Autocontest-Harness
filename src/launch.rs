@@ -109,15 +109,6 @@ fn session_field<'a>(entry: &'a Entry, key: &str) -> Option<&'a str> {
     entry.session.as_ref()?.get(key)?.as_str()
 }
 
-/// The rendered instructions in a scratch file, for a dry run's command line.
-fn dry_prompt_copy(text: &str) -> Result<PathBuf> {
-    static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("harness-dry-{}-{n}-launch-prompt.md", std::process::id()));
-    std::fs::write(&path, text)?;
-    Ok(path)
-}
-
 /// Start the contest session. With `dry_run` nothing is written to the contest or the registry and nothing is started: the prompt is rendered in
 /// memory and returned as `prompt_text`, `prompt` is the path a real launch writes, and a missing
 /// runner or workspace binary is reported in `warnings` instead of failing.
@@ -166,12 +157,11 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         std::fs::create_dir_all(&meta)?;
         std::fs::write(&prompt_path, &prompt_text)?;
     }
-    // A dry run writes nothing, but an adapter that passes the instructions as text reads the file:
-    // build the command from a scratch copy and show the real path where the command names it.
-    let scratch = if dry_run { Some(dry_prompt_copy(&prompt_text)?) } else { None };
     let spec = Spec {
         cwd: folder.clone(),
-        prompt_file: scratch.clone().unwrap_or_else(|| prompt_path.clone()),
+        prompt_file: prompt_path.clone(),
+        // A dry run writes no prompt file, so adapters that pass the text inline read it from here.
+        prompt: Some(prompt_text.clone()),
         first_message: FIRST_MESSAGE.to_string(),
         // Contest sessions never get the persona: their code, reports and commits must not carry it.
         system_append: None,
@@ -185,14 +175,6 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         extra_args: config.runner_args(runner.name()),
     };
     let argv = if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? };
-    let argv = match &scratch {
-        Some(copy) => {
-            let _ = std::fs::remove_file(copy);
-            let (copy, real) = (copy.display().to_string(), prompt_path.display().to_string());
-            argv.into_iter().map(|a| a.replace(&copy, &real)).collect()
-        }
-        None => argv,
-    };
     let argv = with_session_env(&entry.id, argv);
     let existing_id = (session_field(entry, "workspace") == Some(workspace.name()))
         .then(|| session_field(entry, "workspace_id").map(str::to_string))
@@ -332,6 +314,7 @@ pub fn chat(config: &Config, runner: Option<&str>, workspace: Option<&str>) -> R
     let spec = Spec {
         cwd: root.clone(),
         prompt_file: main_start(config)?,
+        prompt: None,
         first_message: "첨부한 지시대로 메인 인터페이스를 시작해.".to_string(),
         system_append: Some(main_system_prompt(config)?),
         model: None,

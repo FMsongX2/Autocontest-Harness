@@ -13,12 +13,12 @@ Pull requests are welcome. Two kinds of extension have a fixed shape: a **runner
 
 ## Adding a runner adapter
 
-The core ships two adapters: `omp`, the one that has run contests end to end, and `claude` (Claude Code), which is checked against the CLI's flags and installs but has not run a contest. An adapter for another harness (Claude Code, Codex, pi, or your own) is a Rust module that implements the `Runner` trait in [src/runners/mod.rs](src/runners/mod.rs).
+The core ships two adapters: `omp`, the one that has run contests end to end, and `claude` (Claude Code), which Claude Code wrote from this guide and which has run the scheduled job (collection and a gate decision by the `ContestGate` subagent) but no interactive contest session. An adapter for another harness (Codex, pi, or your own) is a Rust module that implements the `Runner` trait in [src/runners/mod.rs](src/runners/mod.rs).
 
-Earlier versions carried unverified adapters for pi, Claude Code, Codex, and dsh. Claude Code has since been rewritten in the core; the rest were removed; their code is a reasonable starting point:
+Earlier versions carried unverified adapters for pi, Claude Code, Codex, and dsh. Claude Code has since been rewritten in the core and the rest were removed, but their code is a reasonable starting point:
 
 ```bash
-git show bf05366:src/runners/claude.rs   # also pi.rs, codex.rs, dsh.rs
+git show bf05366:src/runners/codex.rs    # also pi.rs, dsh.rs
 git show bf05366:tests/backends.rs       # their command-line and install tests
 ```
 
@@ -49,7 +49,8 @@ Create `src/runners/<name>.rs` with a unit struct and `impl Runner for <Struct>`
 | Field | Meaning | How to pass it |
 |---|---|---|
 | `cwd` | The contest folder or the repository root | Workspaces already run `cd <cwd> && <command>`. Pass it as well if the harness has a working-directory flag |
-| `prompt_file` | The instructions the agent reads before anything else | As a file reference if the harness supports one, otherwise inline with `runners::prompt_text` |
+| `prompt_file` | The instructions the agent reads before anything else | As a file reference if the harness supports one (`claude` passes an `@<path>` mention), otherwise inline with `runners::prompt_text`. Under `harness launch --dry-run` the file may not exist |
+| `prompt` | The same instructions in memory, when the caller has them (`harness launch`) | Do not read it directly: `runners::prompt_text` returns it and reads `prompt_file` only when it is `None` |
 | `first_message` | The first user message, telling the agent to follow the instructions | May be left out when the instructions themselves are the first message |
 | `system_append` | The persona and main role, for the main session (`harness chat`) only | As a system-prompt file or text (`runners::system_text`). Contest sessions and scheduled runs always get `None`, so nothing persona-related may appear then |
 | `model` | `model_by_level` for the contest's level | The harness's model flag. If it has none, say so in the pull request |
@@ -89,7 +90,7 @@ In `src/runners/mod.rs`, add `pub mod <name>;` and append `&<name>::<Struct>` to
 - [ ] `scripts/check.sh` passes (output pasted).
 - [ ] `harness install --runner <name>` output, from two runs in a row.
 - [ ] `harness launch <id> --dry-run` output for a routed test contest.
-- [ ] One real session on the harness, either a contest session or `harness chat`, showing that the agent read the instructions and called `harness`. Name the harness version.
+- [ ] One real session on the harness (a contest session, `harness chat`, or `harness autorun`), showing that the agent read the instructions and called `harness`. Name the harness version.
 - [ ] If `orca_agent()` is set: `harness schedule install --scheduler orca` with a test cron, `harness schedule status`, then `harness schedule remove`.
 - [ ] A row in README Table 1 (English and Korean) and in CONTRACT section 10.
 - [ ] Known gaps (no subagents, no model flag, untested tool mapping) listed in the pull request and in the README limitations.
@@ -115,12 +116,12 @@ pull request를 환영한다. 정해진 모양이 있는 확장은 두 가지다
 
 ### 러너 어댑터 추가
 
-코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 `omp` 어댑터와, CLI 플래그와 설치까지만 확인한 `claude`(Claude Code) 어댑터가 들어 있다. 다른 하네스(Claude Code, Codex, pi, 직접 만든 하네스)의 어댑터는 [src/runners/mod.rs](src/runners/mod.rs)의 `Runner` trait을 구현하는 Rust 모듈이다.
+코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 `omp` 어댑터와 `claude`(Claude Code) 어댑터가 들어 있다. `claude`는 Claude Code가 이 문서를 따라 직접 썼고, 정기 실행(수집과 `ContestGate` 서브에이전트의 게이트 판정)까지 돌려 봤지만 대화형 공모전 세션은 돌려 보지 않았다. 다른 하네스(Codex, pi, 직접 만든 하네스)의 어댑터는 [src/runners/mod.rs](src/runners/mod.rs)의 `Runner` trait을 구현하는 Rust 모듈이다.
 
 예전 버전에는 검증하지 않은 pi·Claude Code·Codex·dsh 어댑터가 있었다. Claude Code는 코어에 다시 썼고 나머지는 뺐지만 출발점으로 쓸 만하다:
 
 ```bash
-git show bf05366:src/runners/claude.rs   # pi.rs, codex.rs, dsh.rs도 있다
+git show bf05366:src/runners/codex.rs    # pi.rs, dsh.rs도 있다
 git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치 테스트
 ```
 
@@ -151,7 +152,8 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 | 필드 | 뜻 | 넘기는 법 |
 |---|---|---|
 | `cwd` | 공모전 폴더나 저장소 루트 | 작업 환경이 이미 `cd <cwd> && <명령>`으로 돌린다. 작업 디렉터리 플래그가 있으면 함께 넘긴다 |
-| `prompt_file` | 에이전트가 무엇보다 먼저 읽을 지시문 | 하네스가 파일 참조를 받으면 파일로, 아니면 `runners::prompt_text`로 본문을 넘긴다 |
+| `prompt_file` | 에이전트가 무엇보다 먼저 읽을 지시문 | 하네스가 파일 참조를 받으면 파일로(`claude`는 `@<경로>` 언급으로 넘긴다), 아니면 `runners::prompt_text`로 본문을 넘긴다. `harness launch --dry-run`에서는 이 파일이 없을 수 있다 |
+| `prompt` | 호출한 쪽이 지시문을 메모리에 들고 있을 때(`harness launch`) 그 본문 | 직접 읽지 않는다. `runners::prompt_text`가 이 값을 돌려주고, `None`일 때만 `prompt_file`을 읽는다 |
 | `first_message` | 지시문을 따르라는 첫 사용자 메시지 | 지시문 본문을 첫 메시지로 넘기면 생략해도 된다 |
 | `system_append` | 페르소나와 메인 역할. 메인 세션(`harness chat`)에만 있다 | 시스템 프롬프트 파일이나 본문(`runners::system_text`)으로. 공모전 세션과 정기 실행에서는 늘 `None`이므로 그때 페르소나 관련 내용이 나타나면 안 된다 |
 | `model` | 그 레벨의 `model_by_level` | 하네스의 모델 플래그로. 플래그가 없으면 pull request에 적는다 |
@@ -191,7 +193,7 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 - [ ] `scripts/check.sh` 통과(출력 첨부).
 - [ ] `harness install --runner <이름>`을 연달아 두 번 돌린 출력.
 - [ ] 라우팅한 시험 공모전의 `harness launch <id> --dry-run` 출력.
-- [ ] 그 하네스로 돌린 실제 세션 하나(공모전 세션이나 `harness chat`). 에이전트가 지시문을 읽고 `harness`를 부른 것이 보여야 한다. 하네스 버전을 적는다.
+- [ ] 그 하네스로 돌린 실제 세션 하나(공모전 세션, `harness chat`, `harness autorun` 가운데 하나). 에이전트가 지시문을 읽고 `harness`를 부른 것이 보여야 한다. 하네스 버전을 적는다.
 - [ ] `orca_agent()`가 있으면 시험용 cron으로 `harness schedule install --scheduler orca`, `harness schedule status`, `harness schedule remove`를 돌린 출력.
 - [ ] README 표 1(영어·한국어)과 CONTRACT 10절에 한 줄씩.
 - [ ] 알려진 빈틈(서브에이전트 없음, 모델 플래그 없음, 확인하지 않은 도구 이름 매핑)을 pull request와 README 한계 절에 적는다.

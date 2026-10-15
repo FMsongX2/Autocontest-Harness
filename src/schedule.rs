@@ -211,6 +211,7 @@ pub fn autorun(config: &Config) -> Result<Value> {
     let spec = Spec {
         cwd: root.clone(),
         prompt_file: prompt,
+        prompt: None,
         first_message: "첨부한 정기 실행 지시를 읽고 그대로 수행해.".to_string(),
         system_append: None,
         model: None,

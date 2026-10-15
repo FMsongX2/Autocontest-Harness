@@ -2,7 +2,7 @@
 
 > **For agents.** This file is the setup procedure an agent follows for a new Autocontest-Harness checkout. A user only needs to tell their agent "Read INIT.md and set up the harness" (in omp: `/contest-init`). The procedure is in Korean like the rest of the prompts.
 
-이 문서는 에이전트가 읽고 그대로 따르는 설정 절차다. 사용자는 클론 폴더에서 자기 에이전트에게 "INIT.md를 읽고 설정해 줘"라고 말하면 된다(omp에서는 `/contest-init`). 셸을 쓸 수 있는 에이전트라면 어느 하네스든 이 절차를 따를 수 있다. 다만 공모전 세션을 실제로 띄우려면 그 하네스의 러너 어댑터가 있어야 한다(지금 코어에는 omp뿐이다. README의 "러너 어댑터 추가" 참고).
+이 문서는 에이전트가 읽고 그대로 따르는 설정 절차다. 사용자는 클론 폴더에서 자기 에이전트에게 "INIT.md를 읽고 설정해 줘"라고 말하면 된다(omp에서는 `/contest-init`). 셸을 쓸 수 있는 에이전트라면 어느 하네스든 이 절차를 따를 수 있다. 다만 공모전 세션을 실제로 띄우려면 그 하네스의 러너 어댑터가 있어야 한다(지금 코어에는 omp와 Claude Code(`claude`) 어댑터가 있다. README의 "러너 어댑터 추가" 참고).
 
 ## 원칙
 
@@ -23,6 +23,7 @@
 
 | 항목 | 설정 키 | 추천 기본값 | 바꿀 때 |
 |---|---|---|---|
+| 에이전트 하네스 | `runner` | 이 절차를 돌리는 하네스(omp면 `omp`, Claude Code면 `claude`) | 공모전 세션을 다른 하네스로 돌리고 싶을 때. 코어에 어댑터가 있는 이름만 받는다 |
 | 공모전 폴더 | `contests_root` | `~/contests` | 공모전마다 폴더가 생길 곳을 따로 두고 싶을 때 |
 | GitHub 저장소 위치 | `github_org` | `""`(gh에 로그인한 계정, `gh auth status`로 확인해 보여 준다) | 조직에 비공개 저장소를 모으고 싶을 때 |
 | 작업 환경 | `workspace` | Orca 앱이 있으면 `orca`, 없으면 `tmux` | 화면 없이 돌릴 때 `headless`(세션 안에서 답할 수 없다) |
@@ -67,7 +68,7 @@ harness config get            # 적용된 전체 설정
 
 ## 5. 모델 고르기
 
-러너가 omp일 때의 방법이다. 다른 러너는 그 어댑터 문서를 따른다.
+러너가 omp일 때의 방법이다. Claude Code(`claude`)는 이 절 끝의 차이만 다르다. 다른 러너는 그 어댑터 문서를 따른다.
 
 - **쓸 수 있는 모델**: `omp models`의 목록을 보여 준다. 고르지 않으면 omp의 역할 모델(`modelRoles`, `omp config get modelRoles`)을 그대로 쓴다.
 - **공모전 세션(레벨별)**: 레벨마다 omp 프리셋 이름(`preset_by_level.<레벨>`, `omp config get modelPresets`) 또는 모델 id(`model_by_level.<레벨>`)를 고른다. 둘 다 비우면 omp 기본값이다.
@@ -88,6 +89,7 @@ harness config get            # 적용된 전체 설정
   ```
 
   에이전트별 모델은 6단계의 `harness install`이 적용한다. omp에서는 omp 전역 설정 `task.agentModelOverrides`에 하네스 에이전트 이름으로만 써 넣고, 다른 에이전트의 설정은 건드리지 않는다.
+- **Claude Code(`claude`)일 때**: 프리셋이 없으므로 레벨별로는 `model_by_level`만 쓴다. 모델 값은 Claude Code의 모델 별칭(`opus`, `sonnet`, `haiku`)이나 전체 모델 id다. 에이전트별 모델은 `harness install`이 `~/.claude/agents/contest-harness/<이름>.md`의 `model` 필드에 쓰고, 고르지 않은 에이전트는 그 에이전트를 띄운 세션의 모델(`inherit`)을 쓴다.
 
 ## 6. 설치·정기 실행·점검
 
