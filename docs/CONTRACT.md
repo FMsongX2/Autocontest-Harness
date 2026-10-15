@@ -205,7 +205,7 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 
 | 명령 | 하는 일 |
 |---|---|
-| `harness init` | 새 체크아웃에 필요한 파일을 만든다: `data/`(0700), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 이미 있는 파일은 그대로 둔다. 이어서 `doctor`를 돌린다. 텍스트는 만든 것·둔 것·점검 결과와 다음 단계(`INIT.md`), JSON은 `{created:[...], kept:[...], checks:[...], next:"<루트>/INIT.md"}`. 점검 결과와 관계없이 종료 코드 0. 대화가 필요한 설정은 `INIT.md`를 따르는 에이전트가 한다 |
+| `harness init` | 새 체크아웃에 필요한 파일을 만든다: `data/`(0700. 이미 있는 `data/`를 그룹·다른 사용자가 열 수 있으면 0700으로 좁힌다), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 이미 있는 파일은 그대로 둔다. 이어서 `doctor`를 돌린다. 텍스트는 만든 것·둔 것·좁힌 것·점검 결과와 다음 단계(`INIT.md`), JSON은 `{created:[...], kept:[...], tightened:[...], checks:[...], next:"<루트>/INIT.md"}`. 점검 결과와 관계없이 종료 코드 0. 대화가 필요한 설정은 `INIT.md`를 따르는 에이전트가 한다 |
 | `harness config path` | 설정 파일 경로(`data/config.json`) |
 | `harness config get [키]` | 점으로 이은 키의 적용 값(기본값 + 파일). 키가 없으면 설정 전체. 없는 키는 오류 |
 | `harness config set <키> <값>` | 키를 정한다. 값 해석·검사·쓰기 규칙은 위 설정 절. 틀린 값은 거절하고 파일은 바뀌지 않는다 |

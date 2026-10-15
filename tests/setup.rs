@@ -149,6 +149,8 @@ fn checkout(name: &str) -> PathBuf {
 #[test]
 fn init_creates_private_files_once_and_never_overwrites() {
     let root = checkout("init");
+    // A fresh clone's `data/` gets the umask's mode, which lets other users list it.
+    std::fs::set_permissions(root.join("data"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let run = || {
         let out = Command::new(env!("CARGO_BIN_EXE_harness"))
             .args(["init", "--json"])
@@ -164,6 +166,8 @@ fn init_creates_private_files_once_and_never_overwrites() {
     assert!(created.iter().any(|p| p.ends_with("data/config.json")), "{first}");
     assert!(created.iter().any(|p| p.ends_with("data/profile.md")), "{first}");
     assert_eq!(mode(&root.join("data/config.json")), 0o600);
+    assert_eq!(first["tightened"], json!([root.join("data").display().to_string()]), "{first}");
+    assert_eq!(mode(&root.join("data")), 0o700);
     assert_eq!(mode(&root.join("data/profile.md")), 0o600);
     assert!(first["checks"].as_array().is_some_and(|c| !c.is_empty()));
     assert!(first["next"].as_str().unwrap().ends_with("INIT.md"));
@@ -172,5 +176,6 @@ fn init_creates_private_files_once_and_never_overwrites() {
     std::fs::write(root.join("data/config.json"), "{\"workspace\": \"tmux\"}\n").unwrap();
     let second = run();
     assert_eq!(second["created"], json!([]), "{second}");
+    assert_eq!(second["tightened"], json!([]), "{second}");
     assert_eq!(std::fs::read_to_string(root.join("data/config.json")).unwrap(), "{\"workspace\": \"tmux\"}\n");
 }

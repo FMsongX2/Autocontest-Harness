@@ -403,7 +403,7 @@ Every command accepts `--json`. CLI messages and `BOARD.md` are in Korean. Exit 
 |---|---|
 | `harness --version` | Prints the version and the commit the binary was built from: `<version> (<12-character sha>)` |
 | `harness doctor` | Checks the checkout, config, tools, and scheduled run. Exit 1 if any check fails. See [Setup check](#setup-check-harness-doctor) |
-| `harness init` | Creates what a new checkout needs: `data/` (0700), `data/config.json` and `data/profile.md` from the committed examples (0600), and `data/logs/`. Existing files are kept. Then runs the doctor. JSON is `{created: [...], kept: [...], checks: [...], next: "<root>/INIT.md"}`. Exit 0 |
+| `harness init` | Creates what a new checkout needs: `data/` (0700; an existing `data/` that other users can open is narrowed to 0700), `data/config.json` and `data/profile.md` from the committed examples (0600), and `data/logs/`. Existing files are kept. Then runs the doctor. JSON is `{created: [...], kept: [...], tightened: [...], checks: [...], next: "<root>/INIT.md"}`. Exit 0 |
 | `harness config path` | Prints the config file path (`data/config.json`) |
 | `harness config get [KEY]` | Prints the effective value of a dotted key (defaults + file), or the whole config |
 | `harness config set <KEY> <VALUE>` | Sets a dotted key. The value is read as JSON when it parses, otherwise as a string. The whole config is validated before the file is written (atomic, 0600); an invalid value is refused and the file is unchanged |

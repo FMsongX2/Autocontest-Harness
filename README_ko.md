@@ -400,7 +400,7 @@ harness config unset max_running_by_level.5  # 기본값으로 되돌린다
 |---|---|
 | `harness --version` | 버전과 바이너리를 빌드한 커밋을 보여 준다: `<버전> (<12자리 sha>)` |
 | `harness doctor` | 클론, 설정, 도구, 정기 실행을 점검한다. 실패가 하나라도 있으면 종료 코드 1. [설치 점검](#설치-점검harness-doctor) 참고 |
-| `harness init` | 새 클론에 필요한 것을 만든다: `data/`(0700), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 있는 파일은 그대로 둔다. 끝에 점검을 돌린다. JSON은 `{created: [...], kept: [...], checks: [...], next: "<루트>/INIT.md"}`. 종료 코드 0 |
+| `harness init` | 새 클론에 필요한 것을 만든다: `data/`(0700. 이미 있는 `data/`를 다른 사용자가 열 수 있으면 0700으로 좁힌다), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 있는 파일은 그대로 둔다. 끝에 점검을 돌린다. JSON은 `{created: [...], kept: [...], tightened: [...], checks: [...], next: "<루트>/INIT.md"}`. 종료 코드 0 |
 | `harness config path` | 설정 파일 경로(`data/config.json`)를 보여 준다 |
 | `harness config get [KEY]` | 점으로 이은 키의 적용되는 값(기본값 + 파일), 또는 설정 전체를 보여 준다 |
 | `harness config set <KEY> <VALUE>` | 점으로 이은 키를 정한다. 값은 JSON으로 읽히면 JSON, 아니면 문자열이다. 파일을 쓰기 전에 설정 전체를 검사하고(원자적 쓰기, 0600), 틀린 값은 거절하며 파일은 바뀌지 않는다 |
