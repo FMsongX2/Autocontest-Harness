@@ -2,6 +2,14 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how. Korean: [한국어](#한국어).
 
+## Unreleased
+
+### Added
+- `claude` runner adapter for Claude Code: converts the agents into subagent files under `~/.claude/agents/contest-harness/`, links the skill into `~/.claude/skills/`, applies `agent_models` through the `model` field of those files, and defaults `runner_args.claude` to `--permission-mode auto`. Checked against `claude --help` and install tests only; no contest session has run on it.
+
+### Fixed
+- `harness launch --dry-run` works with adapters that pass the instructions as text (it built the command from a file the dry run never wrote).
+
 ## 0.4.0 - 2026-10-15
 
 Agent-driven setup: point your agent at `INIT.md` and it sets the harness up with you.
@@ -58,6 +66,14 @@ Rust rewrite of the harness: single binary, 11 sources, five execution levels, s
 ## 한국어
 
 [English](#changelog)
+
+### 미배포
+
+#### 추가
+- Claude Code용 러너 어댑터 `claude`. 에이전트를 `~/.claude/agents/contest-harness/`의 서브에이전트 파일로 변환하고, 스킬을 `~/.claude/skills/`에 링크하며, `agent_models`를 그 파일의 `model` 필드로 적용한다. `runner_args.claude` 기본값은 `--permission-mode auto`다. `claude --help`와 설치 테스트로만 확인했고 공모전 세션은 돌려 보지 않았다.
+
+#### 수정
+- 지시문을 본문으로 넘기는 어댑터에서 `harness launch --dry-run`이 동작한다(dry run이 쓰지 않은 파일로 명령을 만들던 문제).
 
 ### 0.4.0 - 2026-10-15
 

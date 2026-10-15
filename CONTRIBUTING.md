@@ -13,9 +13,9 @@ Pull requests are welcome. Two kinds of extension have a fixed shape: a **runner
 
 ## Adding a runner adapter
 
-The core ships one adapter, `omp`, because it is the one that has run contests end to end. An adapter for another harness (Claude Code, Codex, pi, or your own) is a Rust module that implements the `Runner` trait in [src/runners/mod.rs](src/runners/mod.rs).
+The core ships two adapters: `omp`, the one that has run contests end to end, and `claude` (Claude Code), which is checked against the CLI's flags and installs but has not run a contest. An adapter for another harness (Claude Code, Codex, pi, or your own) is a Rust module that implements the `Runner` trait in [src/runners/mod.rs](src/runners/mod.rs).
 
-Earlier versions carried unverified adapters for pi, Claude Code, Codex, and dsh. They were removed from the core; their code is a reasonable starting point:
+Earlier versions carried unverified adapters for pi, Claude Code, Codex, and dsh. Claude Code has since been rewritten in the core; the rest were removed; their code is a reasonable starting point:
 
 ```bash
 git show bf05366:src/runners/claude.rs   # also pi.rs, codex.rs, dsh.rs
@@ -115,9 +115,9 @@ pull request를 환영한다. 정해진 모양이 있는 확장은 두 가지다
 
 ### 러너 어댑터 추가
 
-코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 `omp` 어댑터 하나만 들어 있다. 다른 하네스(Claude Code, Codex, pi, 직접 만든 하네스)의 어댑터는 [src/runners/mod.rs](src/runners/mod.rs)의 `Runner` trait을 구현하는 Rust 모듈이다.
+코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 `omp` 어댑터와, CLI 플래그와 설치까지만 확인한 `claude`(Claude Code) 어댑터가 들어 있다. 다른 하네스(Claude Code, Codex, pi, 직접 만든 하네스)의 어댑터는 [src/runners/mod.rs](src/runners/mod.rs)의 `Runner` trait을 구현하는 Rust 모듈이다.
 
-예전 버전에는 검증하지 않은 pi·Claude Code·Codex·dsh 어댑터가 있었다. 코어에서는 뺐지만 출발점으로 쓸 만하다:
+예전 버전에는 검증하지 않은 pi·Claude Code·Codex·dsh 어댑터가 있었다. Claude Code는 코어에 다시 썼고 나머지는 뺐지만 출발점으로 쓸 만하다:
 
 ```bash
 git show bf05366:src/runners/claude.rs   # pi.rs, codex.rs, dsh.rs도 있다

@@ -144,7 +144,7 @@ fn config_rejects_unknown_keys_and_bad_values_naming_the_file() {
         (json!({"workspce": "headless"}), "workspce"),
         (json!({"persona": {"enabeld": true}}), "enabeld"),
         (json!({"schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hour": "1"}}), "scout_hour"),
-        (json!({"runner": "claude"}), "runner"),
+        (json!({"runner": "codex"}), "runner"),
         (json!({"workspace": "screen"}), "workspace"),
         (json!({"schedule": {"scheduler": "systemd"}}), "scheduler"),
         (json!({"schedule": {"cron": "0 25 * * *"}}), "cron"),

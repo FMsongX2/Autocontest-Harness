@@ -7,7 +7,7 @@ use harness::config::{self, Config};
 use harness::error::Result;
 use harness::launch;
 use harness::registry::{self, Entry, NewEntry};
-use harness::runners::{self, AgentDoc, Runner, Spec, omp};
+use harness::runners::{self, AgentDoc, Runner, Spec, claude, omp};
 use harness::schedule::{self, Cron};
 use harness::workspaces::{self, Open, headless, orca, shell_command, shell_quote};
 use serde_json::{Value, json};
@@ -72,6 +72,125 @@ fn omp_commands() {
         runner.oneshot(&bare).unwrap(),
         vec!["omp".into(), "--cwd".into(), d.clone(), "-p".into(), format!("@{d}/launch-prompt.md"), "시작해.".into()]
     );
+}
+
+#[test]
+fn claude_commands() {
+    let dir = scratch("claude");
+    let runner = runners::get("claude").unwrap();
+    assert!(runner.subagents());
+    assert_eq!(runner.orca_agent(), Some("claude"));
+    // The system addition and the instructions travel as text; `--` keeps list options from
+    // swallowing the instructions.
+    let full = spec(&dir, true, true, false, &["--permission-mode", "auto", "--add-dir", "/x"]);
+    let expected = s(&[
+        "claude",
+        "--model",
+        "opus",
+        "--append-system-prompt",
+        "페르소나 \"따옴표\"\n둘째 줄",
+        "--permission-mode",
+        "auto",
+        "--add-dir",
+        "/x",
+        "--",
+        "# 지시\n본문",
+    ]);
+    assert_eq!(runner.interactive(&full).unwrap(), expected);
+    let mut print = expected;
+    print.insert(1, "-p".into());
+    assert_eq!(runner.oneshot(&full).unwrap(), print);
+    let bare = spec(&dir, false, false, false, &[]);
+    assert_eq!(runner.interactive(&bare).unwrap(), s(&["claude", "--", "# 지시\n본문"]));
+    assert_eq!(runner.oneshot(&bare).unwrap(), s(&["claude", "-p", "--", "# 지시\n본문"]));
+    // The configured default keeps unattended sessions from stopping at a permission prompt.
+    assert_eq!(config::defaults()["runner_args"]["claude"], json!(["--permission-mode", "auto"]));
+}
+
+#[test]
+fn claude_converts_agents() {
+    let docs = runners::agent_docs(&root()).unwrap();
+    let hq = claude::convert_agent(docs.iter().find(|d| d.name == "ContestHQ").unwrap(), "inherit");
+    assert!(hq.starts_with("---\nname: \"ContestHQ\"\ndescription: \""), "{hq}");
+    assert!(hq.contains(
+        "\ntools: Read, Write, Edit, Bash, Agent, WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Glob, Grep\n"
+    ));
+    assert!(hq.contains("\nmodel: inherit\nskills:\n  - \"contest-harness\"\n---\n\n"));
+    assert!(hq.contains("## 마지막 답변 형식"), "the output schema becomes a closing section");
+    assert!(!hq.contains("spawns") && !hq.contains("output:") && !hq.contains("@plan"));
+    let gate = claude::convert_agent(docs.iter().find(|d| d.name == "ContestGate").unwrap(), "opus");
+    assert!(gate.contains("\nmodel: opus\n") && !gate.contains("skills:"));
+}
+
+#[test]
+fn claude_model_edits_are_pure_and_touch_only_the_model_line() {
+    let docs = runners::agent_docs(&root()).unwrap();
+    let file = claude::convert_agent(&docs[0], "inherit");
+    assert_eq!(claude::read_model(&file).as_deref(), Some("inherit"));
+    let changed = claude::set_model(&file, "claude-opus-5-5").unwrap();
+    assert_eq!(claude::read_model(&changed).as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(claude::set_model(&changed, "inherit").unwrap(), file);
+    // A `model:` line in the body is not the frontmatter's.
+    assert!(claude::set_model("---\nname: x\n---\nmodel: no\n", "opus").is_none());
+    for good in ["opus", "claude-opus-5-5", "anthropic.claude-x-v1:0", "sonnet[1m]", "inherit"] {
+        assert!(claude::valid_model(good), "{good}");
+    }
+    for bad in ["", "a b", "x\ny", "-m", "[x", "a#b", "\"q\""] {
+        assert!(!claude::valid_model(bad), "{bad:?}");
+    }
+}
+
+#[test]
+fn claude_install_is_idempotent_and_applies_models_in_a_scratch_home() {
+    let base = scratch("claude-install");
+    let home = base.join("home");
+    let dir = home.join(".claude/agents/contest-harness");
+    let skill = home.join(".claude/skills/contest-harness");
+    assert_eq!(claude::installed_at(&root(), &home), Some(false));
+
+    let first = claude::install_at(&root(), &home).unwrap();
+    let docs = runners::agent_docs(&root()).unwrap();
+    assert_eq!(first.len(), docs.len() + 1);
+    assert!(first.iter().all(|l| l.starts_with("wrote") || l.starts_with("linked")), "{first:?}");
+    assert_eq!(
+        std::fs::canonicalize(&skill).unwrap(),
+        std::fs::canonicalize(root().join("skills/contest-harness")).unwrap()
+    );
+    assert!(dir.join("ContestHQ.md").is_file());
+    assert_eq!(claude::installed_at(&root(), &home), Some(true));
+    let second = claude::install_at(&root(), &home).unwrap();
+    assert!(second.iter().all(|l| l.starts_with("ok")), "a second run changes nothing: {second:?}");
+
+    // A stale agent file goes; the skill link is not a real file, and a real file is never replaced.
+    std::fs::write(dir.join("Gone.md"), "old").unwrap();
+    let third = claude::install_at(&root(), &home).unwrap();
+    assert_eq!(third.iter().filter(|l| l.starts_with("removed")).count(), 1);
+    assert!(!dir.join("Gone.md").exists());
+    std::fs::remove_file(&skill).unwrap();
+    std::fs::create_dir_all(&skill).unwrap();
+    assert!(claude::install_at(&root(), &home).is_err());
+    std::fs::remove_dir(&skill).unwrap();
+    claude::install_at(&root(), &home).unwrap();
+
+    // Per-agent models: set, report, keep through a re-install, and reset with None.
+    assert!(claude::models_at(&home).is_empty());
+    let models: std::collections::BTreeMap<String, Option<String>> =
+        [("ContestJudge".to_string(), Some("opus".to_string())), ("ContestGate".to_string(), None)].into();
+    let lines = claude::apply_models_at(&home, &models).unwrap();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(claude::models_at(&home), [("ContestJudge".to_string(), "opus".to_string())].into());
+    assert!(claude::apply_models_at(&home, &models).unwrap().iter().all(|l| l.starts_with("ok")));
+    assert!(claude::install_at(&root(), &home).unwrap().iter().all(|l| l.starts_with("ok")));
+    assert_eq!(claude::installed_at(&root(), &home), Some(true));
+    assert_eq!(claude::models_at(&home).get("ContestJudge").map(String::as_str), Some("opus"));
+    let reset = [("ContestJudge".to_string(), None)].into();
+    claude::apply_models_at(&home, &reset).unwrap();
+    assert!(claude::models_at(&home).is_empty());
+    // A bad selector or an unknown agent is refused before anything is written.
+    for (name, model) in [("ContestJudge", "a b"), ("Nope", "opus")] {
+        let bad = [(name.to_string(), Some(model.to_string()))].into();
+        assert!(claude::apply_models_at(&home, &bad).is_err(), "{name} {model}");
+    }
 }
 
 /// A minimal adapter without subagents or presets, shaped like one a contributor would add: it
@@ -269,6 +388,21 @@ fn launch_dry_run_per_workspace() {
         assert_eq!(entry.state, "routed");
         assert!(entry.session.is_none());
     }
+}
+
+#[test]
+fn launch_dry_run_works_for_an_adapter_that_passes_the_instructions_as_text() {
+    let dir = scratch("launch-claude");
+    let d = dir.display().to_string();
+    let mut entry = routed_entry(&dir);
+    let result = launch::launch(&mut entry, &config_with("claude", "headless"), None, true).unwrap();
+    let command = result["command"].as_str().unwrap();
+    let text = result["prompt_text"].as_str().unwrap();
+    assert!(command.starts_with(&format!(
+        "cd {d} && env HARNESS_SESSION=demo-contest claude -p --model opus --permission-mode auto -- '"
+    )));
+    assert!(command.contains(text.lines().next().unwrap()), "the instructions are inline: {command}");
+    assert!(!dir.join(".harness").exists(), "a dry run writes nothing into the contest");
 }
 
 #[test]

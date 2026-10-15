@@ -172,11 +172,11 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `github_org` | `""` | `route`가 `gh`로 공모전마다 private 저장소를 만드는 GitHub 조직 또는 사용자. 빈 값이면 `gh`에 로그인한 사용자 계정에 만든다 |
 | `contests_root` | `"~/contests"` | 공모전 폴더를 두는 곳. `dedupe-check`가 `<contests_root>/*/README.md`와 `.shared/existing_contests.md`를 읽는다 |
 | `orca_repo_path` | `null`(= `contests_root`) | `orca` 작업 환경이 공모전 worktree를 만드는 git 저장소. Orca에 추가돼 있어야 한다 |
-| `runner` | `"omp"` | 공모전 세션·정기 실행·메인 세션의 기본 러너 어댑터 이름. 코어에 들어 있는 어댑터는 `omp`뿐이다(10절) |
+| `runner` | `"omp"` | 공모전 세션·정기 실행·메인 세션의 기본 러너 어댑터 이름. 코어에 들어 있는 어댑터는 `omp`와 `claude`다(10절) |
 | `workspace` | `"orca"` | 공모전 세션의 작업 환경. `orca`, `tmux`, `headless`, `terminal` 중 하나(`terminal`은 `launch`가 거절한다) |
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | omp 전용. 레벨별 `~/.omp/agent/config.yml` `modelPresets` 이름(예: `{"2": "ResearchPreset"}`). 실행마다 `.harness/omp-preset.yml` 덮개를 만들어 `--config`로 넘기므로 전역 omp 설정은 바뀌지 않는다. `null`이면 프리셋 없이 띄운다. `launch --preset`을 주면 그 값을 쓴다 |
 | `model_by_level` | `{}` | 레벨별 모델 id. 러너 어댑터가 자기 모델 지정 인자로 넘긴다. omp는 프리셋이 없을 때 `--model`로 쓴다 |
-| `runner_args` | `{"omp": []}` | 러너 이름별로 러너 명령에 그대로 덧붙이는 인자(`runner_args.<러너>`) |
+| `runner_args` | `{"omp": [], "claude": ["--permission-mode", "auto"]}` | 러너 이름별로 러너 명령에 그대로 덧붙이는 인자(`runner_args.<러너>`) |
 | `max_running` | `6` | 진행 중 세션의 전체 상한. 0이면 새 실행을 멈춘다 |
 | `max_running_by_level` | `{"1": 3, "2": 2, "3": 2, "4": 1, "5": 1}` | 레벨별 진행 중 상한. 0이면 그 레벨은 실행하지 않는다 |
 | `ram_reserve_gb` | `8` | 사용자가 쓰는 앱 몫으로 남겨 둘 메모리(GB) |
@@ -394,7 +394,7 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 
 러너(에이전트 하네스)는 세션을 띄우는 명령과 설치 방식을 정하고, 러너 어댑터(`src/runners/<이름>.rs`) 하나가 러너 하나를 맡는다. 작업 환경(`src/workspaces/<이름>.rs`)은 그 명령을 어디서 돌릴지 정한다. 대화형 작업 환경은 러너의 대화형 명령을, 대화형이 아닌 작업 환경(`headless`)과 `harness autorun`은 러너의 한 번 실행 명령을 쓴다. 설정 `runner`와 `workspace`로 고른다.
 
-코어에 들어 있는 어댑터는 `omp` 하나다. pi, Claude Code, codex, dsh 어댑터는 코어에서 뺐다. 다른 에이전트 하네스의 어댑터는 풀 리퀘스트로 받는다(방법은 `CONTRIBUTING.md`). 뺀 어댑터의 코드는 커밋 `bf05366`의 `src/runners/`에 있어 풀 리퀘스트의 출발점으로 쓸 수 있다. 등록부에 없는 러너 이름을 주면 CLI는 쓸 수 있는 이름과 `CONTRIBUTING.md`를 가리키는 오류를 낸다.
+코어에 들어 있는 어댑터는 `omp`와 `claude`(Claude Code)다. pi, codex, dsh 어댑터는 코어에서 뺐다. 다른 에이전트 하네스의 어댑터는 풀 리퀘스트로 받는다(방법은 `CONTRIBUTING.md`). 뺀 어댑터의 코드는 커밋 `bf05366`의 `src/runners/`에 있어 풀 리퀘스트의 출발점으로 쓸 수 있다. 등록부에 없는 러너 이름을 주면 CLI는 쓸 수 있는 이름과 `CONTRIBUTING.md`를 가리키는 오류를 낸다.
 
 어댑터 인터페이스는 `src/runners/mod.rs`의 트레이트 `Runner`다. 어댑터는 상태 없는 구조체 하나로 만들고 등록부 `runners::ALL`에 한 줄로 더한다.
 
@@ -450,6 +450,8 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 | 에이전트별 모델(`agent_models`) | omp 전역 설정 `task.agentModelOverrides`. `apply_agent_models`는 `omp config get`으로 읽은 맵에 `agent_models`에 적힌 하네스 에이전트만 합쳐(값이면 넣고 `None`이면 지운다) `omp config set`으로 쓴다. 다른 에이전트의 덮어쓰기는 그대로 둔다. `agent_models()`는 같은 설정을 읽는다 |
 
 <p>표 9. omp 어댑터</p>
+
+`claude` 어댑터(Claude Code, 공모전 세션은 돌려 보지 않음): 대화형 `claude [--model M] [--append-system-prompt <본문>] <runner_args> -- <지시문 본문>`, 한 번 실행은 `claude` 바로 뒤에 `-p`(`--`는 목록을 받는 옵션이 지시문을 삼키지 않게 한다). 서브에이전트 있음(`Agent` 도구), 프리셋 없음, Orca 에이전트 `claude`, `runner_args.claude` 기본값 `--permission-mode auto`. `install`은 `agents/*.md`를 `~/.claude/agents/contest-harness/<이름>.md` 서브에이전트 파일(`tools`는 Claude Code 이름으로 옮기고 없는 도구는 뺀다, `model: inherit`, `skills`, 출력 스키마는 본문 끝 절)로 변환하고 `agents/`에서 사라진 파일은 지우며, 스킬을 `~/.claude/skills/contest-harness`에 링크한다. 에이전트별 모델은 Claude Code에 이름별 설정 키가 없어서 그 파일의 `model` 필드에 쓴다(별칭 `opus`·`sonnet`·`haiku`·`fable`, 전체 모델 id, `None`은 `inherit`). 다시 설치해도 `inherit`가 아닌 선택은 남고, `agent_models()`와 `installed()`는 그 파일을 읽는다. 확장(`/contest` 명령)은 없다.
 
 | 작업 환경 | 대화형 | `route`가 만드는 것(`workspace_id`) | `launch`가 띄우는 방식(`handle`) | `peek` |
 |---|---|---|---|---|

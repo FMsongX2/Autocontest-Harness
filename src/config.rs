@@ -91,7 +91,7 @@ pub fn defaults() -> Value {
         "workspace": "orca",
         "preset_by_level": {"1": null, "2": null, "3": null, "4": null, "5": null},
         "model_by_level": {},
-        "runner_args": {"omp": []},
+        "runner_args": {"omp": [], "claude": ["--permission-mode", "auto"]},
         "max_running": 6,
         "max_running_by_level": {"1": 3, "2": 2, "3": 2, "4": 1, "5": 1},
         "ram_reserve_gb": 8,

@@ -8,11 +8,12 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 
+pub mod claude;
 pub mod omp;
 
 /// Every adapter compiled in. A new adapter is one module plus one line here; the contract test in
 /// `tests/backends.rs` then runs against it.
-pub static ALL: &[&dyn Runner] = &[&omp::Omp];
+pub static ALL: &[&dyn Runner] = &[&omp::Omp, &claude::Claude];
 
 /// Everything an adapter needs to build a command line.
 pub struct Spec {

@@ -187,6 +187,7 @@ Text output has one `[ok]`, `[경고]` (warning), or `[실패]` (failure) line p
 | Adapter | Subagents | Model presets | System prompt (main session) | One-shot command | Orca automation agent | `harness install` |
 |---|---|---|---|---|---|---|
 | `omp` | Yes (`task` tool) | `preset_by_level`: omp `modelPresets` as a per-run `--config` overlay | `--append-system-prompt` | `omp -p` | `omp` | `omp plugin link <repo>`; removes symlinks left by the old per-file install; merges `agent_models` into omp's `task.agentModelOverrides` |
+| `claude` | Yes (`Agent` tool; the agents are installed as subagents) | None; `model_by_level` goes to `--model` | `--append-system-prompt` (text) | `claude -p` | `claude` | Converts `agents/*.md` into subagent files under `~/.claude/agents/contest-harness/` and links the skill into `~/.claude/skills/`; writes `agent_models` into the `model` field of those files |
 
 <p>Table 1. Runner adapters in the core</p>
 
@@ -218,7 +219,7 @@ harness config set agent_models.ContestJudge null                # then harness 
 
 ### Adding a runner adapter
 
-The core ships only the omp adapter, the one that has run contests end to end. To drive another agent harness (Claude Code, Codex, pi, or your own), implement the `Runner` trait in `src/runners/<name>.rs`, add it to `runners::ALL`, and open a pull request. The contract test `every_adapter_keeps_the_runner_contract` in `tests/backends.rs` runs against every registered adapter. [CONTRIBUTING.md](CONTRIBUTING.md) lists the trait methods, the rules an adapter keeps, and what the pull request needs. Earlier versions carried unverified adapters for pi, Claude Code, Codex, and dsh; their code is at commit `bf05366` under `src/runners/` and can be a starting point.
+The core ships the omp adapter, the one that has run contests end to end, and the Claude Code adapter (`claude`), which is verified against the CLI's flags and installs but has not run a contest. To drive another agent harness (Claude Code, Codex, pi, or your own), implement the `Runner` trait in `src/runners/<name>.rs`, add it to `runners::ALL`, and open a pull request. The contract test `every_adapter_keeps_the_runner_contract` in `tests/backends.rs` runs against every registered adapter. [CONTRIBUTING.md](CONTRIBUTING.md) lists the trait methods, the rules an adapter keeps, and what the pull request needs. Earlier versions carried unverified adapters for pi, Codex, and dsh (and an earlier Claude Code one); their code is at commit `bf05366` under `src/runners/` and can be a starting point.
 
 ## omp extension
 
@@ -365,7 +366,7 @@ The file is validated when it is loaded, and every config error starts with its 
 | `workspace` | `"orca"` | Where contest sessions run: `orca`, `tmux`, or `headless` |
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | Model preset per level, for adapters with presets. For omp, for example `{"3": "ResearchPreset"}` is taken from `modelPresets` in `~/.omp/agent/config.yml` and passed as a per-launch `--config` overlay, so your global omp config is not modified. `null` uses omp's default roles. A named preset must exist in your omp config, otherwise `launch` fails |
 | `model_by_level` | `{}` | Model id per level, used when no preset applies |
-| `runner_args` | `{"omp": []}` | Extra arguments added to every command of that adapter, keyed by runner name |
+| `runner_args` | `{"omp": [], "claude": ["--permission-mode", "auto"]}` | Extra arguments added to every command of that adapter, keyed by runner name |
 | `max_running` | `6` | Maximum number of contests in progress at once, across all levels. `0` pauses all launches |
 | `max_running_by_level` | `{"1": 3, "2": 2, "3": 2, "4": 1, "5": 1}` | Maximum contests in progress per level. `0` means contests at that level stay in `gate_pass` and are never launched |
 | `ram_reserve_gb` | `8` | Memory held back for your own apps. The budget is available memory (macOS: `vm_stat` free + inactive + speculative; Linux: `MemAvailable` in `/proc/meminfo`) minus this value |
@@ -658,7 +659,7 @@ Contest-Harness/
 ## Limitations
 
 - **Written in Korean for Korean contests.** The agent prompts, skill, playbooks, templates, persona, and contract are in Korean and target Korean contests, and CLI messages and `BOARD.md` are in Korean too. They assume a tool that can edit HWP files, such as Hancom Docs. Operator-specific rules (helper scripts, compute servers, folder conventions) are not in the repository; put yours in `data/local-rules.md`, which agents read first when it exists.
-- **One runner adapter in the core.** Only the omp adapter ships and has run contests end to end. Agents are written for omp, and model roles (`@task`, `@slow`, …), `preset_by_level`, and applying `agent_models` are omp features. Any agent with a shell can follow [INIT.md](INIT.md) to set up the harness, but running contest sessions needs an adapter for that harness, added by pull request ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **Two runner adapters in the core; only omp has run contests.** The Claude Code adapter (`claude`) is checked against `claude --help` and its install tests, but no contest session has run on it. Agents are written for omp: on Claude Code they start with `model: inherit` (model roles such as `@task` and `@slow` have no equivalent; set a model per agent with `agent_models`), `preset_by_level` does not exist, there is no `/contest` command package, Claude Code subagents cannot spawn subagents (ContestHQ runs as the main session, so this should not matter, but it is untested), and the `todo` tool maps to Claude Code's task-list tools, which only some models have. Unattended sessions default to `--permission-mode auto` (`runner_args.claude`), which is untested here. Any agent with a shell can follow [INIT.md](INIT.md) to set up the harness, but running contest sessions needs an adapter for that harness, added by pull request ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **Token pace comes from omp.** `budget` and `capacity` read `omp usage --json`. Without omp, only the memory and count limits apply.
 - **Headless sessions cannot be answered.** `headless` runs the runner's one-shot command with no TTY. Use `orca` or `tmux` for contests that need concept or plan approval in the session.
 - **The persona guard reads text only.** It does not look inside HWP, PDF, or other binary formats, and it skips data and build directories and files over 4 MB. `ContestJudge` checks the text of the final deliverables separately.
@@ -881,6 +882,7 @@ rm ~/.local/bin/harness                  # scripts/install.sh가 만든 심볼�
 | 어댑터 | 서브에이전트 | 모델 프리셋 | 시스템 프롬프트(메인 세션) | 한 번 실행 명령 | Orca automation 에이전트 | `harness install` |
 |---|---|---|---|---|---|---|
 | `omp` | 있음(`task` 도구) | `preset_by_level`: omp `modelPresets`를 실행마다 만드는 `--config` 덮개로 | `--append-system-prompt` | `omp -p` | `omp` | `omp plugin link <저장소>`. 예전 파일별 설치가 남긴 심볼릭 링크는 지운다. `agent_models`를 omp의 `task.agentModelOverrides`에 합친다 |
+| `claude` | 있음(`Agent` 도구, 에이전트를 서브에이전트 파일로 설치) | 없음. `model_by_level`을 `--model`로 | `--append-system-prompt`(본문) | `claude -p` | `claude` | `agents/*.md`를 `~/.claude/agents/contest-harness/`의 서브에이전트 파일로 변환하고 스킬을 `~/.claude/skills/`에 링크한다. `agent_models`는 그 파일의 `model` 필드에 쓴다 |
 
 <p>표 1. 코어에 든 러너 어댑터</p>
 
@@ -912,7 +914,7 @@ harness config set agent_models.ContestJudge null                # 다음 harnes
 
 #### 러너 어댑터 추가
 
-코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 omp 어댑터만 들어 있다. 다른 에이전트 하네스(Claude Code, Codex, pi, 직접 만든 하네스)로 돌리려면 `src/runners/<이름>.rs`에 `Runner` trait을 구현하고 `runners::ALL`에 한 줄 더한 뒤 pull request를 보낸다. `tests/backends.rs`의 계약 테스트 `every_adapter_keeps_the_runner_contract`가 등록된 어댑터마다 돈다. trait 메서드, 어댑터가 지킬 규칙, pull request에 담을 것은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있다. 예전 버전에는 검증하지 않은 pi·Claude Code·Codex·dsh 어댑터가 있었고, 그 코드는 커밋 `bf05366`의 `src/runners/`에 남아 있어 출발점으로 쓸 수 있다.
+코어에는 공모전을 처음부터 끝까지 실제로 돌려 본 omp 어댑터와, CLI 플래그와 설치까지만 확인했고 공모전은 돌려 보지 않은 Claude Code 어댑터(`claude`)가 들어 있다. 다른 에이전트 하네스(Claude Code, Codex, pi, 직접 만든 하네스)로 돌리려면 `src/runners/<이름>.rs`에 `Runner` trait을 구현하고 `runners::ALL`에 한 줄 더한 뒤 pull request를 보낸다. `tests/backends.rs`의 계약 테스트 `every_adapter_keeps_the_runner_contract`가 등록된 어댑터마다 돈다. trait 메서드, 어댑터가 지킬 규칙, pull request에 담을 것은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있다. 예전 버전에는 검증하지 않은 pi·Codex·dsh 어댑터(와 예전 Claude Code 어댑터)가 있었고, 그 코드는 커밋 `bf05366`의 `src/runners/`에 남아 있어 출발점으로 쓸 수 있다.
 
 ### omp 확장
 
@@ -1059,7 +1061,7 @@ harness config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `workspace` | `"orca"` | 공모전 세션을 돌릴 곳: `orca`, `tmux`, `headless` |
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | 프리셋을 지원하는 어댑터의 레벨별 모델 프리셋. omp는 예컨대 `{"3": "ResearchPreset"}`을 `~/.omp/agent/config.yml`의 `modelPresets`에서 가져와 실행마다 따로 만드는 `--config` 덮개로 넘기므로, 전역 omp 설정은 바뀌지 않는다. `null`이면 omp 기본 역할을 쓴다. 이름을 적은 프리셋이 omp 설정에 없으면 `launch`가 실패한다 |
 | `model_by_level` | `{}` | 프리셋이 없을 때 쓰는 레벨별 모델 id |
-| `runner_args` | `{"omp": []}` | 러너 이름별로, 그 어댑터의 모든 명령에 붙이는 인자 |
+| `runner_args` | `{"omp": [], "claude": ["--permission-mode", "auto"]}` | 러너 이름별로, 그 어댑터의 모든 명령에 붙이는 인자 |
 | `max_running` | `6` | 모든 레벨을 합쳐 동시에 진행하는 공모전 수의 상한. `0`이면 실행을 모두 멈춘다 |
 | `max_running_by_level` | `{"1": 3, "2": 2, "3": 2, "4": 1, "5": 1}` | 레벨별 동시 진행 상한. `0`이면 그 레벨의 공모전은 `gate_pass`에 머물고 실행되지 않는다 |
 | `ram_reserve_gb` | `8` | 사용자가 쓰는 앱 몫으로 남겨 두는 메모리. 메모리 예산은 쓸 수 있는 메모리(macOS는 `vm_stat`의 free + inactive + speculative, Linux는 `/proc/meminfo`의 `MemAvailable`)에서 이 값을 뺀 것이다 |
@@ -1352,7 +1354,7 @@ Contest-Harness/
 ### 한계
 
 - **한국어로, 국내 공모전용으로 쓰였다.** 에이전트 지시문, 스킬, 플레이북, 템플릿, 페르소나, 계약은 한국어로 쓰여 있고 국내 공모전을 대상으로 한다. CLI 메시지와 `BOARD.md`도 한국어다. HWP 파일을 다룰 도구(한컴독스 등)를 전제한다. 운영자 환경에 따른 규칙(도우미 스크립트, 계산 서버, 폴더 관례)은 저장소에 없다. 자기 규칙은 `data/local-rules.md`에 적으면 에이전트가 먼저 읽는다.
-- **코어의 러너 어댑터는 하나다.** omp 어댑터만 들어 있고, 공모전을 처음부터 끝까지 실제로 돌려 본 것도 그것뿐이다. 에이전트는 omp 기준으로 쓰였고, 모델 역할(`@task`, `@slow` 등), `preset_by_level`, `agent_models` 적용은 omp 기능이다. 셸을 쓰는 에이전트라면 [INIT.md](INIT.md)로 하네스를 설정할 수 있지만, 공모전 세션을 띄우려면 그 하네스의 어댑터를 pull request로 더해야 한다([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **코어의 러너 어댑터는 둘이고, 공모전을 돌려 본 것은 omp뿐이다.** Claude Code 어댑터(`claude`)는 `claude --help`와 설치 테스트로만 확인했고 공모전 세션은 돌려 보지 않았다. 에이전트는 omp 기준으로 쓰였다. Claude Code에서는 `model: inherit`로 시작하고(`@task`·`@slow` 같은 모델 역할은 대응이 없으니 `agent_models`로 에이전트마다 정한다), `preset_by_level`은 없고, `/contest` 명령 패키지도 없다. Claude Code의 서브에이전트는 서브에이전트를 띄우지 못한다(ContestHQ는 메인 세션으로 돌아 문제가 없을 것이나 시험하지 않았다). `todo` 도구는 일부 모델에만 있는 Claude Code의 작업 목록 도구로 옮긴다. 사람 없는 세션의 기본 인자 `--permission-mode auto`(`runner_args.claude`)도 여기서는 시험하지 않았다. 셸을 쓰는 에이전트라면 [INIT.md](INIT.md)로 하네스를 설정할 수 있지만, 공모전 세션을 띄우려면 그 하네스의 어댑터를 pull request로 더해야 한다([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **토큰 속도는 omp에서 읽는다.** `budget`과 `capacity`는 `omp usage --json`을 읽는다. omp가 없으면 메모리와 개수 상한만 적용한다.
 - **headless 세션에는 답할 수 없다.** `headless`는 TTY 없이 러너의 한 번 실행 명령을 돌린다. 세션 안에서 콘셉트나 계획 승인이 필요한 공모전은 `orca`나 `tmux`를 쓴다.
 - **페르소나 검사는 텍스트만 읽는다.** HWP·PDF 같은 이진 형식의 안쪽은 보지 못하고, 데이터·빌드 폴더와 4MB 넘는 파일은 건너뛴다. 최종 결과물의 텍스트는 `ContestJudge`가 따로 확인한다.
