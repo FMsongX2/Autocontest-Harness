@@ -30,7 +30,7 @@ macro_rules! from_error {
     )*};
 }
 
-from_error!(std::io::Error, serde_json::Error, serde_yaml_ng::Error, ureq::Error, regex::Error);
+from_error!(std::io::Error, serde_json::Error, serde_saphyr::Error, ureq::Error, regex::Error);
 
 /// Early return with a formatted [`Error`].
 #[macro_export]

@@ -72,13 +72,9 @@ pub fn shell_command(cwd: &std::path::Path, argv: &[String]) -> String {
     format!("cd {} && {}", shell_quote(&cwd.to_string_lossy()), shell_join(argv))
 }
 
-/// Run a backend CLI and return stdout, failing with its stderr.
+/// Run a backend CLI (bounded by [`crate::process::LOCAL`]) and return stdout, failing with its stderr.
 pub(crate) fn run(program: &str, args: &[&str]) -> Result<String> {
-    let out = std::process::Command::new(program)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| crate::error::Error(format!("{program} 실행 실패: {e}")))?;
+    let out = crate::process::output(program, args, None, crate::process::LOCAL)?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let err = err.lines().filter(|l| !l.contains("codesign")).collect::<Vec<_>>().join("\n");

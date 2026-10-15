@@ -8,7 +8,7 @@
 
 ## 1. 쓸 수 있는 글인지 다시 확인
 
-- 본인 경험 서술이 필수인 수기는 대신 쓸 수 없다. 게이트가 통과시켰더라도 공고에 "본인의 실제 경험"이 요구되면 사용자에게 한 문장으로 확인한다. 사용자가 경험을 주면 그 내용으로 쓰고, 하지 않기로 하면 `harness transition <id> skipped --note "<근거>"`.
+- 본인 경험 서술이 필수인 수기는 대신 쓸 수 없다. 게이트가 통과시켰더라도 공고에 "본인의 실제 경험"이 요구되면 사용자에게 한 문장으로 확인한다. 사용자가 경험을 주면 그 내용으로 쓰고, 하지 않기로 하면 근거를 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> skipped --note-file .private/note.txt`.
 - 직접 창작 서약과 생성형 AI 정책(`gate.json` `eligibility`)을 확인한다. AI 사용이 금지면 진행하지 않고 사용자에게 알린다.
 
 ## 2. 규격
@@ -24,8 +24,8 @@
 
 ## 4. 서식
 
-hwp/hwpx 신청서는 `idea-proposal.md` 7절대로 채우고 한컴독스 웹에서 정렬을 확인한다. PDF는 한컴독스 웹으로만 만든다. 개인정보는 승인된 제출 단계에서만 `harness profile show --json`에서 꺼내 채우고 저장소 파일에 남기지 않는다.
+hwp/hwpx 신청서는 `idea-proposal.md` 7절대로 채우고 한컴독스 웹에서 정렬을 확인한다. PDF는 한컴독스 웹으로만 만든다. 개인정보는 제출 승인이 `harness approve`로 기록된 뒤 제출 단계에서만 `harness profile show --for <id> --json`에서 꺼내 그 서식에만 채우고, 저장소 파일·커밋 메시지·로그·메모에 남기지 않는다.
 
 ## 5. 제출 준비
 
-ContestJudge `ready` 확인 → SUBMISSION.md(제출처, 입력값, 첨부) → 커밋·푸시 → `harness transition <id> awaiting_approval --note "<최종안 요약>"`.
+ContestJudge `ready` 확인 → SUBMISSION.md(제출처, 입력값, 첨부) → 커밋·푸시 → 최종안 요약을 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt` → 사용자에게 메인 세션이나 `harness approve <id>`로 제출 승인을 요청하고 멈춤.

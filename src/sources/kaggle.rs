@@ -102,11 +102,12 @@ pub fn parse_list(data: &Value) -> Result<Vec<Item>> {
             }));
         }
         let organization = common::js(&item["organization"], "name");
+        let host = common::js(item, "hostName");
         rows.push(Item {
             entry_id: format!("{NAME}-{}", common::js(item, "id")),
-            title: common::js(item, "title"),
+            title: common::line(&common::js(item, "title")),
             url: format!("https://www.kaggle.com/competitions/{}", common::js(item, "competitionName")),
-            organizer: if organization.is_empty() { common::js(item, "hostName") } else { organization },
+            organizer: common::line(if organization.is_empty() { &host } else { &organization }),
             deadline: entry.or(final_deadline),
             categories,
             note: Some(notes.join(" / ")),

@@ -1,4 +1,5 @@
-use harness::sources::contestkorea;
+use harness::error::Error;
+use harness::sources::{self, DETAIL_FAILED, contestkorea};
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -70,4 +71,14 @@ fn url_key_only_matches_detail_pages() {
     assert_eq!(contestkorea::url_key("https://www.contestkorea.com/sub/list.php?int_gbn=1&page=2"), None);
     assert_eq!(contestkorea::url_key("https://www.contestkorea.com/sub/view.php?int_gbn=1"), None);
     assert_eq!(contestkorea::url_key("https://www.wevity.com/?c=find&ix=111674"), None);
+}
+
+#[test]
+fn failed_detail_fetch_keeps_list_deadline_and_note() {
+    let mut row = contestkorea::parse_list(&fixture("contestkorea_list.html")).unwrap().remove(0);
+    sources::with_detail(&mut row, Err(Error("timeout".into())), contestkorea::apply_detail);
+    assert_eq!(row.entry_id, "contestkorea-202610150008");
+    assert_eq!(row.organizer, "국방부");
+    assert_eq!(row.deadline.as_deref(), Some("2026-11-02T23:59+09:00"));
+    assert_eq!(row.note, Some(format!("참가대상: 중학생, 고등학생, 대학생, 해당자 / {DETAIL_FAILED}: timeout")));
 }

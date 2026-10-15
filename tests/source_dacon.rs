@@ -1,4 +1,5 @@
-use harness::sources::dacon;
+use harness::error::Error;
+use harness::sources::{self, DETAIL_FAILED, dacon};
 use serde_json::{Value, json};
 
 fn fixture(name: &str) -> String {
@@ -70,4 +71,18 @@ fn url_key() {
     assert_eq!(dacon::url_key("https://dacon.io/competitions"), None);
     assert_eq!(dacon::url_key("https://dacon.io/competitions/official"), None);
     assert_eq!(dacon::url_key("https://example.com/competitions/official/236771/overview"), None);
+}
+
+#[test]
+fn failed_detail_fetch_or_parse_keeps_the_list_row() {
+    let listed = dacon::parse_list(&fixture("dacon_list.html")).unwrap().remove(0);
+    let mut fetch_failed = listed.clone();
+    sources::with_detail(&mut fetch_failed, Err(Error("HTTP 502".into())), dacon::apply_detail);
+    let mut no_data = listed.clone();
+    sources::with_detail(&mut no_data, Ok(json!({"data": []})), dacon::apply_detail);
+    for row in [fetch_failed, no_data] {
+        assert_eq!((&row.title, &row.deadline), (&listed.title, &listed.deadline));
+        let note = row.note.unwrap();
+        assert!(note.contains(DETAIL_FAILED), "{note}");
+    }
 }

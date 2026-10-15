@@ -119,9 +119,10 @@ pub fn render_on(registry: &Registry, today: NaiveDate) -> String {
     lines.join("\n")
 }
 
-/// Write `BOARD.md` at the repository root and return its path.
+/// Write `BOARD.md` at the repository root (atomically, so concurrent writers never interleave)
+/// and return its path.
 pub fn write(registry: &Registry) -> Result<PathBuf> {
     let path = paths::board();
-    std::fs::write(&path, render(registry))?;
+    crate::store::write_atomic(&path, render(registry).as_bytes(), false)?;
     Ok(path)
 }

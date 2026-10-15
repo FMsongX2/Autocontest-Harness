@@ -1,4 +1,5 @@
-use harness::sources::campuspick;
+use harness::error::Error;
+use harness::sources::{self, DETAIL_FAILED, campuspick};
 use serde_json::{Value, json};
 
 fn fixture(name: &str) -> String {
@@ -41,4 +42,19 @@ fn url_key_accepts_detail_variants_only() {
     assert_eq!(campuspick::url_key("https://www.campuspick.com/contest"), None);
     assert_eq!(campuspick::url_key("https://www.campuspick.com/contest/view"), None);
     assert_eq!(campuspick::url_key("https://www.wevity.com/?ix=36547"), None);
+}
+
+#[test]
+fn failed_detail_fetch_or_parse_keeps_the_list_row() {
+    let payload: Value = serde_json::from_str(&fixture("campuspick_list.json")).unwrap();
+    let listed = campuspick::parse_list(&payload).unwrap().remove(0);
+    let mut fetch_failed = listed.clone();
+    sources::with_detail(&mut fetch_failed, Err(Error("HTTP 503 (3회 시도)".into())), campuspick::apply_detail);
+    let mut no_state = listed.clone();
+    sources::with_detail(&mut no_state, Ok("<html>점검 중</html>".to_string()), campuspick::apply_detail);
+    for row in [fetch_failed, no_state] {
+        assert_eq!(row.deadline.as_deref(), Some("2026-11-02T23:59+09:00"));
+        assert_eq!((&row.title, &row.alt_url), (&listed.title, &None));
+        assert!(row.note.unwrap().starts_with(DETAIL_FAILED));
+    }
 }

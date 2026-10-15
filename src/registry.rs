@@ -2,8 +2,7 @@
 //! the gate record. Only the CLI writes it. Contract: `docs/CONTRACT.md` sections 3-4.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::fs::File;
 use std::path::Path;
 
 use indexmap::IndexMap;
@@ -13,7 +12,8 @@ use serde_json::{Map, Value};
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::paths;
-use crate::text::now;
+use crate::store;
+use crate::text::{self, now};
 
 pub const TYPES: &[&str] = &[
     "video", "image", "music", "idea", "paper", "report", "model", "data", "software", "essay", "design", "research",
@@ -63,6 +63,30 @@ pub struct HistoryItem {
     pub by: String,
     #[serde(default)]
     pub note: String,
+    /// Fields this version does not know about are kept as they are.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl HistoryItem {
+    pub fn new(at: String, from: Option<String>, to: &str, by: &str, note: &str) -> Self {
+        HistoryItem { at, from, to: to.to_string(), by: by.to_string(), note: note.to_string(), extra: Map::new() }
+    }
+}
+
+/// The stages a human approves: the level 5 plan (`plan_review → running`) and a submission.
+pub const APPROVAL_STAGES: &[&str] = &["plan", "submit"];
+
+/// One human approval (`harness approve`): the user's words, verbatim.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Approval {
+    pub at: String,
+    /// `plan` or `submit`.
+    pub stage: String,
+    pub note: String,
+    pub by: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -99,20 +123,29 @@ pub struct Entry {
     pub scores: Vec<Value>,
     #[serde(default)]
     pub history: Vec<HistoryItem>,
+    /// Human approvals recorded by `harness approve` (plan review, submission).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approvals: Vec<Approval>,
     /// Fields this version does not know about are kept as they are.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
+/// The newest registry format this build reads and writes.
+pub const VERSION: u32 = 1;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Registry {
     pub version: u32,
     pub contests: IndexMap<String, Entry>,
+    /// Top-level fields this version does not know about are kept as they are.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 impl Default for Registry {
     fn default() -> Self {
-        Registry { version: 1, contests: IndexMap::new() }
+        Registry { version: VERSION, contests: IndexMap::new(), extra: Map::new() }
     }
 }
 
@@ -139,27 +172,15 @@ impl Registry {
 }
 
 fn load(path: &Path) -> Result<Registry> {
-    if !path.exists() {
-        return Ok(Registry::default());
-    }
-    serde_json::from_str(&fs::read_to_string(path)?).map_err(|err| Error(format!("{}: {err}", path.display())))
+    let Some(text) = store::read(path)? else { return Ok(Registry::default()) };
+    store::check_version(path, &text, VERSION)?;
+    serde_json::from_str(&text).map_err(|err| Error(format!("{}: {err}", path.display())))
 }
 
 fn save(path: &Path, registry: &Registry) -> Result<()> {
-    let tmp = path.with_file_name(format!(".registry-{}.json", std::process::id()));
-    let mut file = File::create(&tmp)?;
-    file.write_all(serde_json::to_string_pretty(registry)?.as_bytes())?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    fs::rename(&tmp, path)?;
-    Ok(())
-}
-
-fn lock_file(path: &Path) -> Result<File> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    Ok(OpenOptions::new().create(true).truncate(false).write(true).open(path.with_extension("lock"))?)
+    let mut text = serde_json::to_string_pretty(registry)?;
+    text.push('\n');
+    store::write_atomic(path, text.as_bytes(), true)
 }
 
 /// Read the registry under a shared lock.
@@ -172,19 +193,101 @@ pub fn write<T>(f: impl FnOnce(&mut Registry) -> Result<T>) -> Result<T> {
     write_at(&paths::registry(), f)
 }
 
+/// Without a data directory there is nothing to lock and the registry is empty; reading never creates it.
 pub fn read_at<T>(path: &Path, f: impl FnOnce(&Registry) -> Result<T>) -> Result<T> {
-    let lock = lock_file(path)?;
+    let Some(lock) = store::lock_file(path, false)? else { return f(&Registry::default()) };
     lock.lock_shared()?;
     f(&load(path)?)
 }
 
 pub fn write_at<T>(path: &Path, f: impl FnOnce(&mut Registry) -> Result<T>) -> Result<T> {
-    let lock = lock_file(path)?;
+    let Some(lock) = store::lock_file(path, true)? else {
+        bail!("{}: 잠금 파일을 만들 수 없다", path.display())
+    };
     lock.lock()?;
     let mut registry = load(path)?;
     let value = f(&mut registry)?;
     save(path, &registry)?;
     Ok(value)
+}
+
+/// Serialises session launches (`launch`, `tick` with launching) across processes, so the
+/// capacity check and the stored result of one launch are never interleaved with another's. Held
+/// while the launch runs; the registry lock is not, so `transition`, `show` and others keep working.
+pub fn launch_guard() -> Result<File> {
+    launch_guard_at(&paths::data().join("launch.lock"))
+}
+
+pub fn launch_guard_at(path: &Path) -> Result<File> {
+    let Some(lock) = store::lock_file(path, true)? else {
+        bail!("{}: 잠금 파일을 만들 수 없다", path.display())
+    };
+    lock.lock()?;
+    Ok(lock)
+}
+
+/// Store work done on a detached copy (`base` cloned from the registry, `work` changed by route or
+/// launch without the registry lock) onto `current`, the entry as it is now. Fails, leaving
+/// `current` alone, when another command moved the entry meanwhile (state or history changed).
+/// Fields the work did not change keep their current value (a concurrent collect or score stays);
+/// history, submissions and scores get the work's new items appended.
+pub fn merge_work(current: &mut Entry, base: &Entry, work: Entry) -> Result<()> {
+    if current.state != base.state || current.history.len() != base.history.len() {
+        bail!(
+            "{}: 작업하는 동안 다른 명령이 이 항목을 바꿨다(지금 {}, 시작할 때 {}). 결과를 저장하지 않았다. harness show {}로 확인하고 다시 실행한다",
+            current.id,
+            current.state,
+            base.state,
+            current.id
+        );
+    }
+    let Entry {
+        id: _,
+        title,
+        organizer,
+        url,
+        alt_urls,
+        source,
+        deadline,
+        categories,
+        discovered_at: _,
+        state,
+        kind,
+        level,
+        priority,
+        gate,
+        folder,
+        repo,
+        session,
+        submissions,
+        scores,
+        history,
+        approvals,
+        extra,
+    } = work;
+    macro_rules! changed {
+        ($($field:ident),*) => {$(
+            if $field != base.$field {
+                current.$field = $field;
+            }
+        )*};
+    }
+    changed!(title, organizer, url, alt_urls, source, deadline, categories, state, kind, level, priority, gate);
+    changed!(folder, repo, session);
+    for (list, base_len, target) in [
+        (submissions, base.submissions.len(), &mut current.submissions),
+        (scores, base.scores.len(), &mut current.scores),
+    ] {
+        target.extend(list.into_iter().skip(base_len));
+    }
+    current.history.extend(history.into_iter().skip(base.history.len()));
+    current.approvals.extend(approvals.into_iter().skip(base.approvals.len()));
+    for (key, value) in extra {
+        if base.extra.get(&key) != Some(&value) {
+            current.extra.insert(key, value);
+        }
+    }
+    Ok(())
 }
 
 pub struct NewEntry<'a> {
@@ -202,8 +305,8 @@ pub fn new_entry(spec: NewEntry<'_>) -> Entry {
     let at = now();
     Entry {
         id: spec.id.to_string(),
-        title: spec.title.trim().to_string(),
-        organizer: spec.organizer.trim().to_string(),
+        title: text::one_line(spec.title),
+        organizer: text::one_line(spec.organizer),
         url: spec.url.trim().to_string(),
         alt_urls: Vec::new(),
         source: spec.source.to_string(),
@@ -220,22 +323,112 @@ pub fn new_entry(spec: NewEntry<'_>) -> Entry {
         session: None,
         submissions: Vec::new(),
         scores: Vec::new(),
-        history: vec![HistoryItem {
-            at,
-            from: None,
-            to: "discovered".to_string(),
-            by: spec.source.to_string(),
-            note: spec.note.unwrap_or_default(),
-        }],
+        history: vec![HistoryItem::new(at, None, "discovered", spec.source, &spec.note.unwrap_or_default())],
+        approvals: Vec::new(),
         extra: Map::new(),
     }
 }
 
+/// A human approved the level 5 plan (`harness approve` during `plan_review`).
 pub fn plan_approved(entry: &Entry) -> bool {
-    entry.history.iter().any(|h| h.from.as_deref() == Some("plan_review") && h.to == "running")
+    entry.approvals.iter().any(|a| a.stage == "plan")
 }
 
-/// Move `entry` to `to` and record it. Fails outside the allowed moves and on the level 5 plan gate.
+/// The history marker `approve` adds for a submission approval (`extra.approval = "submit"`).
+fn is_submit_approval(h: &HistoryItem) -> bool {
+    h.extra.get("approval").and_then(Value::as_str) == Some("submit")
+}
+
+/// The submission is approved: a `submit` approval was recorded after the latest move into
+/// `awaiting_approval` (a revise cycle `awaiting_approval → running → awaiting_approval` needs a
+/// new one). Only meaningful while the entry is `awaiting_approval`.
+pub fn submit_approved(entry: &Entry) -> bool {
+    // An entry without a recorded move into awaiting_approval (hand-edited, imported) counts every approval.
+    let entered = entry.history.iter().rposition(|h| h.to == "awaiting_approval" && !is_submit_approval(h));
+    entry.history.iter().skip(entered.map_or(0, |i| i + 1)).any(is_submit_approval)
+}
+
+/// Refuse `harness submit` (or `transition … submitted`) without a current submission approval.
+pub fn check_submit_approved(entry: &Entry) -> Result<()> {
+    if entry.state == "awaiting_approval" && !submit_approved(entry) {
+        bail!(
+            "{}: 사용자 제출 승인이 없다(제출 승인 단계에 들어온 뒤 기록된 승인이 필요하다). 사용자가 직접 harness approve {} --note \"<승인 원문>\"로 기록한다",
+            entry.id,
+            entry.id
+        );
+    }
+    Ok(())
+}
+
+/// Record a human approval with the user's words. `session` is `HARNESS_SESSION` as the caller
+/// read it: set inside contest sessions, which may never approve their own work.
+/// `plan_review` → stage `plan` and the move to `running`; `awaiting_approval` → stage `submit`
+/// (state unchanged). Returns the stage.
+pub fn approve(entry: &mut Entry, note: &str, by: &str, session: Option<&str>) -> Result<&'static str> {
+    if let Some(session) = session.filter(|s| !s.is_empty()) {
+        bail!(
+            "{}: 공모전 세션 안(HARNESS_SESSION={session})에서는 승인할 수 없다. 승인은 사용자 터미널이나 메인 세션에서 기록한다",
+            entry.id
+        );
+    }
+    if note.trim().is_empty() {
+        bail!("{}: 승인에는 --note(또는 --note-file)에 사용자 승인 원문과 시각을 적는다", entry.id);
+    }
+    let at = now();
+    let stage = match entry.state.as_str() {
+        "plan_review" => {
+            move_to(entry, "running", by, note);
+            "plan"
+        }
+        "awaiting_approval" => {
+            let mut marker = HistoryItem::new(at.clone(), Some(entry.state.clone()), "awaiting_approval", by, note);
+            marker.extra.insert("approval".into(), Value::String("submit".into()));
+            entry.history.push(marker);
+            "submit"
+        }
+        other => bail!("{}: {other} 상태에서는 승인할 것이 없다(plan_review나 awaiting_approval에서만)", entry.id),
+    };
+    if let Some(last) = entry.history.last_mut().filter(|_| stage == "plan") {
+        last.extra.insert("approval".into(), Value::String("plan".into()));
+    }
+    entry.approvals.push(Approval {
+        at,
+        stage: stage.to_string(),
+        note: note.to_string(),
+        by: by.to_string(),
+        extra: Map::new(),
+    });
+    Ok(stage)
+}
+
+/// Who may read the personal profile section for `entry` (`harness profile show --for <id>`): a
+/// submission approved by the user (or already submitted), and, inside a contest session, only
+/// that contest's own session.
+pub fn check_personal_access(entry: &Entry, session: Option<&str>) -> Result<()> {
+    if let Some(session) = session.filter(|s| !s.is_empty())
+        && session != entry.id
+    {
+        bail!("{}: 다른 공모전 세션(HARNESS_SESSION={session})은 이 공모전의 개인정보를 읽을 수 없다", entry.id);
+    }
+    let ok = entry.state == "submitted" || (entry.state == "awaiting_approval" && submit_approved(entry));
+    if !ok {
+        bail!(
+            "{}: 개인정보는 사용자가 제출을 승인한 뒤에만 읽는다(지금 {}). 사용자가 harness approve {} --note \"<승인 원문>\"로 승인한다",
+            entry.id,
+            entry.state,
+            entry.id
+        );
+    }
+    Ok(())
+}
+
+fn move_to(entry: &mut Entry, to: &str, by: &str, note: &str) {
+    let from = std::mem::replace(&mut entry.state, to.to_string());
+    entry.history.push(HistoryItem::new(now(), Some(from), to, by, note));
+}
+
+/// Move `entry` to `to` and record it. Fails outside the allowed moves, on `plan_review → running`
+/// (only `harness approve` ends a plan review) and on the level 5 plan gate.
 pub fn transition(entry: &mut Entry, to: &str, by: &str, note: &str) -> Result<()> {
     if !STATES.contains(&to) {
         bail!("알 수 없는 상태: {to}");
@@ -248,20 +441,20 @@ pub fn transition(entry: &mut Entry, to: &str, by: &str, note: &str) -> Result<(
         let list = if sorted.is_empty() { "없음".to_string() } else { sorted.join(", ") };
         bail!("{}: {current} → {to} 이동은 허용되지 않는다(가능: {list})", entry.id);
     }
-    if current == "plan_review" && to == "running" && note.trim().is_empty() {
-        bail!("{}: 계획 검수를 끝내려면 --note에 승인 근거(승인 메시지 원문과 시각)를 적는다", entry.id);
+    if current == "plan_review" && to == "running" {
+        bail!(
+            "{}: 계획 검수는 사용자 승인으로만 끝난다. 사용자가 harness approve {} --note \"<승인 원문과 시각>\"로 기록한다",
+            entry.id,
+            entry.id
+        );
     }
     if to == "awaiting_approval" && entry.level == Some(5) && !plan_approved(entry) {
-        bail!("{}: 레벨 5는 계획 검수(plan_review → running) 승인 기록이 있어야 제출 승인 단계로 간다", entry.id);
+        bail!(
+            "{}: 레벨 5는 계획 승인(harness approve, plan_review 단계) 기록이 있어야 제출 승인 단계로 간다",
+            entry.id
+        );
     }
-    entry.state = to.to_string();
-    entry.history.push(HistoryItem {
-        at: now(),
-        from: Some(current),
-        to: to.to_string(),
-        by: by.to_string(),
-        note: note.to_string(),
-    });
+    move_to(entry, to, by, note);
     Ok(())
 }
 
@@ -302,21 +495,39 @@ pub fn apply_gate(entry: &mut Entry, mut gate: Value, by: &str) -> Result<()> {
     if !["discovered", "hold", "rejected", "gate_pass"].contains(&entry.state.as_str()) {
         bail!("{}: {} 상태에서는 게이트를 다시 기록할 수 없다", entry.id, entry.state);
     }
-    for (key, field) in [("title", &mut entry.title), ("organizer", &mut entry.organizer)] {
-        if let Some(value) = record.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()) {
-            *field = value.to_string();
-        }
+    let text_field = |key: &str| record.get(key).and_then(Value::as_str).map(text::one_line).filter(|v| !v.is_empty());
+    let (title, organizer) = (text_field("title"), text_field("organizer"));
+    let deadline = match record.get("deadline").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()) {
+        Some(raw) => match text::normalize_deadline(raw) {
+            Some(deadline) => Some(deadline),
+            None => bail!("gate.deadline은 YYYY-MM-DD 또는 YYYY-MM-DDTHH:MM+09:00 형식의 실제 날짜여야 한다: {raw}"),
+        },
+        None => None,
+    };
+    let official = record.get("official_url").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+    if let Some(official) = official
+        && !text::is_web_url(official)
+    {
+        bail!("gate.official_url은 http:// 또는 https:// 주소여야 한다: {official}");
     }
-    if let Some(deadline) = record.get("deadline").and_then(Value::as_str).filter(|v| !v.is_empty()) {
-        entry.deadline = Some(deadline.to_string());
+    let official = official.map(str::to_string);
+    if let Some(title) = title {
+        entry.title = title;
     }
-    if let Some(official) = record.get("official_url").and_then(Value::as_str).filter(|v| !v.is_empty())
+    if let Some(organizer) = organizer {
+        entry.organizer = organizer;
+    }
+    if let Some(deadline) = deadline {
+        record.insert("deadline".into(), Value::String(deadline.clone()));
+        entry.deadline = Some(deadline);
+    }
+    if let Some(official) = official
         && official != entry.url
     {
         if !entry.url.is_empty() && !entry.alt_urls.contains(&entry.url) {
             entry.alt_urls.push(entry.url.clone());
         }
-        entry.url = official.to_string();
+        entry.url = official;
     }
     entry.kind = Some(kind);
     entry.level = Some(level);
@@ -330,13 +541,13 @@ pub fn apply_gate(entry: &mut Entry, mut gate: Value, by: &str) -> Result<()> {
     let note: String = reasons.join("; ").chars().take(500).collect();
     entry.gate = Some(gate);
     if entry.state == target {
-        entry.history.push(HistoryItem {
-            at: now(),
-            from: Some(target.to_string()),
-            to: target.to_string(),
-            by: by.to_string(),
-            note: format!("게이트 재기록: {note}"),
-        });
+        entry.history.push(HistoryItem::new(
+            now(),
+            Some(target.to_string()),
+            target,
+            by,
+            &format!("게이트 재기록: {note}"),
+        ));
         Ok(())
     } else {
         transition(entry, target, by, &note)

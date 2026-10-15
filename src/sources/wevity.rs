@@ -92,6 +92,18 @@ pub fn parse_detail(page: &str) -> Detail {
     }
 }
 
+/// Fill a new row from its detail page: deadline, eligibility, prize and homepage.
+pub fn apply_detail(row: &mut Item, page: String) -> Result<()> {
+    let detail = parse_detail(&page);
+    row.deadline = detail.deadline;
+    let parts = [("응모대상", detail.eligibility.as_str()), ("상금", &detail.prize), ("홈페이지", &detail.homepage)];
+    row.note = Some(note(&parts));
+    if !detail.homepage.is_empty() {
+        row.alt_url = Some(detail.homepage.clone());
+    }
+    Ok(())
+}
+
 /// Every row on the first `pages` list pages; rows not in `known` get their detail page read.
 pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let mut items = Vec::new();
@@ -103,17 +115,8 @@ pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
         for mut row in rows {
             if !known.contains(&row.entry_id) {
                 pause();
-                let detail = parse_detail(&http::get(&row.url)?);
-                row.deadline = detail.deadline;
-                let parts = [
-                    ("응모대상", detail.eligibility.as_str()),
-                    ("상금", &detail.prize),
-                    ("홈페이지", &detail.homepage),
-                ];
-                row.note = Some(note(&parts));
-                if !detail.homepage.is_empty() {
-                    row.alt_url = Some(detail.homepage.clone());
-                }
+                let fetched = http::get(&row.url);
+                super::with_detail(&mut row, fetched, apply_detail);
             }
             items.push(row);
         }

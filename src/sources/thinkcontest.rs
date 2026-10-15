@@ -9,7 +9,7 @@ use regex::Regex;
 use serde_json::{Value, json};
 
 use super::Item;
-use super::common::{Url, js, note, pause, re};
+use super::common::{Url, js, line, note, pause, re};
 use crate::error::{Error, Result};
 use crate::http;
 use crate::text::end_of_day;
@@ -71,9 +71,9 @@ pub fn parse_list(data: &Value) -> Result<Vec<Item>> {
         let note = note(&[("응모대상", &js(row, "enter_qualified_nm")), ("상금", &prize), ("홈페이지", &homepage)]);
         items.push(Item {
             entry_id: format!("{NAME}-{pk}"),
-            title: js(row, "program_nm").trim().to_string(),
+            title: line(&js(row, "program_nm")),
             url: format!("{BASE}view.do?contest_pk={pk}"),
-            organizer: js(row, "host_company").trim().to_string(),
+            organizer: line(&js(row, "host_company")),
             deadline: deadline(row),
             categories: js(row, "contest_field_nm")
                 .split(',')

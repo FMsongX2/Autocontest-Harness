@@ -8,13 +8,18 @@
 //! Items carry `entry_id` (`"<NAME>-<site id>"`), `title`, `url` (detail page on the site),
 //! `organizer`, `deadline` (KST `YYYY-MM-DDTHH:MM+09:00`, date-only → 23:59), `categories`,
 //! optional `note` (eligibility · prize, joined by " / ") and `alt_url` (official notice).
+//! Titles and organizers are single-line (whitespace collapsed).
 //! Requests to the same site are at least one second apart; robots.txt disallowed paths are not read.
+//! A failed detail fetch or parse keeps the list row (see [`with_detail`]); only list failures fail a source.
 
 use std::collections::HashSet;
 
 use serde::Serialize;
 
 use crate::error::Result;
+
+/// Prefix of the note added to a row whose detail page could not be read.
+pub const DETAIL_FAILED: &str = "상세 실패";
 
 pub mod allcon;
 pub mod allforyoung;
@@ -81,4 +86,18 @@ pub fn find(name: &str) -> Option<&'static Source> {
 /// The first source that recognises `url` as one of its detail pages.
 pub fn url_key(url: &str) -> Option<String> {
     SOURCES.iter().find_map(|s| (s.url_key)(url))
+}
+
+/// Fill a new list row from its detail page with `apply`. A failed fetch or `apply` keeps the row as
+/// the list gave it (deadline from the list or `None`) and appends `상세 실패: <err>` to its note, so
+/// the gate re-checks it instead of the whole source being dropped. `apply` must fail before it
+/// changes the row.
+pub fn with_detail<T>(row: &mut Item, fetched: Result<T>, apply: impl FnOnce(&mut Item, T) -> Result<()>) {
+    if let Err(err) = fetched.and_then(|detail| apply(row, detail)) {
+        let failed = format!("{DETAIL_FAILED}: {err}");
+        row.note = Some(match row.note.take().filter(|note| !note.is_empty()) {
+            Some(note) => format!("{note} / {failed}"),
+            None => failed,
+        });
+    }
 }

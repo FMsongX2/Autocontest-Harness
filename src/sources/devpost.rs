@@ -86,9 +86,9 @@ pub fn parse_list(data: &Value) -> Result<Vec<Item>> {
             .unwrap_or_default();
         rows.push(Item {
             entry_id: format!("{NAME}-{}", common::js(item, "id")),
-            title: common::js(item, "title"),
+            title: common::line(&common::js(item, "title")),
             url: common::js(item, "url"),
-            organizer: common::js(item, "organization_name"),
+            organizer: common::line(&common::js(item, "organization_name")),
             deadline,
             categories,
             note: Some(note.join(" / ")),
@@ -128,8 +128,37 @@ pub fn parse_detail(page_html: &str) -> Detail {
     Detail { deadline, eligibility, excluded, korea_excluded }
 }
 
+/// Fill a new row from its detail page: zoned deadline, eligibility and excluded countries.
+pub fn apply_detail(row: &mut Item, page_html: String) -> Result<()> {
+    let detail = parse_detail(&page_html);
+    let mut notes: Vec<String> = row
+        .note
+        .as_deref()
+        .unwrap_or("")
+        .split(" / ")
+        .filter(|part| !part.is_empty() && *part != NO_TIMEZONE)
+        .map(String::from)
+        .collect();
+    if detail.deadline.is_some() {
+        row.deadline = detail.deadline;
+    } else if row.deadline.is_some() {
+        notes.push(NO_TIMEZONE.to_string());
+    }
+    if !detail.eligibility.is_empty() {
+        notes.push(format!("참가자격: {}", detail.eligibility.join("; ")));
+    }
+    if !detail.excluded.is_empty() {
+        notes.push(format!("제외 국가: {}", detail.excluded.join(", ")));
+    }
+    if detail.korea_excluded {
+        notes.push("한국 참가 제외".to_string());
+    }
+    row.note = Some(notes.join(" / "));
+    Ok(())
+}
+
 /// Online open hackathons on `pages` API pages (9 each). New items open the detail page; a blocked
-/// detail (HTTP error) keeps the list values, including the `시간대 미확인` note.
+/// detail (HTTP error) keeps the list values, including the `시간대 미확인` note, plus a `상세 실패` note.
 pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let mut items = Vec::new();
     for page in 1..=pages {
@@ -142,32 +171,8 @@ pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
         for mut row in parse_list(&data)? {
             if !known.contains(&row.entry_id) {
                 common::pause();
-                if let Ok(page_html) = http::get(&row.url) {
-                    let detail = parse_detail(&page_html);
-                    let mut notes: Vec<String> = row
-                        .note
-                        .as_deref()
-                        .unwrap_or("")
-                        .split(" / ")
-                        .filter(|part| !part.is_empty() && *part != NO_TIMEZONE)
-                        .map(String::from)
-                        .collect();
-                    if detail.deadline.is_some() {
-                        row.deadline = detail.deadline;
-                    } else if row.deadline.is_some() {
-                        notes.push(NO_TIMEZONE.to_string());
-                    }
-                    if !detail.eligibility.is_empty() {
-                        notes.push(format!("참가자격: {}", detail.eligibility.join("; ")));
-                    }
-                    if !detail.excluded.is_empty() {
-                        notes.push(format!("제외 국가: {}", detail.excluded.join(", ")));
-                    }
-                    if detail.korea_excluded {
-                        notes.push("한국 참가 제외".to_string());
-                    }
-                    row.note = Some(notes.join(" / "));
-                }
+                let fetched = http::get(&row.url);
+                super::with_detail(&mut row, fetched, apply_detail);
             }
             items.push(row);
         }

@@ -109,6 +109,9 @@ fn session_field<'a>(entry: &'a Entry, key: &str) -> Option<&'a str> {
     entry.session.as_ref()?.get(key)?.as_str()
 }
 
+/// Start the contest session. With `dry_run` nothing is written or started: the prompt is rendered in
+/// memory and returned as `prompt_text`, `prompt` is the path a real launch writes, and a missing
+/// runner or workspace binary is reported in `warnings` instead of failing.
 pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run: bool) -> Result<Value> {
     if entry.state != "routed" {
         crate::bail!("{}: routed 상태만 실행한다(지금 {})", entry.id, entry.state);
@@ -126,23 +129,34 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
             "terminal 작업 환경은 공모전 실행에 쓰지 않는다. data/config.json의 workspace를 orca·tmux·headless 중 하나로 둔다"
         );
     }
-    if !dry_run {
-        if !runner.available() {
-            crate::bail!("러너 {}의 실행 파일({})이 PATH에 없다", runner.name(), runner.binary());
-        }
-        if !workspace.available() {
-            crate::bail!("작업 환경 {}의 실행 파일이 PATH에 없다", workspace.name());
-        }
+    let mut problems = Vec::new();
+    if !runner.available() {
+        problems.push(format!("러너 {}의 실행 파일({})이 PATH에 없다", runner.name(), runner.binary()));
+    }
+    if !workspace.available() {
+        problems.push(format!("작업 환경 {}의 실행 파일이 PATH에 없다", workspace.name()));
+    }
+    if !dry_run && let Some(first) = problems.first() {
+        crate::bail!("{first}");
     }
 
     let folder = PathBuf::from(folder);
     let meta = folder.join(".harness");
-    std::fs::create_dir_all(&meta)?;
     let prompt_path = meta.join("launch-prompt.md");
-    std::fs::write(&prompt_path, render_prompt(entry, runner)?)?;
-
+    let prompt_text = render_prompt(entry, runner)?;
     let preset = pick_preset(runner, config, level, preset)?;
-    let preset_file = preset.as_deref().map(|name| runner.preset_file(name, &meta)).transpose()?;
+    let preset_file = match preset.as_deref() {
+        None => None,
+        Some(name) if dry_run => Some(dry_preset_path(runner, name, &meta)?),
+        Some(name) => {
+            std::fs::create_dir_all(&meta)?;
+            Some(runner.preset_file(name, &meta)?)
+        }
+    };
+    if !dry_run {
+        std::fs::create_dir_all(&meta)?;
+        std::fs::write(&prompt_path, &prompt_text)?;
+    }
     let spec = Spec {
         cwd: folder.clone(),
         prompt_file: prompt_path.clone(),
@@ -159,6 +173,7 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         extra_args: config.runner_args(runner.name()),
     };
     let argv = if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? };
+    let argv = with_session_env(&entry.id, argv);
     let existing_id = (session_field(entry, "workspace") == Some(workspace.name()))
         .then(|| session_field(entry, "workspace_id").map(str::to_string))
         .flatten();
@@ -172,14 +187,28 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         "handle": null,
     });
     if dry_run {
+        result["prompt_text"] = json!(prompt_text);
+        result["warnings"] = json!(problems);
         return Ok(result);
     }
     let workspace_id = match existing_id {
         Some(id) => Some(id),
         None => workspace.create(entry, config)?,
     };
-    let handle =
-        workspace.open(&Open { cwd: folder, title: &entry.id, argv, workspace_id: workspace_id.as_deref() })?;
+    // Record the workspace before opening: when `open` fails the caller still stores the session,
+    // so the retry reuses this workspace instead of creating another one.
+    entry.session = Some(json!({
+        "workspace": workspace.name(),
+        "workspace_id": workspace_id,
+        "runner": runner.name(),
+        "handle": null,
+    }));
+    let opened = workspace.open(&Open { cwd: folder, title: &entry.id, argv, workspace_id: workspace_id.as_deref() });
+    let handle = match (opened, workspace_id.as_deref()) {
+        (Ok(handle), _) => handle,
+        (Err(err), Some(id)) => crate::bail!("{err} (작업 공간 {id}은(는) 남겨 두었다; 다시 launch하면 그대로 쓴다)"),
+        (Err(err), None) => return Err(err),
+    };
     entry.session = Some(json!({
         "workspace": workspace.name(),
         "workspace_id": workspace_id,
@@ -191,6 +220,29 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
     let note = json!({"runner": runner.name(), "workspace": workspace.name(), "preset": preset, "handle": handle});
     transition(entry, "running", "harness launch", &note.to_string())?;
     Ok(result)
+}
+
+/// Environment variable naming the contest a session was launched for. `harness approve` refuses to
+/// run inside such a session and `profile show --for <id>` requires it to match.
+pub const SESSION_ENV: &str = "HARNESS_SESSION";
+
+/// `env HARNESS_SESSION=<id> <argv>`: works for terminal shell lines and direct spawns alike.
+/// Only contest sessions get it; the main session (`chat`) and `autorun` do not.
+pub fn with_session_env(id: &str, argv: Vec<String>) -> Vec<String> {
+    let mut wrapped = vec!["env".to_string(), format!("{SESSION_ENV}={id}")];
+    wrapped.extend(argv);
+    wrapped
+}
+
+/// The path a real launch would give the preset file, found by writing it to a scratch directory
+/// (so an unknown preset still fails the dry run) and removing that again.
+fn dry_preset_path(runner: &dyn Runner, name: &str, meta: &Path) -> Result<PathBuf> {
+    let scratch = std::env::temp_dir().join(format!("harness-dry-run-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch)?;
+    let written = runner.preset_file(name, &scratch);
+    let _ = std::fs::remove_dir_all(&scratch);
+    let written = written?;
+    Ok(written.file_name().map_or_else(|| written.clone(), |file| meta.join(file)))
 }
 
 /// The tail of a running contest session.

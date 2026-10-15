@@ -7,7 +7,7 @@ use chrono::DateTime;
 use regex::Regex;
 use serde_json::Value;
 
-use super::Item;
+use super::{Item, common};
 use crate::error::{Error, Result};
 use crate::http;
 use crate::text::kst;
@@ -39,9 +39,9 @@ pub fn parse(page: &str) -> Result<Vec<Item>> {
             .map(|at| at.with_timezone(&kst()).format("%Y-%m-%dT%H:%M%:z").to_string());
         items.push(Item {
             entry_id: format!("{NAME}-{id}"),
-            title: item["name"].as_str().unwrap_or_default().to_string(),
+            title: common::line(item["name"].as_str().unwrap_or_default()),
             url: url.to_string(),
-            organizer: details["organizationName"].as_str().unwrap_or_default().to_string(),
+            organizer: common::line(details["organizationName"].as_str().unwrap_or_default()),
             deadline,
             ..Item::default()
         });

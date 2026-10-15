@@ -26,6 +26,7 @@ static EXISTING_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-\s*([^:]
 static DEADLINE_DATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(20\d\d)-(\d\d)-(\d\d)").expect("regex"));
 static ORG_NOISE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(주\)|주식회사|\s").expect("regex"));
 static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s").expect("regex"));
+static NUMBER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+(?:,\d{3})*").expect("regex"));
 
 pub struct Query<'a> {
     pub title: &'a str,
@@ -45,6 +46,22 @@ pub fn normalize_title(title: &str) -> String {
     let text = LEADING_TAG.replace(&lower, "");
     let text = NOISE.replace_all(&text, "");
     NON_WORD.replace_all(&text, "").into_owned()
+}
+
+/// Number tokens left in a title after the years and edition numbers that [`normalize_title`] drops
+/// (`ARC-AGI-2` → `2`, `Track 1` → `1`), without thousands separators or leading zeros.
+fn numbers(title: &str) -> HashSet<String> {
+    let lower = title.to_lowercase();
+    let text = LEADING_TAG.replace(&lower, "");
+    let text = NOISE.replace_all(&text, " ");
+    NUMBER
+        .find_iter(&text)
+        .map(|m| {
+            let digits = m.as_str().replace(',', "");
+            let digits = digits.trim_start_matches('0');
+            if digits.is_empty() { "0".to_string() } else { digits.to_string() }
+        })
+        .collect()
 }
 
 /// A source's detail URL becomes its key (`wevity:111674`); other URLs reduce to host + path + query.
@@ -110,9 +127,15 @@ fn url_parts(url: &str) -> UrlParts<'_> {
 }
 
 /// `strict` is for automatic merging while collecting: only long, nearly identical cores match.
+/// Titles where each side has a number the other lacks (`ARC-AGI-2` vs `ARC-AGI-3`, `시즌2` vs
+/// `시즌3`) are different contests; a number on only one side (a prize amount) does not decide.
 pub fn similar(a: &str, b: &str, strict: bool) -> bool {
     let (na, nb) = (normalize_title(a), normalize_title(b));
     if na.is_empty() || nb.is_empty() {
+        return false;
+    }
+    let (numbers_a, numbers_b) = (numbers(a), numbers(b));
+    if !numbers_a.is_subset(&numbers_b) && !numbers_b.is_subset(&numbers_a) {
         return false;
     }
     let (ca, cb): (Vec<char>, Vec<char>) = (na.chars().collect(), nb.chars().collect());

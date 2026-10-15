@@ -3,8 +3,9 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use regex::Regex;
 use serde_json::{Map, Value, json};
@@ -13,7 +14,9 @@ use crate::bail;
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::ledger::Ledger;
+use crate::process;
 use crate::registry::{Entry, transition};
+use crate::runners::which;
 use crate::text::now;
 use crate::workspaces;
 
@@ -159,23 +162,38 @@ pub fn render_readme(entry: &Entry) -> String {
     .join("\n")
 }
 
-fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<Output> {
-    let mut command = Command::new(program);
-    command.args(args);
-    if let Some(dir) = cwd {
-        command.current_dir(dir);
-    }
-    command.output().map_err(|err| Error(format!("{program} 실행 실패: {err}")))
+/// Lines every contest repository ignores: the harness's own working files and local clutter.
+/// `contest.json` holds absolute paths and session handles; `session.log` grows while a headless
+/// session runs, and would otherwise block `clean` or end up pushed.
+pub const GITIGNORE: &[&str] = &[
+    ".DS_Store",
+    ".venv/",
+    "__pycache__/",
+    ".private/",
+    ".harness/*-preset.*",
+    ".harness/launch-prompt.md",
+    ".harness/session.log",
+    ".harness/contest.json",
+];
+
+fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<Output> {
+    process::output(program, args, cwd, timeout)
 }
 
-fn run_checked(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<Output> {
-    let out = run(program, args, cwd)?;
+fn detail(out: &Output) -> String {
+    String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr }).trim().to_string()
+}
+
+fn run_checked(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<Output> {
+    let out = run(program, args, cwd, timeout)?;
     if !out.status.success() {
-        let detail =
-            String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr }).trim().to_string();
-        bail!("{program} {} 실패: {detail}", args.join(" "));
+        bail!("{program} {} 실패: {}", args.join(" "), detail(&out));
     }
     Ok(out)
+}
+
+fn git(args: &[&str], cwd: &Path) -> Result<Output> {
+    run_checked("git", args, Some(cwd), process::LOCAL)
 }
 
 fn folder_name(entry: &Entry, explicit: Option<&str>) -> Result<String> {
@@ -187,11 +205,18 @@ fn folder_name(entry: &Entry, explicit: Option<&str>) -> Result<String> {
     Ok(name)
 }
 
-/// Add `- <folder>: <title>` to the shared list that dedupe reads, once.
+/// One line of text: control characters dropped, whitespace runs (newlines too) collapsed.
+fn one_line(text: &str) -> String {
+    let cleaned: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Add `- <folder>: <title>` to the shared list that dedupe reads, once. The title is collapsed to
+/// one line so a scraped title cannot forge extra list entries.
 fn append_existing(config: &Config, folder: &str, title: &str) -> Result<()> {
-    let line = format!("- {folder}: {title}");
+    let line = format!("- {folder}: {}", one_line(title));
     let path = config.existing_contests();
-    if path.exists() && fs::read_to_string(&path)?.contains(&line) {
+    if path.exists() && fs::read_to_string(&path)?.lines().any(|l| l == line) {
         return Ok(());
     }
     if let Some(dir) = path.parent() {
@@ -202,12 +227,190 @@ fn append_existing(config: &Config, folder: &str, title: &str) -> Result<()> {
     Ok(())
 }
 
+/// Write the generated `.gitignore`, or append the lines an existing one lacks.
+fn ensure_gitignore(target: &Path) -> Result<()> {
+    let path = target.join(".gitignore");
+    let current = if path.exists() { fs::read_to_string(&path)? } else { String::new() };
+    let have: Vec<&str> = current.lines().map(str::trim).collect();
+    let missing: Vec<&str> = GITIGNORE.iter().copied().filter(|l| !have.contains(l)).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let mut text = current.clone();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    for line in missing {
+        text.push_str(line);
+        text.push('\n');
+    }
+    fs::write(&path, text)?;
+    Ok(())
+}
+
+/// Everything route needs from the machine, checked before the folder is touched, so a missing
+/// tool fails with the fix instead of leaving half a contest behind.
+fn preflight(config: &Config, repo: bool, workspace: bool) -> Result<()> {
+    if workspace {
+        let backend = workspaces::get(&config.workspace)?;
+        if !backend.available() {
+            bail!(
+                "작업 환경 {0}의 실행 파일({0})이 PATH에 없다: {0}을 설치하거나 설정의 workspace를 tmux·headless로 바꾸거나 --no-workspace로 라우팅한다",
+                backend.name()
+            );
+        }
+        if backend.name() == "orca" && !config.orca_repo_path().is_dir() {
+            bail!(
+                "Orca 작업 공간을 만들 폴더(orca_repo_path)가 없다: {} (설정의 orca_repo_path를 고치거나 --no-workspace)",
+                config.orca_repo_path().display()
+            );
+        }
+    }
+    if repo {
+        if which("gh").is_none() {
+            bail!("gh가 PATH에 없다: GitHub CLI를 설치하고 `gh auth login` 하거나 --no-repo로 라우팅한다");
+        }
+        let status = run("gh", &["auth", "status"], None, process::NETWORK)?;
+        if !status.status.success() {
+            bail!(
+                "gh가 로그인되어 있지 않다: `gh auth login` 후 다시 시도하거나 --no-repo로 라우팅한다 ({})",
+                detail(&status)
+            );
+        }
+    }
+    if which("git").is_none() {
+        bail!("git이 PATH에 없다: git을 설치한다");
+    }
+    // What `git commit` itself needs: `git var` fails exactly when the identity cannot be determined.
+    let identity = ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]
+        .iter()
+        .map(|var| run("git", &["var", var], None, process::LOCAL))
+        .collect::<Result<Vec<_>>>()?;
+    if identity.iter().any(|out| !out.status.success()) {
+        bail!(
+            "git 사용자 정보가 없다: `git config --global user.name \"이름\"`과 `git config --global user.email \"메일\"`을 설정한다"
+        );
+    }
+    Ok(())
+}
+
+/// Whether text from the remote names this contest: `.harness/contest.json` with the same id, or
+/// the `하네스 id` row of `CONTEST.md` (contest.json is git-ignored, CONTEST.md is committed).
+fn remote_is_ours(full: &str, id: &str) -> Result<bool> {
+    let raw = |path: &str| -> Result<Option<String>> {
+        let api = format!("repos/{full}/contents/{path}");
+        let out = run("gh", &["api", "-H", "Accept: application/vnd.github.raw", &api], None, process::NETWORK)?;
+        Ok(out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned()))
+    };
+    if let Some(text) = raw(".harness/contest.json")?
+        && serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|v| v.get("id").and_then(Value::as_str).map(str::to_string))
+            == Some(id.to_string())
+    {
+        return Ok(true);
+    }
+    Ok(raw("CONTEST.md")?.is_some_and(|text| {
+        text.lines().any(|line| {
+            let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+            cells.contains(&"하네스 id") && cells.contains(&id)
+        })
+    }))
+}
+
+/// Create the private repository, or verify and reuse an existing one, and push `main`.
+fn ensure_repo(
+    entry: &Entry,
+    config: &Config,
+    name: &str,
+    target: &Path,
+    warnings: &mut Vec<String>,
+) -> Result<String> {
+    // An empty `github_org` puts the private repository under the signed-in gh account.
+    let owner = if config.github_org.trim().is_empty() {
+        let login = run_checked("gh", &["api", "user", "--jq", ".login"], None, process::NETWORK)?;
+        String::from_utf8_lossy(&login.stdout).trim().to_string()
+    } else {
+        config.github_org.trim().to_string()
+    };
+    if owner.is_empty() {
+        bail!("GitHub 계정을 알 수 없다: `gh auth login` 후 다시 시도하거나 설정의 github_org를 채운다");
+    }
+    let full = format!("{owner}/{name}");
+    let target_str = target.to_string_lossy();
+    let view = run("gh", &["repo", "view", &full, "--json", "isPrivate,isEmpty"], None, process::NETWORK)?;
+    if !view.status.success() {
+        let why = detail(&view);
+        if !why.contains("Could not resolve") && !why.to_lowercase().contains("not found") {
+            bail!("gh repo view {full} 실패: {why}");
+        }
+        let description: String = one_line(&entry.title).chars().take(300).collect();
+        let args = [
+            "repo",
+            "create",
+            &full,
+            "--private",
+            "--source",
+            &target_str,
+            "--remote",
+            "origin",
+            "--push",
+            "--description",
+        ];
+        let mut args = args.to_vec();
+        args.push(&description);
+        run_checked("gh", &args, None, process::NETWORK)?;
+        // CONTRACT: contest repositories run no GitHub Actions.
+        let api = format!("repos/{full}/actions/permissions");
+        let off = run("gh", &["api", "-X", "PUT", &api, "-F", "enabled=false"], None, process::NETWORK)?;
+        if !off.status.success() {
+            warnings.push(format!("{full}: GitHub Actions를 끄지 못했다(저장소 설정에서 직접 끈다): {}", detail(&off)));
+        }
+        return Ok(full);
+    }
+    let info: Value = serde_json::from_slice(&view.stdout)
+        .map_err(|e| Error(format!("gh repo view {full}의 답을 읽지 못했다: {e}")))?;
+    if info.get("isPrivate").and_then(Value::as_bool) != Some(true) {
+        bail!(
+            "이미 있는 저장소 {full}이(가) 비공개가 아니다: 공고 정리와 기록이 공개되지 않게 멈춘다(--folder로 다른 이름을 쓰거나 저장소를 비공개로 바꾼다)"
+        );
+    }
+    let empty = info.get("isEmpty").and_then(Value::as_bool) == Some(true);
+    let remotes = String::from_utf8_lossy(&git(&["remote"], target)?.stdout).into_owned();
+    let has_origin = remotes.lines().any(|r| r.trim() == "origin");
+    if !empty && !remote_is_ours(&full, &entry.id)? {
+        bail!("이미 있는 저장소 {full}은(는) 이 공모전({})의 것이 아니다: --folder로 다른 이름을 쓴다", entry.id);
+    }
+    if !has_origin {
+        let remote = format!("https://github.com/{full}.git");
+        git(&["remote", "add", "origin", &remote], target)?;
+    }
+    if !empty {
+        run_checked("git", &["fetch", "-q", "origin"], Some(target), process::NETWORK)?;
+        let remote_main = run("git", &["rev-parse", "--verify", "-q", "origin/main"], Some(target), process::LOCAL)?;
+        if remote_main.status.success()
+            && !run("git", &["merge-base", "--is-ancestor", "origin/main", "HEAD"], Some(target), process::LOCAL)?
+                .status
+                .success()
+        {
+            bail!(
+                "{full}의 main이 이 폴더와 이력이 다르다: 저장소를 {} 자리에 clone하거나 원격 이력을 정리한 뒤 다시 라우팅한다",
+                target.display()
+            );
+        }
+    }
+    run_checked("git", &["push", "-q", "-u", "origin", "main"], Some(target), process::NETWORK)?;
+    Ok(full)
+}
+
 fn pretty(value: &impl serde::Serialize) -> Result<String> {
     Ok(serde_json::to_string_pretty(value)? + "\n")
 }
 
 /// Create the folder, repository and workspace, then move the entry to `routed`.
-/// Contests already in the submission ledger are refused. Returns `{folder, repo, workspace_id}`.
+/// Contests already in the submission ledger are refused. Returns `{folder, repo, workspace_id,
+/// warnings}`. Tools are checked before anything is written, and `.harness/contest.json` is written
+/// first, so a route that fails partway can be re-run on the same folder once the cause is fixed.
 pub fn route(
     entry: &mut Entry,
     config: &Config,
@@ -227,73 +430,44 @@ pub fn route(
     let name = folder_name(entry, folder)?;
     let target = config.contests_root().join(&name);
     let meta = target.join(".harness");
+    let contest_json = meta.join("contest.json");
     if target.exists() && fs::read_dir(&target)?.next().is_some() {
-        let existing = meta.join("contest.json");
-        let same = existing.exists() && {
-            let previous: Value = serde_json::from_str(&fs::read_to_string(&existing)?)?;
-            previous.get("id").and_then(Value::as_str) == Some(entry.id.as_str())
-        };
+        let same = fs::read_to_string(&contest_json)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .is_some_and(|previous| previous.get("id").and_then(Value::as_str) == Some(entry.id.as_str()));
         if !same {
             bail!("이미 다른 내용이 있는 폴더: {}", target.display());
         }
     }
+    preflight(config, repo, workspace)?;
     fs::create_dir_all(&meta)?;
+    // Claim the folder before anything that can fail, so a retry recognises it.
+    if !contest_json.exists() {
+        fs::write(&contest_json, pretty(&json!({"id": entry.id}))?)?;
+    }
     let target_str = target.to_string_lossy().into_owned();
     entry.folder = Some(target_str.clone());
     fs::write(target.join("CONTEST.md"), render_contest_md(entry))?;
     if !target.join("README.md").exists() {
         fs::write(target.join("README.md"), render_readme(entry))?;
     }
-    if !target.join(".gitignore").exists() {
-        fs::write(target.join(".gitignore"), ".DS_Store\n.venv/\n__pycache__/\n.private/\n.harness/*-preset.*\n")?;
-    }
+    ensure_gitignore(&target)?;
     fs::write(meta.join("gate.json"), pretty(&entry.gate)?)?;
+    fs::write(&contest_json, pretty(entry)?)?;
+    let mut warnings: Vec<String> = Vec::new();
     let mut summary = json!({"folder": target_str, "repo": null, "workspace_id": null});
 
     if !target.join(".git").exists() {
-        run_checked("git", &["init", "-q", "-b", "main"], Some(&target))?;
+        git(&["init", "-q", "-b", "main"], &target)?;
     }
-    run_checked("git", &["add", "-A"], Some(&target))?;
-    if !run("git", &["diff", "--cached", "--quiet"], Some(&target))?.status.success() {
-        let message = format!("Route contest: {}", entry.title);
-        run_checked("git", &["commit", "-q", "-m", &message], Some(&target))?;
+    git(&["add", "-A"], &target)?;
+    if !run("git", &["diff", "--cached", "--quiet"], Some(&target), process::LOCAL)?.status.success() {
+        let message = format!("Route contest: {}", one_line(&entry.title));
+        git(&["commit", "-q", "-m", &message], &target)?;
     }
     if repo {
-        // An empty `github_org` puts the private repository under the signed-in gh account.
-        let owner = if config.github_org.trim().is_empty() {
-            let login = run_checked("gh", &["api", "user", "--jq", ".login"], None)?;
-            String::from_utf8_lossy(&login.stdout).trim().to_string()
-        } else {
-            config.github_org.trim().to_string()
-        };
-        if owner.is_empty() {
-            bail!("GitHub 계정을 알 수 없다: `gh auth login` 후 다시 시도하거나 설정의 github_org를 채운다");
-        }
-        let full = format!("{owner}/{name}");
-        if !run("gh", &["repo", "view", &full], None)?.status.success() {
-            let description: String = entry.title.chars().take(300).collect();
-            run_checked(
-                "gh",
-                &[
-                    "repo",
-                    "create",
-                    &full,
-                    "--private",
-                    "--source",
-                    &target_str,
-                    "--remote",
-                    "origin",
-                    "--push",
-                    "--description",
-                    &description,
-                ],
-                None,
-            )?;
-        } else if String::from_utf8_lossy(&run_checked("git", &["remote"], Some(&target))?.stdout).trim().is_empty() {
-            let remote = format!("https://github.com/{full}.git");
-            run_checked("git", &["remote", "add", "origin", &remote], Some(&target))?;
-            run_checked("git", &["push", "-q", "-u", "origin", "main"], Some(&target))?;
-        }
+        let full = ensure_repo(entry, config, &name, &target, &mut warnings)?;
         entry.repo = Some(full.clone());
         summary["repo"] = json!(full);
     }
@@ -322,6 +496,7 @@ pub fn route(
 
     append_existing(config, &name, &entry.title)?;
     transition(entry, "routed", "harness route", &target_str)?;
-    fs::write(meta.join("contest.json"), pretty(entry)?)?;
+    fs::write(&contest_json, pretty(entry)?)?;
+    summary["warnings"] = json!(warnings);
     Ok(summary)
 }

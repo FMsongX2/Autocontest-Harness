@@ -54,9 +54,9 @@ pub fn parse_list(payload: &Value) -> Result<Vec<Item>> {
             .unwrap_or_default();
         rows.push(Item {
             entry_id: format!("{NAME}-{id}"),
-            title: item["title"].as_str().unwrap_or("").trim().to_string(),
+            title: common::line(item["title"].as_str().unwrap_or("")),
             url: format!("https://www.allforyoung.com/posts/{id}"),
-            organizer: item["organization"].as_str().unwrap_or("").trim().to_string(),
+            organizer: common::line(item["organization"].as_str().unwrap_or("")),
             deadline: None,
             categories,
             ..Item::default()
@@ -114,6 +114,25 @@ pub fn parse_detail(payload: &Value) -> Result<Detail> {
     })
 }
 
+/// Fill a new row from its detail API payload: deadline, start date, always-open flag and apply link.
+pub fn apply_detail(row: &mut Item, payload: Value) -> Result<()> {
+    let detail = parse_detail(&payload)?;
+    row.deadline = detail.deadline;
+    let mut note = Vec::new();
+    if !detail.start.is_empty() {
+        note.push(format!("접수 시작: {}", detail.start));
+    }
+    if detail.permanent {
+        note.push("상시 모집".to_string());
+    }
+    if !detail.apply_url.is_empty() {
+        note.push(format!("지원: {}", detail.apply_url));
+        row.alt_url = Some(detail.apply_url);
+    }
+    row.note = Some(note.join(" / "));
+    Ok(())
+}
+
 /// Latest `pages` pages (20 each); only items missing from the registry open the detail API.
 pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let mut items = Vec::new();
@@ -123,20 +142,8 @@ pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
             if !known.contains(&row.entry_id) {
                 common::pause();
                 let id = row.entry_id.split_once('-').map_or("", |(_, id)| id);
-                let detail = parse_detail(&get_json(&format!("{API}/posts/{id}/"))?)?;
-                row.deadline = detail.deadline;
-                let mut note = Vec::new();
-                if !detail.start.is_empty() {
-                    note.push(format!("접수 시작: {}", detail.start));
-                }
-                if detail.permanent {
-                    note.push("상시 모집".to_string());
-                }
-                if !detail.apply_url.is_empty() {
-                    note.push(format!("지원: {}", detail.apply_url));
-                    row.alt_url = Some(detail.apply_url);
-                }
-                row.note = Some(note.join(" / "));
+                let fetched = get_json(&format!("{API}/posts/{id}/"));
+                super::with_detail(&mut row, fetched, apply_detail);
             }
             items.push(row);
         }

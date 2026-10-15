@@ -1,4 +1,5 @@
-use harness::sources::allcon;
+use harness::error::Error;
+use harness::sources::{self, DETAIL_FAILED, allcon};
 use serde_json::{Value, json};
 
 fn fixture(name: &str) -> String {
@@ -64,4 +65,15 @@ fn url_key_only_detail_pages() {
     assert_eq!(allcon::url_key("https://www.all-con.co.kr/list/contest/1"), None);
     assert_eq!(allcon::url_key("https://www.all-con.co.kr/hit/contest/4564"), None);
     assert_eq!(allcon::url_key("https://www.wevity.com/?ix=1"), None);
+}
+
+#[test]
+fn failed_detail_fetch_keeps_the_list_row() {
+    let mut row = allcon::parse_list(&load("allcon_list.json")).unwrap().remove(0);
+    let listed = row.clone();
+    sources::with_detail(&mut row, Err(Error("HTTP 500 (3회 시도)".into())), allcon::apply_detail);
+    assert_eq!((&row.title, &row.organizer, &row.deadline), (&listed.title, &listed.organizer, &listed.deadline));
+    assert_eq!(row.deadline.as_deref(), Some("2026-11-17T23:59+09:00"));
+    let note = row.note.unwrap();
+    assert!(note.contains("응모대상: 제한없음") && note.ends_with(&format!("{DETAIL_FAILED}: HTTP 500 (3회 시도)")));
 }

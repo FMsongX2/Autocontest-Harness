@@ -1,10 +1,48 @@
 //! Where the harness keeps its files. The repository root is `HARNESS_HOME` when set, otherwise the
-//! checkout the binary was built from (so `cargo install --path .` keeps working from the clone).
+//! checkout that holds the running binary (`<clone>/target/release/harness`, `<clone>/bin/harness`),
+//! otherwise the checkout the binary was built from (so `cargo install --path .` keeps working from
+//! the clone). `main` refuses to run when that root is not a harness checkout ([`checkout_ok`]).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+/// A file every harness checkout has; its presence is what makes a directory the root.
+pub const MARKER: &str = "harness/prompts/launch.md";
+
+static BINARY_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
+    let exe = std::env::current_exe().and_then(|exe| exe.canonicalize()).ok();
+    exe.and_then(|exe| exe.ancestors().skip(1).find(|dir| checkout_ok(dir)).map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+});
 
 pub fn root() -> PathBuf {
-    std::env::var_os("HARNESS_HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+    match std::env::var_os("HARNESS_HOME").filter(|home| !home.is_empty()) {
+        Some(home) => PathBuf::from(home),
+        None => BINARY_ROOT.clone(),
+    }
+}
+
+/// `root` is a harness checkout (it has [`MARKER`]).
+pub fn checkout_ok(root: &Path) -> bool {
+    root.join(MARKER).is_file()
+}
+
+/// The root, or an error naming it when it is not a harness checkout (moved or deleted clone, typo
+/// in `HARNESS_HOME`), so no command silently starts an empty registry somewhere else.
+pub fn checked_root() -> crate::error::Result<PathBuf> {
+    let root = root();
+    if checkout_ok(&root) {
+        return Ok(root);
+    }
+    let source = if std::env::var_os("HARNESS_HOME").is_some_and(|h| !h.is_empty()) {
+        "HARNESS_HOME"
+    } else {
+        "실행 파일 위치나 빌드한 클론"
+    };
+    crate::bail!(
+        "하네스 클론을 찾지 못했다: {}에 {MARKER}가 없다({source} 기준). HARNESS_HOME을 클론 경로로 지정하거나 클론에서 다시 설치한다(cargo install --path . --root ~/.local --force)",
+        root.display()
+    )
 }
 
 pub fn home() -> PathBuf {

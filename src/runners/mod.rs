@@ -68,6 +68,11 @@ pub trait Runner: Sync {
     /// (`skills/contest-harness`) and, where supported, the extension package from `root`. Must be
     /// idempotent. Returns one human-readable line per action.
     fn install(&self, root: &Path) -> Result<Vec<String>>;
+    /// Whether `install` has been done for the checkout at `root` (`harness doctor`). `None` when
+    /// the adapter cannot tell.
+    fn installed(&self, _root: &Path) -> Option<bool> {
+        None
+    }
 }
 
 pub fn names() -> Vec<&'static str> {
@@ -162,7 +167,7 @@ impl AgentDoc {
                 None => crate::bail!("에이전트 frontmatter가 닫히지 않았다"),
             },
         };
-        let meta: serde_json::Value = serde_yaml_ng::from_str(head)?;
+        let meta: serde_json::Value = serde_saphyr::from_str(head)?;
         let text_of = |key: &str| meta.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
         let list_of = |key: &str| -> Vec<String> {
             match meta.get(key) {

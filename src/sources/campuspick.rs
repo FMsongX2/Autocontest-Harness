@@ -74,9 +74,9 @@ pub fn parse_list(payload: &Value) -> Result<Vec<Item>> {
             .unwrap_or_default();
         rows.push(Item {
             entry_id: format!("{NAME}-{id}"),
-            title: item["title"].as_str().unwrap_or("").trim().to_string(),
+            title: common::line(item["title"].as_str().unwrap_or("")),
             url: view_url(&id),
-            organizer: item["company"].as_str().unwrap_or("").trim().to_string(),
+            organizer: common::line(item["company"].as_str().unwrap_or("")),
             deadline,
             categories,
             ..Item::default()
@@ -110,6 +110,21 @@ pub fn parse_detail(page_html: &str) -> Result<Detail> {
     })
 }
 
+/// Fill a new row from its detail page: first prize and official homepage.
+pub fn apply_detail(row: &mut Item, page_html: String) -> Result<()> {
+    let detail = parse_detail(&page_html)?;
+    let note: Vec<String> = [("1등 상금", &detail.prize), ("홈페이지", &detail.homepage)]
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect();
+    row.note = Some(note.join(" / "));
+    if !detail.homepage.is_empty() {
+        row.alt_url = Some(detail.homepage);
+    }
+    Ok(())
+}
+
 /// Latest `pages` pages (20 each); only items missing from the registry open the detail page.
 pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let mut items = Vec::new();
@@ -123,16 +138,8 @@ pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
         for mut row in rows {
             if !known.contains(&row.entry_id) {
                 common::pause();
-                let detail = parse_detail(&http::get(&row.url)?)?;
-                let note: Vec<String> = [("1등 상금", &detail.prize), ("홈페이지", &detail.homepage)]
-                    .iter()
-                    .filter(|(_, v)| !v.is_empty())
-                    .map(|(k, v)| format!("{k}: {v}"))
-                    .collect();
-                row.note = Some(note.join(" / "));
-                if !detail.homepage.is_empty() {
-                    row.alt_url = Some(detail.homepage);
-                }
+                let fetched = http::get(&row.url);
+                super::with_detail(&mut row, fetched, apply_detail);
             }
             items.push(row);
         }

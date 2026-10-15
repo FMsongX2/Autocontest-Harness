@@ -4,7 +4,6 @@
 //! would go unused before the window resets, so parallelism widens; below 1 (or near empty) it narrows.
 
 use std::collections::BTreeMap;
-use std::process::{Command, Stdio};
 
 use indexmap::IndexMap;
 use regex::Regex;
@@ -12,6 +11,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::config::Config;
+use crate::process;
 use crate::registry::LEVELS;
 
 const LOW_REMAINING: f64 = 0.1;
@@ -27,10 +27,10 @@ pub struct Window {
     pub status: Option<String>,
 }
 
-/// `omp usage --json`; an empty report when omp is missing or fails (capacity then ignores tokens).
+/// `omp usage --json`; an empty report when omp is missing, fails or hangs (capacity then ignores tokens).
 pub fn usage_report() -> Value {
     let empty = json!({"reports": []});
-    let Ok(out) = Command::new("omp").args(["usage", "--json"]).stdin(Stdio::null()).output() else { return empty };
+    let Ok(out) = process::output("omp", &["usage", "--json"], None, process::LOCAL) else { return empty };
     if !out.status.success() {
         return empty;
     }
@@ -106,28 +106,64 @@ pub fn recommend(windows: &[Window], max_workers: usize) -> IndexMap<String, Val
     result
 }
 
-/// Reusable memory from `vm_stat`: free + inactive + speculative pages, in GB (one decimal).
-pub fn free_ram_gb() -> f64 {
-    let Ok(out) = Command::new("vm_stat").output() else { return 0.0 };
+/// Reusable memory in GB (one decimal): `MemAvailable` from `/proc/meminfo` on Linux, free +
+/// inactive + speculative pages from `vm_stat` elsewhere. `None` when neither can be read.
+pub fn free_ram_gb() -> Option<f64> {
+    if cfg!(target_os = "linux") {
+        return parse_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?);
+    }
+    let out = process::output("vm_stat", &[], None, process::LOCAL).ok().filter(|o| o.status.success())?;
     parse_vm_stat(&String::from_utf8_lossy(&out.stdout))
 }
 
-pub fn parse_vm_stat(out: &str) -> f64 {
+/// `vm_stat` output: free + inactive + speculative pages in GB; `None` without a page size or any
+/// of those lines.
+pub fn parse_vm_stat(out: &str) -> Option<f64> {
     let number =
         |pattern: &str| Regex::new(pattern).ok().and_then(|re| re.captures(out)).and_then(|c| c[1].parse::<u64>().ok());
-    let Some(page) = number(r"page size of (\d+) bytes") else { return 0.0 };
-    let pages: u64 = ["Pages free", "Pages inactive", "Pages speculative"]
+    let page = number(r"page size of (\d+) bytes")?;
+    let counts: Vec<u64> = ["Pages free", "Pages inactive", "Pages speculative"]
         .iter()
-        .map(|key| number(&format!(r"{key}:\s+(\d+)")).unwrap_or(0))
-        .sum();
-    round_to((pages * page) as f64 / 1024f64.powi(3), 1)
+        .filter_map(|key| number(&format!(r"{key}:\s+(\d+)")))
+        .collect();
+    if counts.is_empty() {
+        return None;
+    }
+    let pages: u64 = counts.iter().sum();
+    Some(round_to(pages.saturating_mul(page) as f64 / 1024f64.powi(3), 1))
 }
 
-/// macOS kernel memory pressure (`normal`, `warning`, `critical`), or `unknown`.
+/// `/proc/meminfo`: `MemAvailable` (kB) in GB; `None` when the line is missing (kernels before 3.14).
+pub fn parse_meminfo(text: &str) -> Option<f64> {
+    let line = text.lines().find_map(|l| l.strip_prefix("MemAvailable:"))?;
+    let kb = line.split_whitespace().next()?.parse::<u64>().ok()?;
+    Some(round_to(kb as f64 / 1024f64.powi(2), 1))
+}
+
+/// Linux PSI (`/proc/pressure/memory`): the `some avg10` share of time stalled on memory.
+/// At least 40% is `critical`, at least 10% `warning`, below that `normal`; `unknown` if unreadable.
+pub fn parse_psi(text: &str) -> &'static str {
+    let avg10 = text
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("some "))
+        .and_then(|rest| rest.split_whitespace().find_map(|f| f.strip_prefix("avg10=")))
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite());
+    match avg10 {
+        Some(v) if v >= 40.0 => "critical",
+        Some(v) if v >= 10.0 => "warning",
+        Some(_) => "normal",
+        None => "unknown",
+    }
+}
+
+/// Kernel memory pressure (`normal`, `warning`, `critical`), or `unknown`: PSI on Linux, the
+/// `kern.memorystatus_vm_pressure_level` sysctl on macOS.
 pub fn memory_pressure() -> String {
-    let level = Command::new("sysctl")
-        .args(["-n", "kern.memorystatus_vm_pressure_level"])
-        .output()
+    if cfg!(target_os = "linux") {
+        return std::fs::read_to_string("/proc/pressure/memory").map_or("unknown", |t| parse_psi(&t)).to_string();
+    }
+    let level = process::output("sysctl", &["-n", "kern.memorystatus_vm_pressure_level"], None, process::LOCAL)
         .ok()
         .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<i64>().ok());
     match level {
@@ -159,17 +195,19 @@ fn level_map<T: Copy + Into<Value>>(map: &BTreeMap<u8, T>) -> Map<String, Value>
 /// Capacity from explicit inputs (used by `capacity` and by tests).
 /// New sessions overall (`slots`) and per level, plus recommended workers inside a session. Memory
 /// budget = available minus the user's reserve, divided by each level's session size; memory
-/// pressure at `warning` or above, or a throttled token window, blocks new sessions.
+/// pressure at `warning` or above, or a throttled token window, blocks new sessions. When the
+/// available memory is unknown (`None`), the memory limit is skipped and only count and token
+/// limits apply; `ram.basis` is then `unavailable` with a warning.
 pub fn capacity_with(
     config: &Config,
     running: &BTreeMap<u8, usize>,
     report: &Value,
-    available_gb: f64,
+    available_gb: Option<f64>,
     pressure: &str,
 ) -> Value {
     let now_ms = chrono::Utc::now().timestamp_millis();
     let rec = recommend(&windows(report, now_ms), config.max_workers);
-    let budget_gb = round_to((available_gb - config.ram_reserve_gb).max(0.0), 1);
+    let budget_gb = available_gb.map(|gb| round_to((gb - config.ram_reserve_gb).max(0.0), 1));
     let total: usize = running.values().sum();
     let by_count = config.max_running.saturating_sub(total);
     let primary = rec.get(&config.primary_provider);
@@ -181,7 +219,10 @@ pub fn capacity_with(
         basis.iter().filter_map(|r| r["workers"].as_u64()).map(|w| w as usize).min().unwrap_or(config.max_workers);
     let throttled = basis.iter().any(|r| r["mode"] == "throttle");
     let blocked = throttled || pressure == "warning" || pressure == "critical";
-    let fits = |cost: f64| if cost > 0.0 { (budget_gb / cost).floor() as usize } else { usize::MAX };
+    let fits = |cost: f64| match budget_gb {
+        Some(budget) if cost > 0.0 => (budget / cost).floor() as usize,
+        _ => usize::MAX,
+    };
     let costs = &config.ram_gb_by_level;
     let caps = &config.max_running_by_level;
     let mut slots_by_level = Map::new();
@@ -205,13 +246,23 @@ pub fn capacity_with(
         "all".to_string()
     };
     let costs_json: Map<String, Value> = costs.iter().map(|(k, v)| (k.to_string(), number(*v))).collect();
+    let mut ram = json!({
+        "available_gb": available_gb,
+        "reserve_gb": number(config.ram_reserve_gb),
+        "budget_gb": budget_gb,
+        "pressure": pressure,
+        "basis": if available_gb.is_some() { "measured" } else { "unavailable" },
+    });
+    if available_gb.is_none() {
+        ram["warning"] = json!("남은 메모리를 읽지 못해 메모리 한도 없이 개수·토큰 한도만 적용했다");
+    }
     json!({
         "slots": slots,
         "slots_by_level": slots_by_level,
         "recommended_workers": token_workers.min(by_memory),
         "running": total,
         "running_by_level": level_map(running),
-        "ram": {"available_gb": available_gb, "reserve_gb": number(config.ram_reserve_gb), "budget_gb": budget_gb, "pressure": pressure},
+        "ram": ram,
         "limits": {
             "by_count": by_count,
             "throttled": throttled,

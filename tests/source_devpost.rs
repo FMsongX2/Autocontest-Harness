@@ -1,4 +1,5 @@
-use harness::sources::devpost;
+use harness::error::Error;
+use harness::sources::{self, DETAIL_FAILED, devpost};
 use serde_json::Value;
 
 fn fixture(name: &str) -> String {
@@ -65,4 +66,16 @@ fn url_key_only_hackathon_subdomains() {
     assert_eq!(devpost::url_key("https://www.devpost.com/hackathons"), None);
     assert_eq!(devpost::url_key("https://devpost.com/api/hackathons?status[]=open"), None);
     assert_eq!(devpost::url_key("https://www.kaggle.com/competitions/x"), None);
+}
+
+#[test]
+fn blocked_detail_keeps_list_date_and_notes_the_failure() {
+    let data: Value = serde_json::from_str(&fixture("devpost_list.json")).unwrap();
+    let mut row = devpost::parse_list(&data).unwrap().remove(0);
+    sources::with_detail(&mut row, Err(Error("HTTP 403".into())), devpost::apply_detail);
+    assert_eq!(row.deadline.as_deref(), Some("2026-10-20T23:59+09:00"));
+    assert_eq!(
+        row.note.as_deref(),
+        Some(format!("상금: $19,122 / 시간대 미확인 / {DETAIL_FAILED}: HTTP 403").as_str())
+    );
 }

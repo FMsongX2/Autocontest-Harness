@@ -3,13 +3,15 @@
 //! keeps the defaults for the other levels.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::error::Result;
-use crate::paths;
+use crate::bail;
+use crate::error::{Error, Result};
+use crate::registry::LEVELS;
+use crate::{paths, runners, schedule, workspaces};
 
 const MERGED_KEYS: &[&str] = &[
     "preset_by_level",
@@ -22,6 +24,7 @@ const MERGED_KEYS: &[&str] = &[
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Persona {
     pub enabled: bool,
     /// The persona text (system-prompt addition for the main session): relative to the repository
@@ -36,10 +39,12 @@ pub struct Persona {
 
 /// When scheduled runs happen (`harness schedule`), all in the machine's local time.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Schedule {
     /// 5-field cron expression for the scheduled run (collection, gating, launching, cleanup).
     pub cron: String,
-    /// What starts the run: `orca` (an Orca automation) or `launchd` (`harness autorun`).
+    /// What starts the run: one of `schedule::SCHEDULERS` (`orca` automation, or `launchd`/`cron`
+    /// running `harness autorun`).
     pub scheduler: String,
     /// Hours (a cron hour field such as `0-5`; empty = never) in which a scheduled run also runs
     /// the ContestScout web search. `harness tick` reports the decision as `scout`.
@@ -47,6 +52,7 @@ pub struct Schedule {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub github_org: String,
     pub contests_root: String,
@@ -115,9 +121,70 @@ pub fn merge(mut base: Value, file: Value) -> Value {
 }
 
 pub fn load() -> Result<Config> {
-    let file = paths::config_file();
-    let overlay = if file.exists() { serde_json::from_str(&std::fs::read_to_string(&file)?)? } else { json!({}) };
-    Ok(serde_json::from_value(merge(defaults(), overlay))?)
+    load_at(&paths::config_file())
+}
+
+/// `path` (a missing file means the defaults) laid over the defaults and validated. Every error
+/// names the file.
+pub fn load_at(path: &Path) -> Result<Config> {
+    let at = |err: &dyn std::fmt::Display| Error(format!("{}: {err}", path.display()));
+    let overlay = match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|err| at(&err))?,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(err) => return Err(at(&err)),
+    };
+    if !overlay.is_object() {
+        return Err(at(&"설정 파일은 JSON 객체여야 한다"));
+    }
+    let config: Config = serde_json::from_value(merge(defaults(), overlay)).map_err(|err| at(&err))?;
+    validate(&config).map_err(|err| at(&err))?;
+    Ok(config)
+}
+
+/// Values serde cannot check: names of runners, workspaces and schedulers, the cron expression,
+/// per-level keys and numeric ranges.
+pub fn validate(config: &Config) -> Result<()> {
+    let one_of = |key: &str, value: &str, names: &[&str]| -> Result<()> {
+        if names.contains(&value) {
+            Ok(())
+        } else {
+            bail!("{key}는 {} 중 하나여야 한다: {value:?}", names.join(", "))
+        }
+    };
+    one_of("runner", &config.runner, &runners::names())?;
+    one_of("workspace", &config.workspace, workspaces::NAMES)?;
+    one_of("schedule.scheduler", &config.schedule.scheduler, schedule::SCHEDULERS)?;
+    schedule::Cron::parse(&config.schedule.cron).map_err(|err| Error(format!("schedule.cron: {err}")))?;
+    if !config.schedule.scout_hours.trim().is_empty() {
+        schedule::parse_field(&config.schedule.scout_hours, 0, 23)
+            .map_err(|err| Error(format!("schedule.scout_hours: {err}")))?;
+    }
+    let levels = [
+        ("preset_by_level", config.preset_by_level.keys().copied().collect::<Vec<_>>()),
+        ("model_by_level", config.model_by_level.keys().copied().collect()),
+        ("max_running_by_level", config.max_running_by_level.keys().copied().collect()),
+        ("ram_gb_by_level", config.ram_gb_by_level.keys().copied().collect()),
+    ];
+    for (key, keys) in levels {
+        if let Some(bad) = keys.iter().find(|l| !LEVELS.contains(l)) {
+            bail!("{key}의 키는 레벨 1~5만 쓴다: {bad}");
+        }
+    }
+    let gb = [("ram_reserve_gb", config.ram_reserve_gb)]
+        .into_iter()
+        .chain(config.ram_gb_by_level.values().map(|v| ("ram_gb_by_level", *v)));
+    for (key, value) in gb {
+        if !value.is_finite() || value < 0.0 {
+            bail!("{key}는 0 이상의 숫자여야 한다: {value}");
+        }
+    }
+    if !config.ram_gb_per_worker.is_finite() || config.ram_gb_per_worker <= 0.0 {
+        bail!("ram_gb_per_worker는 0보다 큰 숫자여야 한다: {}", config.ram_gb_per_worker);
+    }
+    if config.collect_pages == 0 {
+        bail!("collect_pages는 1 이상이어야 한다");
+    }
+    Ok(())
 }
 
 impl Config {

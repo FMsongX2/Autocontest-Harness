@@ -6,7 +6,7 @@ Pull requests are welcome. Two kinds of extension have a fixed shape: a **runner
 
 ## Ground rules
 
-- Run `cargo fmt`, `cargo clippy --all-targets` (no warnings), and `cargo test` before you open the pull request. There is no CI, so paste the results into the pull request.
+- Run `scripts/check.sh` before you open the pull request. It runs `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, and `cargo audit` (skipped with a note when `cargo-audit` is not installed). Pull requests and releases must pass it. There is no CI, so paste the output into the pull request.
 - Never commit personal data, operator-specific paths, or anything from `data/` other than the `*.example.*` files.
 - Agent prompts, the skill, playbooks, and templates are written in Korean in a report style. Code comments and this file are in English.
 - Only the CLI writes the registry. Agents and extensions call `harness`.
@@ -38,6 +38,7 @@ Create `src/runners/<name>.rs` with a unit struct and `impl Runner for <Struct>`
 | `interactive(spec)` | none | A command for a session with a TTY that starts by reading the instructions |
 | `oneshot(spec)` | none | A command that runs the instructions once without a TTY and exits. The `headless` workspace and `harness autorun` use it |
 | `install(root)` | none | Install the agents, the skill, and, where the harness has one, an extension package from the checkout at `root`. Idempotent. One human-readable line per action |
+| `installed(root)` | `None` | Whether the harness agents, skill, and extension are installed for the checkout at `root`: `Some(true)` or `Some(false)`, or `None` when the adapter cannot tell. `harness doctor` reports it. The omp adapter checks that `omp plugin list --json` has an enabled `contest-harness` package that resolves to `root` |
 
 <p>Table 1. The <code>Runner</code> trait</p>
 
@@ -78,10 +79,11 @@ In `src/runners/mod.rs`, add `pub mod <name>;` and append `&<name>::<Struct>` to
 - Add a test with the exact interactive and one-shot command lines for a full and a bare `Spec`, like `omp_commands`.
 - If `install` writes files, test it against a scratch home directory: a second run changes nothing, and a stale agent file is removed.
 - Tests never start the real harness and never touch the network.
+- [tests/e2e.rs](tests/e2e.rs) drives the real binary through one whole lifecycle offline (add, gate, route, a headless session on a stand-in runner, approval, submission, cleanup) with a temporary home, git config, and `HARNESS_HOME`. If your change touches that path, keep it passing and extend it rather than adding a second end-to-end test.
 
 ### 5. Pull request checklist
 
-- [ ] `cargo fmt`, `cargo clippy --all-targets` with no warnings, and `cargo test` pass.
+- [ ] `scripts/check.sh` passes (output pasted).
 - [ ] `harness install --runner <name>` output, from two runs in a row.
 - [ ] `harness launch <id> --dry-run` output for a routed test contest.
 - [ ] One real session on the harness, either a contest session or `harness chat`, showing that the agent read the instructions and called `harness`. Name the harness version.
@@ -103,7 +105,7 @@ pull request를 환영한다. 정해진 모양이 있는 확장은 두 가지다
 
 ### 기본 규칙
 
-- pull request를 열기 전에 `cargo fmt`, `cargo clippy --all-targets`(경고 0), `cargo test`를 돌린다. CI가 없으므로 결과를 pull request에 붙인다.
+- pull request를 열기 전에 `scripts/check.sh`를 돌린다. 이 스크립트는 `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, `cargo audit`(`cargo-audit`이 없으면 알리고 건너뛴다)을 차례로 돌린다. pull request와 릴리스는 이것을 통과해야 한다. CI가 없으므로 출력을 pull request에 붙인다.
 - 개인정보, 운영자 환경 경로, `data/`의 파일(`*.example.*` 제외)은 커밋하지 않는다.
 - 에이전트 지시문, 스킬, 플레이북, 템플릿은 한국어 보고서체로 쓴다. 코드 주석은 영어로 쓴다.
 - 레지스트리는 CLI만 쓴다. 에이전트와 확장은 `harness`를 부른다.
@@ -135,6 +137,7 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 | `interactive(spec)` | 없음 | TTY가 있는 세션 명령. 지시문을 먼저 읽고 시작한다 |
 | `oneshot(spec)` | 없음 | TTY 없이 지시문을 한 번 수행하고 끝나는 명령. `headless` 작업 환경과 `harness autorun`이 쓴다 |
 | `install(root)` | 없음 | `root` 클론에서 에이전트, 스킬, 하네스에 있으면 확장 패키지를 설치한다. 여러 번 돌려도 결과가 같아야 하고, 한 일마다 한 줄을 돌려준다 |
+| `installed(root)` | `None` | `root` 클론의 에이전트·스킬·확장이 설치되어 있는지. `Some(true)`나 `Some(false)`, 어댑터가 알 수 없으면 `None`을 돌려준다. `harness doctor`가 알린다. omp 어댑터는 `omp plugin list --json`에 `root`를 가리키는 켜진 `contest-harness` 패키지가 있는지 본다 |
 
 <p>표 1. <code>Runner</code> trait</p>
 
@@ -175,10 +178,11 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 - `omp_commands`처럼, 값을 다 채운 `Spec`과 빈 `Spec`의 대화형·한 번 실행 명령줄을 그대로 비교하는 테스트를 더한다.
 - `install`이 파일을 쓰면 임시 홈 폴더로 테스트한다. 두 번째 실행은 아무것도 바꾸지 않고, 낡은 에이전트 파일은 지워져야 한다.
 - 테스트는 실제 하네스를 띄우지 않고 네트워크에 닿지 않는다.
+- [tests/e2e.rs](tests/e2e.rs)는 실제 바이너리로 수명주기 하나 전체(추가, 게이트, 라우팅, 대역 러너로 띄운 headless 세션, 승인, 제출, 정리)를 임시 홈·git 설정·`HARNESS_HOME`에서 오프라인으로 돌린다. 이 경로를 건드리는 변경이면 이 테스트가 통과하게 두고, 종단 간 테스트를 따로 만들기보다 이 테스트를 늘린다.
 
 #### 5. pull request 점검표
 
-- [ ] `cargo fmt`, 경고 없는 `cargo clippy --all-targets`, `cargo test` 통과.
+- [ ] `scripts/check.sh` 통과(출력 첨부).
 - [ ] `harness install --runner <이름>`을 연달아 두 번 돌린 출력.
 - [ ] 라우팅한 시험 공모전의 `harness launch <id> --dry-run` 출력.
 - [ ] 그 하네스로 돌린 실제 세션 하나(공모전 세션이나 `harness chat`). 에이전트가 지시문을 읽고 `harness`를 부른 것이 보여야 한다. 하네스 버전을 적는다.

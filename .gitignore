@@ -1,5 +1,8 @@
 .DS_Store
 /target/
+# Installed binary (scripts/install.sh) and release packages (scripts/release.sh).
+/bin/
+/dist/
 node_modules/
 references/*
 !references/REFERENCES.md
@@ -15,8 +18,11 @@ data/persona.md
 data/trash/
 data/archive/
 data/*.lock
+# Atomic-save temp files (`.registry-<pid>.json`, `.submissions-<pid>.json`) a crash can leave behind.
+data/.*.json
 data/registry.json
 data/main-system.md
 data/main-start.md
 data/logs/
 BOARD.md
+.BOARD-*.md

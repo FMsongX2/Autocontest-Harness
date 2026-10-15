@@ -2,10 +2,11 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::LazyLock;
 
 use clap::{Parser, Subcommand};
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use harness::error::{Error, Result};
@@ -17,10 +18,12 @@ use harness::{
 };
 
 const EXIT_DUPLICATE: u8 = 3;
+/// `0.3.0 (<git sha>)`: the commit tells whether the binary matches the checkout (`harness doctor`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("HARNESS_GIT_SHA"), ")");
 const EXIT_PERSONA: u8 = 4;
 
 #[derive(Parser)]
-#[command(name = "harness", version, about = "Contest automation harness (docs/CONTRACT.md)")]
+#[command(name = "harness", version = VERSION, about = "Contest automation harness (docs/CONTRACT.md)")]
 struct Cli {
     /// Print JSON instead of text.
     #[arg(long, global = true)]
@@ -36,32 +39,40 @@ enum Command {
         /// A source name or `all`.
         #[arg(long, default_value = "all")]
         source: String,
-        #[arg(long)]
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         pages: Option<u32>,
     },
-    /// Add one contest by hand or from ContestScout.
+    /// Add contests by hand or from ContestScout: one with --title/--url, or many with --from-file.
     Add {
-        #[arg(long)]
-        title: String,
-        #[arg(long)]
-        url: String,
-        #[arg(long)]
+        #[arg(long, required_unless_present = "from_file", conflicts_with = "from_file")]
+        title: Option<String>,
+        #[arg(long, required_unless_present = "from_file", conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "from_file")]
         org: Option<String>,
-        #[arg(long)]
+        /// YYYY-MM-DD (taken as 23:59 KST) or YYYY-MM-DDTHH:MM+09:00.
+        #[arg(long, conflicts_with = "from_file")]
         deadline: Option<String>,
+        /// Default source (`scout` or `manual`); items in --from-file may set their own.
         #[arg(long, default_value = "manual", value_parser = ["scout", "manual"])]
         source: String,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from_file")]
         note: Option<String>,
+        /// A JSON object or array of objects `{title, url, org?, deadline?, source?, note?, categories?}`
+        /// (written with a file tool, so fetched text never passes through a shell).
+        #[arg(long)]
+        from_file: Option<PathBuf>,
         #[arg(long)]
         force: bool,
     },
     /// Find registry entries and contest folders that look like the same contest (exit 3 if any).
     DedupeCheck {
-        title: String,
+        /// The title to check (default with --id: the entry's title).
+        #[arg(required_unless_present = "id")]
+        title: Option<String>,
         #[arg(long)]
         url: Option<String>,
-        /// Leave this entry out and take its URL, organizer and deadline.
+        /// Leave this entry out and take its title, URL, organizer and deadline (flags override).
         #[arg(long)]
         id: Option<String>,
         #[arg(long)]
@@ -119,8 +130,11 @@ enum Command {
         id: String,
         #[arg(value_parser = STATES.to_vec())]
         state: String,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "note_file")]
         note: Option<String>,
+        /// Read the note from this file (verbatim), so fetched text never passes through a shell.
+        #[arg(long)]
+        note_file: Option<PathBuf>,
         #[arg(long, default_value = "agent")]
         by: String,
         /// Enter awaiting_approval despite persona-guard findings, with the reason
@@ -132,6 +146,19 @@ enum Command {
         #[arg(long)]
         score_ok: Option<String>,
     },
+    /// Record the user's approval: ends a level 5 plan review (`plan_review → running`) or approves
+    /// the submission (`awaiting_approval`). Refused inside contest sessions (HARNESS_SESSION set).
+    Approve {
+        id: String,
+        /// The user's approval message, verbatim, with its time.
+        #[arg(long, required_unless_present = "note_file", conflicts_with = "note_file")]
+        note: Option<String>,
+        /// Read the approval message from this file (verbatim).
+        #[arg(long)]
+        note_file: Option<PathBuf>,
+        #[arg(long, default_value = "user")]
+        by: String,
+    },
     /// Record a ContestJudge score (with --stage and --file) or show the score history.
     Score {
         id: String,
@@ -140,21 +167,31 @@ enum Command {
         /// ContestJudge output JSON (`.harness/judge/<stage>-<n>.json`).
         #[arg(long, requires = "stage")]
         file: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "note_file")]
         note: Option<String>,
+        /// Read the note from this file (verbatim), so fetched text never passes through a shell.
+        #[arg(long)]
+        note_file: Option<PathBuf>,
     },
-    /// Record a submission.
+    /// Record a submission. Re-running it on an already submitted entry with the same method and
+    /// receipt changes nothing but restores a missing ledger record.
     Submit {
         id: String,
         #[arg(long)]
         method: String,
+        #[arg(long, required_unless_present = "receipt_file", conflicts_with = "receipt_file")]
+        receipt: Option<String>,
+        /// Read the receipt from this file (verbatim).
         #[arg(long)]
-        receipt: String,
+        receipt_file: Option<PathBuf>,
         #[arg(long, num_args = 0..)]
         files: Vec<String>,
         /// Approval evidence and other notes.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "note_file")]
         note: Option<String>,
+        /// Read the note from this file (verbatim).
+        #[arg(long)]
+        note_file: Option<PathBuf>,
         #[arg(long, default_value = "agent")]
         by: String,
     },
@@ -215,6 +252,8 @@ enum Command {
     },
     /// Run the scheduled automation once with the configured runner (what launchd starts).
     Autorun,
+    /// Check that this checkout, its config, the tools it calls and the scheduled run are ready.
+    Doctor,
     /// Install, remove or inspect the scheduled run (config `schedule`: cron, scheduler, scout_hours).
     Schedule {
         #[command(subcommand)]
@@ -226,12 +265,13 @@ enum Command {
 enum ScheduleAction {
     /// Create or update the scheduled run on the scheduler with `schedule.cron`.
     Install {
-        /// `orca` or `launchd` (default: config `schedule.scheduler`).
+        /// `orca`, `launchd` or `cron` (default: config `schedule.scheduler`).
         #[arg(long)]
         scheduler: Option<String>,
     },
     /// Remove the scheduled run from the scheduler.
     Remove {
+        /// `orca`, `launchd` or `cron` (default: config `schedule.scheduler`).
         #[arg(long)]
         scheduler: Option<String>,
     },
@@ -271,13 +311,25 @@ enum ProfileAction {
     Path,
     /// The `## 참가 자격` section only (what ContestGate reads; no personal details).
     Eligibility,
-    /// The whole profile, personal details included (only in an approved submission step).
-    Show,
+    /// The whole profile, personal details included: only for a contest whose submission the user
+    /// approved (`harness approve`) or that is already submitted.
+    Show {
+        /// The contest id the details are for (inside a contest session: its own id).
+        #[arg(long = "for")]
+        for_id: String,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(&cli) {
+    // --help and --version never get here (clap answers them); every command needs the checkout.
+    // Doctor reports a missing checkout itself, with the fix.
+    let result = if matches!(cli.command, Command::Doctor) {
+        run(&cli)
+    } else {
+        harness::paths::checked_root().and_then(|_| run(&cli))
+    };
+    match result {
         Ok(code) => ExitCode::from(code),
         Err(err) => {
             eprintln!("오류: {err}");
@@ -286,20 +338,62 @@ fn main() -> ExitCode {
     }
 }
 
+/// Print the text (or JSON) on stdout. A reader that went away (`| head`) is not an error: the
+/// work is already done, so the rest of the output is dropped quietly.
 fn emit(json_mode: bool, payload: &impl Serialize, text: Option<String>) -> Result<()> {
-    match text {
-        Some(text) if !json_mode => println!("{text}"),
-        _ => println!("{}", serde_json::to_string_pretty(payload)?),
+    use std::io::Write;
+    let out = match text {
+        Some(text) if !json_mode => text,
+        _ => serde_json::to_string_pretty(payload)?,
+    };
+    let mut stdout = std::io::stdout().lock();
+    match writeln!(stdout, "{out}").and_then(|()| stdout.flush()) {
+        Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => Err(err.into()),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 fn line(e: &Entry) -> String {
+    line_at(e, e.id.chars().count())
+}
+
+/// One row per entry with the id column as wide as the longest id.
+fn rows<'a>(entries: impl IntoIterator<Item = &'a Entry> + Clone) -> Vec<String> {
+    let width = entries.clone().into_iter().map(|e| e.id.chars().count()).max().unwrap_or(0);
+    entries.into_iter().map(|e| line_at(e, width)).collect()
+}
+
+fn line_at(e: &Entry, id_width: usize) -> String {
     let level = e.level.map(|l| format!("L{l}")).unwrap_or_else(|| "-".into());
     let today = chrono::Utc::now().with_timezone(&text::kst()).date_naive();
     let dday = board::dday(e.deadline.as_deref(), today);
     let title: String = e.title.chars().take(60).collect();
-    format!("{:<28} {:<17} {:<7} {:<8} {:<3} {}", e.id, e.state, dday, e.kind.as_deref().unwrap_or("-"), level, title)
+    let kind = e.kind.as_deref().unwrap_or("-");
+    format!("{:<id_width$} {:<17} {:<7} {:<8} {:<3} {}", e.id, e.state, dday, kind, level, title)
+}
+
+/// A string field of a JSON result for text output: `-` when it is missing or null.
+fn shown(value: &Value) -> &str {
+    value.as_str().filter(|s| !s.is_empty()).unwrap_or("-")
+}
+
+/// `\n경고: …` for each string in the result's `warnings`.
+fn warning_lines(result: &Value) -> String {
+    let warnings = result["warnings"].as_array().map(Vec::as_slice).unwrap_or_default();
+    warnings.iter().filter_map(Value::as_str).map(|w| format!("\n경고: {w}")).collect()
+}
+
+/// The contents of a `--*-file` option, verbatim; errors name the file.
+fn read_file(path: &std::path::Path) -> Result<String> {
+    std::fs::read_to_string(path).map_err(|err| Error(format!("{}: {err}", path.display())))
+}
+
+/// `--note`/`--note-file` (they are mutually exclusive).
+fn note_value(note: &Option<String>, file: &Option<PathBuf>) -> Result<Option<String>> {
+    match file {
+        Some(path) => read_file(path).map(Some),
+        None => Ok(note.clone()),
+    }
 }
 
 fn run(cli: &Cli) -> Result<u8> {
@@ -312,7 +406,7 @@ fn run(cli: &Cli) -> Result<u8> {
                 return Err(Error(format!("알 수 없는 출처: {source} (가능: {}, all)", names.join(", "))));
             }
             let report = collect::collect(&cfg, source, pages.unwrap_or(cfg.collect_pages))?;
-            let new_lines: Vec<String> = report.new.iter().map(line).collect();
+            let new_lines = rows(&report.new);
             let seen: Vec<String> = report.seen.iter().map(|(k, v)| format!("{k} {v}")).collect();
             let mut lines = vec![
                 format!(
@@ -331,55 +425,78 @@ fn run(cli: &Cli) -> Result<u8> {
             let failed = !report.errors.is_empty() && report.added.is_empty() && report.merged.is_empty();
             Ok(u8::from(failed))
         }
-        Command::Add { title, url, org, deadline, source, note, force } => {
+        Command::Add { title, url, org, deadline, source, note, from_file, force } => {
+            let items = match from_file {
+                Some(path) => add_specs_from_file(path, source)?,
+                None => {
+                    let spec = AddSpec {
+                        title: title.clone().unwrap_or_default(),
+                        url: url.clone().unwrap_or_default(),
+                        org: org.clone(),
+                        deadline: deadline.clone(),
+                        source: None,
+                        note: note.clone(),
+                        categories: Vec::new(),
+                    };
+                    vec![add_item(spec, source)?]
+                }
+            };
             let cfg = config::load()?;
             let submitted = ledger::load_at(&ledger::path())?;
-            registry::write(|reg| {
-                let query = dedupe::Query {
-                    title,
-                    url,
-                    include_folders: true,
-                    exclude_id: None,
-                    strict: false,
-                    organizer: "",
-                    deadline: None,
-                    submitted: Some(&submitted),
-                };
-                let matches = dedupe::find_matches(reg, &cfg, &query);
-                if !matches.is_empty() && !force {
-                    let listing = serde_json::to_string_pretty(&matches)?;
-                    emit(
-                        json_mode,
-                        &json!({"duplicate": true, "matches": matches}),
-                        Some(format!("같은 공모전으로 보이는 항목이 있어 추가하지 않았다(--force로 강제):\n{listing}")),
-                    )?;
-                    return Ok(EXIT_DUPLICATE);
+            let outcomes = registry::write(|reg| {
+                Ok(items.into_iter().map(|item| add_one(reg, &cfg, &submitted, item, *force)).collect::<Vec<_>>())
+            })?;
+            let held = outcomes.iter().any(|o| matches!(o, Added::Held { .. }));
+            if from_file.is_none() {
+                match outcomes.into_iter().next() {
+                    Some(Added::Entry(entry)) => emit(json_mode, &entry, Some(format!("추가: {}", line(&entry))))?,
+                    Some(Added::Held { matches, .. }) => {
+                        let listing = serde_json::to_string_pretty(&matches)?;
+                        emit(
+                            json_mode,
+                            &json!({"duplicate": true, "matches": matches}),
+                            Some(format!(
+                                "같은 공모전으로 보이는 항목이 있어 추가하지 않았다(--force로 강제):\n{listing}"
+                            )),
+                        )?;
+                    }
+                    None => {}
                 }
-                let mut entry_id = format!("{source}-{}", slug(url, title));
-                if reg.contests.contains_key(&entry_id) {
-                    entry_id = format!("{entry_id}-{}", text::now()[11..16].replace(':', ""));
+            } else {
+                let added: Vec<&Entry> =
+                    outcomes.iter().filter_map(|o| if let Added::Entry(e) = o { Some(&**e) } else { None }).collect();
+                let duplicates: Vec<Value> = outcomes
+                    .iter()
+                    .filter_map(|o| match o {
+                        Added::Held { title, url, matches } => {
+                            Some(json!({"title": title, "url": url, "matches": matches}))
+                        }
+                        Added::Entry(_) => None,
+                    })
+                    .collect();
+                let mut lines =
+                    vec![format!("추가 {}건, 중복으로 보류 {}건(--force로 강제)", added.len(), duplicates.len())];
+                lines.extend(rows(added.iter().copied()).into_iter().map(|l| format!("추가: {l}")));
+                for dup in &duplicates {
+                    lines.push(format!("보류: {} {}", shown(&dup["title"]), serde_json::to_string(&dup["matches"])?));
                 }
-                let entry = registry::new_entry(NewEntry {
-                    id: &entry_id,
-                    title,
-                    url,
-                    source,
-                    organizer: org.as_deref().unwrap_or(""),
-                    deadline: deadline.clone(),
-                    categories: Vec::new(),
-                    note: note.clone(),
-                });
-                let text = format!("추가: {}", line(&entry));
-                emit(json_mode, &entry, Some(text))?;
-                reg.contests.insert(entry_id, entry);
-                Ok(0)
-            })
+                emit(json_mode, &json!({"added": added, "duplicates": duplicates}), Some(lines.join("\n")))?;
+            }
+            Ok(if held { EXIT_DUPLICATE } else { 0 })
         }
         Command::DedupeCheck { title, url, id, org, deadline } => {
             let cfg = config::load()?;
             let submitted = ledger::load_at(&ledger::path())?;
             let matches = registry::read(|reg| {
                 let own = id.as_deref().and_then(|i| reg.contests.get(i));
+                let title = match (title.as_deref(), own) {
+                    (Some(title), _) => title,
+                    (None, Some(entry)) => entry.title.as_str(),
+                    (None, None) => match id {
+                        Some(id) => return Err(Error(format!("레지스트리에 없는 id: {id}"))),
+                        None => return Err(Error("제목이나 --id가 필요하다".into())),
+                    },
+                };
                 let query = dedupe::Query {
                     title,
                     url: url.as_deref().or(own.map(|e| e.url.as_str())).unwrap_or(""),
@@ -413,11 +530,7 @@ fn run(cli: &Cli) -> Result<u8> {
                     .collect())
             })?;
             rows.sort_by(|a, b| a.deadline.as_deref().unwrap_or("9999").cmp(b.deadline.as_deref().unwrap_or("9999")));
-            let text = if rows.is_empty() {
-                "(없음)".to_string()
-            } else {
-                rows.iter().map(line).collect::<Vec<_>>().join("\n")
-            };
+            let text = if rows.is_empty() { "(없음)".to_string() } else { self::rows(&rows).join("\n") };
             emit(json_mode, &rows, Some(text))?;
             Ok(0)
         }
@@ -427,7 +540,8 @@ fn run(cli: &Cli) -> Result<u8> {
             Ok(0)
         }
         Command::Gate { id, file } => {
-            let gate: Value = serde_json::from_str(&std::fs::read_to_string(file)?)?;
+            let raw = read_file(file)?;
+            let gate: Value = serde_json::from_str(&raw).map_err(|err| Error(format!("{}: {err}", file.display())))?;
             let entry = registry::write(|reg| {
                 let entry = reg.get_mut(id)?;
                 registry::apply_gate(entry, gate, "ContestGate")?;
@@ -439,48 +553,50 @@ fn run(cli: &Cli) -> Result<u8> {
         Command::Route { id, folder, no_repo, no_workspace } => {
             let cfg = config::load()?;
             let submitted = ledger::load_at(&ledger::path())?;
-            let summary = registry::write(|reg| {
-                route::route(reg.get_mut(id)?, &cfg, &submitted, folder.as_deref(), !no_repo, !no_workspace)
-            })?;
-            let text = format!(
+            // gh/git/orca run on a copy without the registry lock; only a finished route is stored.
+            let base = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
+            let (_, summary) = route_stored(&base, &cfg, &submitted, folder.as_deref(), !no_repo, !no_workspace)?;
+            let mut text = format!(
                 "라우팅: {} (저장소 {}, 작업 공간 {})",
-                summary["folder"].as_str().unwrap_or("-"),
-                summary["repo"].as_str().unwrap_or("None"),
-                summary["workspace_id"].as_str().unwrap_or("None"),
+                shown(&summary["folder"]),
+                shown(&summary["repo"]),
+                shown(&summary["workspace_id"]),
             );
+            text.push_str(&warning_lines(&summary));
             emit(json_mode, &summary, Some(text))?;
             Ok(0)
         }
         Command::Launch { id, preset, dry_run, force } => {
             let cfg = config::load()?;
-            let (level, state, running) = registry::read(|reg| {
-                let entry = reg.get(id)?;
-                Ok((entry.level, entry.state.clone(), reg.running_by_level()))
-            })?;
-            if state == "routed" && !dry_run && !force {
-                let cap = budget::capacity(&cfg, &running);
-                let free = level.and_then(|l| cap["slots_by_level"][l.to_string()].as_u64()).unwrap_or(0);
-                if free == 0 {
-                    return Err(Error(format!(
-                        "{id}: 지금은 레벨 {} 공모전을 더 띄우지 않는다(진행 중 {running:?}, 레벨별 상한 {:?}, 메모리 예산 {}GB·압박 {}, 전체 여유 {}). 넘기려면 --force",
-                        level.map(|l| l.to_string()).unwrap_or_else(|| "None".into()),
-                        cfg.max_running_by_level,
-                        cap["ram"]["budget_gb"],
-                        cap["ram"]["pressure"].as_str().unwrap_or("unknown"),
-                        cap["slots"],
-                    )));
-                }
-            }
             let result = if *dry_run {
-                registry::read(|reg| launch::launch(&mut reg.get(id)?.clone(), &cfg, preset.as_deref(), true))?
+                let mut copy = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
+                launch::launch(&mut copy, &cfg, preset.as_deref(), true)?
             } else {
-                registry::write(|reg| launch::launch(reg.get_mut(id)?, &cfg, preset.as_deref(), false))?
+                // One launch at a time: the capacity seen here stays true until this one is stored.
+                let _guard = registry::launch_guard()?;
+                let (base, running) = registry::read(|reg| Ok((reg.get(id)?.clone(), reg.running_by_level())))?;
+                if base.state == "routed" && !force {
+                    let cap = budget::capacity(&cfg, &running);
+                    let free = base.level.and_then(|l| cap["slots_by_level"][l.to_string()].as_u64()).unwrap_or(0);
+                    if free == 0 {
+                        let budget_gb = cap["ram"]["budget_gb"].as_f64().map(|gb| gb.to_string());
+                        return Err(Error(format!(
+                            "{id}: 지금은 레벨 {} 공모전을 더 띄우지 않는다(진행 중 {running:?}, 레벨별 상한 {:?}, 메모리 예산 {}GB·압박 {}, 전체 여유 {}). 넘기려면 --force",
+                            base.level.map(|l| l.to_string()).unwrap_or_else(|| "-".into()),
+                            cfg.max_running_by_level,
+                            budget_gb.as_deref().unwrap_or("알 수 없음"),
+                            cap["ram"]["pressure"].as_str().unwrap_or("unknown"),
+                            cap["slots"],
+                        )));
+                    }
+                }
+                launch_stored(&base, &cfg, preset.as_deref())?
             };
-            let text = format!(
-                "실행 명령: {}\n세션: {}",
-                result["command"].as_str().unwrap_or(""),
-                result["handle"].as_str().unwrap_or("None")
-            );
+            let mut text = format!("실행 명령: {}\n세션: {}", shown(&result["command"]), shown(&result["handle"]));
+            if let Some(prompt) = result["prompt_text"].as_str() {
+                text.push_str(&format!("\n\n{prompt}"));
+            }
+            text.push_str(&warning_lines(&result));
             emit(json_mode, &result, Some(text))?;
             Ok(0)
         }
@@ -505,8 +621,8 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(json_mode, &json!({"id": id, "terms": terms, "findings": findings}), Some(text))?;
             Ok(if findings.is_empty() { 0 } else { EXIT_PERSONA })
         }
-        Command::Transition { id, state, note, by, persona_ok, score_ok } => {
-            let mut note = note.clone().unwrap_or_default();
+        Command::Transition { id, state, note, note_file, by, persona_ok, score_ok } => {
+            let mut note = note_value(note, note_file)?.unwrap_or_default();
             if state == "awaiting_approval" {
                 let cfg = config::load()?;
                 let current = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
@@ -531,29 +647,69 @@ fn run(cli: &Cli) -> Result<u8> {
                 {
                     note = if note.is_empty() { exception } else { format!("{note} / {exception}") };
                 }
+                if state == "submitted" {
+                    registry::check_submit_approved(entry)?;
+                }
                 registry::transition(entry, state, by, &note)?;
                 Ok(entry.clone())
             })?;
             emit(json_mode, &entry, Some(format!("상태 변경: {}", line(&entry))))?;
             Ok(0)
         }
-        Command::Submit { id, method, receipt, files, note, by } => {
-            let entry = registry::write(|reg| {
+        Command::Approve { id, note, note_file, by } => {
+            let note = note_value(note, note_file)?.unwrap_or_default();
+            let session = std::env::var(launch::SESSION_ENV).ok();
+            let (entry, stage) = registry::write(|reg| {
                 let entry = reg.get_mut(id)?;
-                let joined: Vec<&str> =
-                    [Some(receipt.as_str()), note.as_deref()].into_iter().flatten().filter(|s| !s.is_empty()).collect();
-                registry::transition(entry, "submitted", by, &joined.join(" / "))?;
-                entry
-                    .submissions
-                    .push(json!({"at": text::now(), "method": method, "receipt": receipt, "files": files}));
-                Ok(entry.clone())
+                let stage = registry::approve(entry, &note, by, session.as_deref())?;
+                Ok((entry.clone(), stage))
             })?;
-            let item = ledger::from_submit(&entry, method, receipt, files, note.as_deref().unwrap_or(""));
-            ledger::write_at(&ledger::path(), |l| Ok(l.upsert(item)))?;
-            emit(json_mode, &entry, Some(format!("제출 기록: {}", line(&entry))))?;
+            let what = if stage == "plan" { "계획 승인(running으로)" } else { "제출 승인" };
+            emit(json_mode, &entry, Some(format!("{what}: {}", line(&entry))))?;
             Ok(0)
         }
-        Command::Score { id, stage, file, note } => {
+        Command::Submit { id, method, receipt, receipt_file, files, note, note_file, by } => {
+            let receipt = match receipt_file {
+                Some(path) => read_file(path)?,
+                None => receipt.clone().unwrap_or_default(),
+            };
+            let note = note_value(note, note_file)?.unwrap_or_default();
+            let ledger_path = ledger::path();
+            // Registry and ledger change together: the ledger is written inside the registry write
+            // (lock order registry → ledger, as in clean), so a ledger failure leaves the registry as
+            // it was and the same command can simply be run again.
+            let (entry, repeated) = registry::write(|reg| {
+                let entry = reg.get_mut(id)?;
+                let last = entry.submissions.last();
+                let repeated = entry.state == "submitted"
+                    && last.is_some_and(|s| s["method"] == json!(method) && s["receipt"] == json!(receipt));
+                let at = if repeated {
+                    last.and_then(|s| s["at"].as_str()).map(str::to_string).unwrap_or_else(text::now)
+                } else {
+                    let joined: Vec<&str> =
+                        [receipt.as_str(), note.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+                    registry::check_submit_approved(entry)?;
+                    registry::transition(entry, "submitted", by, &joined.join(" / "))?;
+                    let at = text::now();
+                    entry.submissions.push(json!({"at": at, "method": method, "receipt": receipt, "files": files}));
+                    at
+                };
+                let mut item = ledger::from_submit(entry, method, &receipt, files, &note);
+                item.submitted_at = at;
+                ledger::write_at(&ledger_path, |l| {
+                    // A repeat keeps a record that is already there; it only restores a missing one.
+                    if !(repeated && l.get(&item.key).is_some()) {
+                        l.upsert(item);
+                    }
+                    Ok(())
+                })?;
+                Ok((entry.clone(), repeated))
+            })?;
+            let verb = if repeated { "이미 제출 기록됨(제출 원장 확인)" } else { "제출 기록" };
+            emit(json_mode, &entry, Some(format!("{verb}: {}", line(&entry))))?;
+            Ok(0)
+        }
+        Command::Score { id, stage, file, note, note_file } => {
             let (Some(stage), Some(file)) = (stage, file) else {
                 let entry = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
                 let text = if entry.scores.is_empty() {
@@ -564,7 +720,8 @@ fn run(cli: &Cli) -> Result<u8> {
                 emit(json_mode, &json!({"id": id, "scores": entry.scores}), Some(text))?;
                 return Ok(0);
             };
-            let raw = std::fs::read_to_string(file).map_err(|err| Error(format!("{}: {err}", file.display())))?;
+            let note = note_value(note, note_file)?;
+            let raw = read_file(file)?;
             let judge: Value = serde_json::from_str(&raw).map_err(|err| Error(format!("{}: {err}", file.display())))?;
             let shown = file.canonicalize().unwrap_or_else(|_| file.clone());
             let record =
@@ -580,14 +737,7 @@ fn run(cli: &Cli) -> Result<u8> {
         Command::Profile { action } => profile_command(json_mode, action),
         Command::Clean { id, all: _, dry_run, purge, force } => {
             let opts = clean::Options { dry_run: *dry_run, purge: *purge, force: *force, ..clean::Options::default() };
-            let ledger_path = ledger::path();
-            let outcomes = registry::write(|reg| {
-                let ids: Vec<String> = match id {
-                    Some(id) => vec![reg.get(id)?.id.clone()],
-                    None => reg.contests.values().filter(|e| clean::candidate(e)).map(|e| e.id.clone()).collect(),
-                };
-                ids.iter().map(|id| clean::clean(reg.get_mut(id)?, &ledger_path, &opts)).collect::<Result<Vec<_>>>()
-            })?;
+            let outcomes = clean::run(&harness::paths::registry(), &ledger::path(), id.as_deref(), &opts)?;
             let lines: Vec<String> = outcomes
                 .iter()
                 .map(|o| match (o.ok, *dry_run) {
@@ -667,14 +817,23 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(json_mode, &result, None)?;
             Ok(u8::from(result["exit_code"].as_i64().is_some_and(|c| c != 0)))
         }
+        Command::Doctor => {
+            let checks = harness::doctor::run();
+            emit(json_mode, &json!({"checks": checks}), Some(harness::doctor::text(&checks)))?;
+            Ok(u8::from(checks.iter().any(|c| c.level == harness::doctor::Level::Fail)))
+        }
         Command::Schedule { action } => {
             let cfg = config::load()?;
-            let result = match action {
-                ScheduleAction::Install { scheduler } => schedule::install(&cfg, scheduler.as_deref())?,
-                ScheduleAction::Remove { scheduler } => schedule::remove(&cfg, scheduler.as_deref())?,
-                ScheduleAction::Status => schedule::status(&cfg)?,
+            let (result, text) = match action {
+                ScheduleAction::Install { scheduler } => (schedule::install(&cfg, scheduler.as_deref())?, None),
+                ScheduleAction::Remove { scheduler } => (schedule::remove(&cfg, scheduler.as_deref())?, None),
+                ScheduleAction::Status => {
+                    let status = schedule::status(&cfg)?;
+                    let text = schedule::status_text(&status);
+                    (status, Some(text))
+                }
             };
-            emit(json_mode, &result, None)?;
+            emit(json_mode, &result, text)?;
             Ok(0)
         }
     }
@@ -735,7 +894,7 @@ fn submitted(json_mode: bool, action: Option<&SubmittedAction>) -> Result<u8> {
             emit(json_mode, &items, Some(lines.join("\n")))?;
         }
         Some(SubmittedAction::Add { title, url, org, date, method, receipt, folder, note }) => {
-            let item = ledger::manual(ledger::Manual {
+            let mut item = ledger::manual(ledger::Manual {
                 title,
                 url: url.as_deref().unwrap_or(""),
                 organizer: org.as_deref().unwrap_or(""),
@@ -745,7 +904,7 @@ fn submitted(json_mode: bool, action: Option<&SubmittedAction>) -> Result<u8> {
                 folder: folder.as_deref(),
                 note: note.as_deref().unwrap_or(""),
             })?;
-            let added = ledger::write_at(&path, |l| Ok(l.upsert(item.clone())))?;
+            let added = ledger::write_at(&path, |l| Ok(l.add_manual(&mut item)))?;
             let verb = if added { "추가" } else { "갱신" };
             let text = format!("제출 기록 {verb}: {} {} ({})", item.submitted_at, item.title, item.key);
             emit(json_mode, &json!({"added": added, "submission": item}), Some(text))?;
@@ -777,30 +936,170 @@ fn profile_command(json_mode: bool, action: &ProfileAction) -> Result<u8> {
             emit(json_mode, &json!({"path": path, "exists": path.exists()}), Some(text))?;
         }
         ProfileAction::Eligibility => {
-            let eligibility = profile::eligibility(&profile::read_at(&path)?)?;
+            let text = profile::read_at(&path)?;
+            warn_profile(&path, &text);
+            let eligibility = profile::eligibility(&text)?;
             emit(json_mode, &json!({"path": path, "eligibility": eligibility}), Some(eligibility.clone()))?;
         }
-        ProfileAction::Show => {
+        ProfileAction::Show { for_id } => {
+            let session = std::env::var(launch::SESSION_ENV).ok();
+            registry::read(|reg| registry::check_personal_access(reg.get(for_id)?, session.as_deref()))?;
             let text = profile::read_at(&path)?;
+            warn_profile(&path, &text);
             emit(json_mode, &json!({"path": path, "text": text}), Some(text.clone()))?;
         }
     }
     Ok(0)
 }
 
+/// `[a-z0-9-]` key from the URL; a URL without letters or digits falls back to a hash of the title.
 fn slug(url: &str, title: &str) -> String {
-    let non_alnum = Regex::new(r"[^0-9a-z]+").expect("valid regex");
-    let key: String = non_alnum
+    static NON_ALNUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^0-9a-z]+").expect("valid regex"));
+    let key: String = NON_ALNUM
         .replace_all(&dedupe::normalize_url(url).to_lowercase(), "-")
         .trim_matches('-')
         .chars()
         .take(48)
         .collect();
+    let key = key.trim_end_matches('-');
     if !key.is_empty() {
-        return key;
+        return key.to_string();
     }
-    let non_word = Regex::new(r"\W+").expect("valid regex");
-    non_word.replace_all(title, "-").chars().take(30).collect()
+    let hash = title.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    format!("{:08x}", hash as u32)
+}
+
+/// One `add` item as given (flags or one object of `--from-file`).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddSpec {
+    title: String,
+    url: String,
+    #[serde(default, alias = "organizer")]
+    org: Option<String>,
+    #[serde(default)]
+    deadline: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    categories: Vec<String>,
+}
+
+/// A checked `add` item: one-line title, web URL, normalised deadline, known source.
+struct AddItem {
+    title: String,
+    url: String,
+    org: String,
+    deadline: Option<String>,
+    source: String,
+    note: Option<String>,
+    categories: Vec<String>,
+}
+
+fn add_item(spec: AddSpec, default_source: &str) -> Result<AddItem> {
+    let title = text::one_line(&spec.title);
+    if title.is_empty() {
+        return Err(Error("title이 비어 있다".into()));
+    }
+    let url = spec.url.trim().to_string();
+    if url.is_empty() {
+        return Err(Error("url이 비어 있다".into()));
+    }
+    if !text::is_web_url(&url) {
+        return Err(Error(format!("url은 http:// 또는 https:// 주소여야 한다: {url}")));
+    }
+    let deadline = match spec.deadline.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        Some(raw) => Some(text::normalize_deadline(raw).ok_or_else(|| {
+            Error(format!("deadline은 YYYY-MM-DD 또는 YYYY-MM-DDTHH:MM+09:00 형식의 실제 날짜여야 한다: {raw}"))
+        })?),
+        None => None,
+    };
+    let source = spec.source.unwrap_or_else(|| default_source.to_string());
+    if !["scout", "manual"].contains(&source.as_str()) {
+        return Err(Error(format!("source는 scout 또는 manual이어야 한다: {source}")));
+    }
+    Ok(AddItem {
+        title,
+        url,
+        org: spec.org.unwrap_or_default(),
+        deadline,
+        source,
+        note: spec.note,
+        categories: spec.categories,
+    })
+}
+
+/// Every item of an `add --from-file` file, all checked before anything is written.
+fn add_specs_from_file(path: &std::path::Path, default_source: &str) -> Result<Vec<AddItem>> {
+    let at = |err: &dyn std::fmt::Display| Error(format!("{}: {err}", path.display()));
+    let value: Value = serde_json::from_str(&read_file(path)?).map_err(|err| at(&err))?;
+    let values = match value {
+        Value::Array(values) => values,
+        Value::Object(_) => vec![value],
+        _ => return Err(at(&"JSON 객체나 객체 배열이어야 한다")),
+    };
+    if values.is_empty() {
+        return Err(at(&"추가할 항목이 없다"));
+    }
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(i, value)| {
+            let spec: AddSpec = serde_json::from_value(value).map_err(|err| at(&format!("[{i}] {err}")))?;
+            add_item(spec, default_source).map_err(|err| at(&format!("[{i}] {err}")))
+        })
+        .collect()
+}
+
+enum Added {
+    Entry(Box<Entry>),
+    Held { title: String, url: String, matches: Vec<Value> },
+}
+
+/// Insert one item unless it looks like a contest already known (then it is held back, unless
+/// `force`). The id is `<source>-<url slug>`, with `-2`, `-3`, … when that is taken.
+fn add_one(
+    reg: &mut registry::Registry,
+    cfg: &config::Config,
+    submitted: &ledger::Ledger,
+    item: AddItem,
+    force: bool,
+) -> Added {
+    let query = dedupe::Query {
+        title: &item.title,
+        url: &item.url,
+        include_folders: true,
+        exclude_id: None,
+        strict: false,
+        organizer: "",
+        deadline: None,
+        submitted: Some(submitted),
+    };
+    let matches = dedupe::find_matches(reg, cfg, &query);
+    if !matches.is_empty() && !force {
+        return Added::Held { title: item.title, url: item.url, matches };
+    }
+    let base = format!("{}-{}", item.source, slug(&item.url, &item.title));
+    let mut entry_id = base.clone();
+    let mut n = 2;
+    while reg.contests.contains_key(&entry_id) {
+        entry_id = format!("{base}-{n}");
+        n += 1;
+    }
+    let entry = registry::new_entry(NewEntry {
+        id: &entry_id,
+        title: &item.title,
+        url: &item.url,
+        source: &item.source,
+        organizer: &item.org,
+        deadline: item.deadline,
+        categories: item.categories,
+        note: item.note,
+    });
+    reg.contests.insert(entry_id, entry.clone());
+    Added::Entry(Box::new(entry))
 }
 
 fn capacity_text(cap: &Value, running: &std::collections::BTreeMap<u8, usize>) -> String {
@@ -808,19 +1107,24 @@ fn capacity_text(cap: &Value, running: &std::collections::BTreeMap<u8, usize>) -
         registry::LEVELS.iter().map(|l| format!("L{l} {}", cap["slots_by_level"][l.to_string()])).collect();
     let now_running: Vec<String> = running.iter().filter(|(_, n)| **n > 0).map(|(l, n)| format!("L{l} {n}")).collect();
     let ram = &cap["ram"];
-    format!(
-        "새로 띄울 수 있는 세션 {}개({}), 세션 안 권장 워커 {}명\n진행 중 {}({}), 메모리 {}GB 중 사용자 몫 {}GB를 뺀 예산 {}GB, 압박 {}, 한도 기준 {}",
+    let gb = |v: &Value| v.as_f64().map(|n| format!("{n}GB")).unwrap_or_else(|| "알 수 없음".to_string());
+    let mut text = format!(
+        "새로 띄울 수 있는 세션 {}개({}), 세션 안 권장 워커 {}명\n진행 중 {}({}), 메모리 {} 중 사용자 몫 {}를 뺀 예산 {}, 압박 {}, 한도 기준 {}",
         cap["slots"],
         by_level.join(" · "),
         cap["recommended_workers"],
         cap["running"],
         if now_running.is_empty() { "없음".to_string() } else { now_running.join(" · ") },
-        ram["available_gb"],
-        ram["reserve_gb"],
-        ram["budget_gb"],
+        gb(&ram["available_gb"]),
+        gb(&ram["reserve_gb"]),
+        gb(&ram["budget_gb"]),
         ram["pressure"].as_str().unwrap_or("unknown"),
         cap["limits"]["basis"].as_str().unwrap_or("unknown"),
-    )
+    );
+    if let Some(warning) = ram["warning"].as_str() {
+        text.push_str(&format!("\n경고: {warning}"));
+    }
+    text
 }
 
 fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
@@ -834,64 +1138,69 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
         let hour = chrono::Timelike::hour(&chrono::Local::now()) as u8;
         report["scout"] = json!(schedule::scout_at(&cfg.schedule.scout_hours, hour)?);
     }
-    let (needs_gate, running) = registry::read(|reg| {
-        let ids: Vec<String> =
-            reg.contests.values().filter(|e| e.state == "discovered").map(|e| e.id.clone()).collect();
-        Ok((ids, reg.running_by_level()))
+    let needs_gate: Vec<String> = registry::read(|reg| {
+        Ok(reg.contests.values().filter(|e| e.state == "discovered").map(|e| e.id.clone()).collect())
     })?;
     report["needs_gate"] = json!(needs_gate);
     if auto_launch || cfg.auto_launch {
+        // One launch pass at a time (shared with `harness launch`), so the capacity measured here
+        // holds until every launch below is stored. The registry lock is taken only to read and to
+        // store each result; route (gh/git push) and launch run on copies without it.
+        let _guard = registry::launch_guard()?;
+        let (mut ready, running) = registry::read(|reg| {
+            let ready: Vec<Entry> =
+                reg.contests.values().filter(|e| e.state == "gate_pass" || e.state == "routed").cloned().collect();
+            Ok((ready, reg.running_by_level()))
+        })?;
+        ready.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then_with(|| a.deadline.as_deref().unwrap_or("9999").cmp(b.deadline.as_deref().unwrap_or("9999")))
+        });
         let cap = budget::capacity(&cfg, &running);
         let mut left = cap["slots"].as_u64().unwrap_or(0);
-        let mut ram_left = cap["ram"]["budget_gb"].as_f64().unwrap_or(0.0);
+        // No memory reading (null budget) means no memory limit; the count limits still apply.
+        let mut ram_left = cap["ram"]["budget_gb"].as_f64().unwrap_or(f64::INFINITY);
         let mut left_by_level: std::collections::BTreeMap<u8, u64> =
             registry::LEVELS.iter().map(|l| (*l, cap["slots_by_level"][l.to_string()].as_u64().unwrap_or(0))).collect();
         report["capacity"] = cap;
         let submitted = ledger::load_at(&ledger::path())?;
-        let (launched, waiting, errors) = registry::write(|reg| {
-            let mut ready: Vec<String> = reg
-                .contests
-                .values()
-                .filter(|e| e.state == "gate_pass" || e.state == "routed")
-                .map(|e| e.id.clone())
-                .collect();
-            ready.sort_by(|a, b| {
-                let (ea, eb) = (&reg.contests[a], &reg.contests[b]);
-                eb.priority.cmp(&ea.priority).then_with(|| {
-                    ea.deadline.as_deref().unwrap_or("9999").cmp(eb.deadline.as_deref().unwrap_or("9999"))
-                })
-            });
-            let (mut launched, mut waiting, mut errors) = (Vec::new(), Vec::new(), Vec::new());
-            for id in ready {
-                let entry = reg.get_mut(&id)?;
-                let level = entry.level.unwrap_or(0);
-                let cost = cfg.ram_gb_by_level.get(&level).copied().unwrap_or(f64::INFINITY);
-                if left == 0 || left_by_level.get(&level).copied().unwrap_or(0) == 0 || cost > ram_left {
-                    waiting.push(id);
-                    continue;
-                }
-                let attempt = (|| {
-                    if entry.state == "gate_pass" {
-                        route::route(entry, &cfg, &submitted, None, true, true)?;
-                    }
-                    launch::launch(entry, &cfg, None, false)
-                })();
-                match attempt {
-                    Ok(mut result) => {
-                        result["id"] = json!(id);
-                        launched.push(result);
-                        left -= 1;
-                        *left_by_level.entry(level).or_default() -= 1;
-                        ram_left -= cost;
-                    }
-                    Err(err) => errors.push(format!("{id}: {err}")),
-                }
+        let (mut launched, mut waiting, mut errors, mut warnings) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for base in ready {
+            let id = base.id.clone();
+            let level = base.level.unwrap_or(0);
+            let cost = cfg.ram_gb_by_level.get(&level).copied().unwrap_or(f64::INFINITY);
+            if left == 0 || left_by_level.get(&level).copied().unwrap_or(0) == 0 || cost > ram_left {
+                waiting.push(id);
+                continue;
             }
-            Ok((launched, waiting, errors))
-        })?;
+            // A finished route is stored even when the launch after it fails: the next tick then
+            // only launches.
+            let attempt = if base.state == "gate_pass" {
+                route_stored(&base, &cfg, &submitted, None, true, true).map(|(routed, summary)| {
+                    let found = summary["warnings"].as_array().map(Vec::as_slice).unwrap_or_default();
+                    warnings.extend(found.iter().filter_map(Value::as_str).map(|w| format!("{id}: {w}")));
+                    routed
+                })
+            } else {
+                Ok(base)
+            }
+            .and_then(|routed| launch_stored(&routed, &cfg, None));
+            match attempt {
+                Ok(mut result) => {
+                    result["id"] = json!(id);
+                    launched.push(result);
+                    left -= 1;
+                    *left_by_level.entry(level).or_default() -= 1;
+                    ram_left -= cost;
+                }
+                Err(err) => errors.push(format!("{id}: {err}")),
+            }
+        }
         report["launched"] = json!(launched);
         report["waiting"] = json!(waiting);
         report["errors"] = json!(errors);
+        report["warnings"] = json!(warnings);
     }
     registry::read(board::write)?;
     let ids = |key: &str| -> Vec<String> {
@@ -905,10 +1214,17 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
         .map(|a| a.iter().filter_map(|r| r["id"].as_str().map(str::to_string)).collect())
         .unwrap_or_default();
     let gate_ids = ids("needs_gate");
-    let mut lines = vec![
+    let errors = ids("errors");
+    let mut lines = Vec::new();
+    if !errors.is_empty() {
+        let attempted = errors.len() + launched_ids.len();
+        lines.push(format!("오류 {}건(실행 시도 {attempted}건 중 실패):", errors.len()));
+        lines.extend(errors.iter().map(|e| format!("오류: {e}")));
+    }
+    lines.extend([
         format!(
             "수집: {}",
-            if report["collect"].is_null() { "None".to_string() } else { report["collect"]["seen"].to_string() }
+            if report["collect"].is_null() { "-".to_string() } else { report["collect"]["seen"].to_string() }
         ),
         format!("웹 검색(ContestScout) 이번 회차: {}", if report["scout"] == true { "실행" } else { "안 함" }),
         format!(
@@ -918,8 +1234,66 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
         ),
         format!("실행 {}건: {}", launched_ids.len(), launched_ids.join(", ")),
         format!("상한으로 실행 대기 {}건: {}", ids("waiting").len(), ids("waiting").join(", ")),
-    ];
-    lines.extend(ids("errors").iter().map(|e| format!("오류: {e}")));
+    ]);
+    lines.extend(ids("warnings").iter().map(|w| format!("경고: {w}")));
+    // Exit 0 even when launches failed: the report (needs_gate, waiting) is still valid for the
+    // scheduled run, which reads `errors` from the JSON.
     emit(json_mode, &report, Some(lines.join("\n")))?;
     Ok(0)
+}
+
+/// Route `base` (a copy of the stored entry) without holding the registry lock, then store the
+/// result, unless another command changed the entry meanwhile. A failed route stores nothing.
+fn route_stored(
+    base: &Entry,
+    cfg: &config::Config,
+    submitted: &ledger::Ledger,
+    folder: Option<&str>,
+    repo: bool,
+    workspace: bool,
+) -> Result<(Entry, Value)> {
+    let mut work = base.clone();
+    let summary = route::route(&mut work, cfg, submitted, folder, repo, workspace)?;
+    let stored = registry::write(|reg| {
+        let current = reg.get_mut(&base.id)?;
+        registry::merge_work(current, base, work)?;
+        Ok(current.clone())
+    })?;
+    Ok((stored, summary))
+}
+
+/// Launch `base` on a copy without the registry lock and store the result. When the launch fails
+/// but left a session record behind (a workspace it created), that record alone is stored so a
+/// retry reuses it instead of creating another.
+fn launch_stored(base: &Entry, cfg: &config::Config, preset: Option<&str>) -> Result<Value> {
+    let mut work = base.clone();
+    match launch::launch(&mut work, cfg, preset, false) {
+        Ok(result) => {
+            registry::write(|reg| registry::merge_work(reg.get_mut(&base.id)?, base, work))
+                .map_err(|err| Error(format!("{err} (세션은 이미 떴다: {})", shown(&result["handle"]))))?;
+            Ok(result)
+        }
+        Err(err) => {
+            if work.session != base.session {
+                let session = work.session;
+                let kept = registry::write(|reg| {
+                    let current = reg.get_mut(&base.id)?;
+                    if current.state == base.state && current.session == base.session {
+                        current.session = session;
+                    }
+                    Ok(())
+                });
+                if let Err(save) = kept {
+                    return Err(Error(format!("{err} (세션 기록 저장도 실패: {save})")));
+                }
+            }
+            Err(err)
+        }
+    }
+}
+
+fn warn_profile(path: &std::path::Path, text: &str) {
+    for warning in profile::warnings(path, text) {
+        eprintln!("경고: {warning}");
+    }
 }

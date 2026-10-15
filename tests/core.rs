@@ -99,8 +99,10 @@ fn level_5_needs_approved_plan_review_before_submission_approval() {
     transition(&mut e, "running", "t", "").unwrap();
     assert!(transition(&mut e, "awaiting_approval", "t", "").is_err());
     transition(&mut e, "plan_review", "t", "레퍼런스·SPEC·PLAN 검수 요청").unwrap();
-    assert!(transition(&mut e, "running", "t", "").is_err());
-    transition(&mut e, "running", "t", "승인: '진행해' 2026-10-16 09:00").unwrap();
+    assert!(transition(&mut e, "running", "t", "승인: '진행해'").is_err(), "only approve ends a plan review");
+    assert!(registry::approve(&mut e, "", "user", None).is_err(), "an approval needs the user's words");
+    assert_eq!(registry::approve(&mut e, "승인: '진행해' 2026-10-16 09:00", "user", None).unwrap(), "plan");
+    assert_eq!((e.state.as_str(), e.approvals.len()), ("running", 1));
     transition(&mut e, "awaiting_approval", "t", "").unwrap();
     let mut small = entry("x-7", "정책 서비스", "https://e.com", "manual");
     apply(&mut small, gate("pass", json!({"type": "software", "level": 3}))).unwrap();
@@ -342,6 +344,122 @@ fn collect_merges_same_listing_fills_deadline_and_marks_folder_duplicates() {
     fs::remove_dir_all(&root).unwrap();
 }
 
+fn listing(id: &str, title: &str, url: &str) -> Item {
+    Item { entry_id: id.into(), title: title.into(), url: url.into(), ..Item::default() }
+}
+
+fn kaggle_page(_: u32, _: &HashSet<String>) -> Result<Vec<Item>> {
+    Ok(vec![
+        listing("kaggle-133468", "ARC Prize 2026 - ARC-AGI-3", "https://www.kaggle.com/competitions/arc-agi-3"),
+        listing("kaggle-133467", "ARC Prize 2026 - ARC-AGI-2", "https://www.kaggle.com/competitions/arc-agi-2"),
+        // Same title, different listing ids on one site: still two contests.
+        listing("kaggle-1", "Santa Optimization Puzzle Challenge", "https://www.kaggle.com/competitions/santa-a"),
+        listing("kaggle-2", "Santa Optimization Puzzle Challenge", "https://www.kaggle.com/competitions/santa-b"),
+    ])
+}
+
+fn wevity_page(_: u32, _: &HashSet<String>) -> Result<Vec<Item>> {
+    Ok(vec![listing(
+        "wevity-111674",
+        "2026 화성특례시 AI CF 공모전 - 제6회 별별화성 Awards",
+        "https://www.wevity.com/?c=find&s=1&gub=1&gbn=viewok&gp=1&ix=111674",
+    )])
+}
+
+fn linkareer_page(_: u32, _: &HashSet<String>) -> Result<Vec<Item>> {
+    Ok(vec![
+        listing(
+            "linkareer-5",
+            "[화성특례시] 2026 화성특례시 AI CF 공모전 제6회 별별화성 Awards",
+            "https://linkareer.com/activity/5",
+        ),
+        // Another listing of the site whose earlier copy was merged into the wevity entry.
+        listing(
+            "linkareer-6",
+            "[화성특례시] 2026 화성특례시 AI CF 공모전 제6회 별별화성 Awards",
+            "https://linkareer.com/activity/6",
+        ),
+    ])
+}
+
+#[test]
+fn collect_never_merges_listings_of_one_site_but_merges_cross_site_copies() {
+    let root = temp_dir("collectsamesite");
+    let cfg = config_at(&root);
+    let reg_path = root.join("registry.json");
+    static SITES: &[Source] = &[
+        Source { name: "kaggle", collect: kaggle_page, url_key: no_key },
+        Source { name: "wevity", collect: wevity_page, url_key: no_key },
+        Source { name: "linkareer", collect: linkareer_page, url_key: no_key },
+    ];
+    let report = collect::collect_from(&reg_path, &cfg, SITES, "kaggle", 1).unwrap();
+    assert_eq!(report.added, ["kaggle-133468", "kaggle-133467", "kaggle-1", "kaggle-2"]);
+    assert!(report.merged.is_empty());
+
+    collect::collect_from(&reg_path, &cfg, SITES, "wevity", 1).unwrap();
+    let report = collect::collect_from(&reg_path, &cfg, SITES, "linkareer", 1).unwrap();
+    assert_eq!(report.merged, [json!({"id": "wevity-111674", "from": "linkareer-5"})]);
+    assert_eq!(report.added, ["linkareer-6"]);
+    registry::read_at(&reg_path, |reg| {
+        assert_eq!(reg.contests["wevity-111674"].alt_urls, ["https://linkareer.com/activity/5"]);
+        assert!(!reg.contests.contains_key("linkareer-5"));
+        Ok(())
+    })
+    .unwrap();
+    fs::remove_dir_all(&root).unwrap();
+}
+
+fn panicky(_: u32, _: &HashSet<String>) -> Result<Vec<Item>> {
+    panic!("parser bug");
+}
+
+#[test]
+fn collect_reports_a_panicking_source_by_name_and_keeps_the_others() {
+    let root = temp_dir("collectpanic");
+    let cfg = config_at(&root);
+    let reg_path = root.join("registry.json");
+    static PANICKY: &[Source] = &[
+        Source { name: "good", collect: good, url_key: no_key },
+        Source { name: "panicky", collect: panicky, url_key: no_key },
+    ];
+    let report = collect::collect_from(&reg_path, &cfg, PANICKY, "all", 1).unwrap();
+    assert_eq!(report.added, ["good-1"]);
+    assert_eq!(report.errors.len(), 1);
+    let error = &report.errors[0];
+    assert!(error.starts_with("panicky: ") && error.contains("parser bug"), "{error}");
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn collect_rejects_zero_pages_before_fetching() {
+    let root = temp_dir("collectzero");
+    let reg_path = root.join("registry.json");
+    assert!(collect::collect_from(&reg_path, &config_at(&root), FAKE, "all", 0).is_err());
+    assert!(!reg_path.exists());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+fn hostile_ids(_: u32, _: &HashSet<String>) -> Result<Vec<Item>> {
+    Ok(vec![
+        listing("hostile-$(touch x)", "명령 주입 시도 아주 긴 공모전 제목 하나", "https://e.com/1"),
+        listing("hostile-ABC", "대문자 아이디 아주 긴 공모전 제목 둘", "https://e.com/2"),
+        listing("hostile-", "빈 아이디 아주 긴 공모전 제목 셋", "https://e.com/3"),
+        listing("hostile-12-ab", "정상 아이디 아주 긴 공모전 제목 넷", "https://e.com/4"),
+    ])
+}
+
+#[test]
+fn collect_skips_items_whose_id_is_not_lowercase_alphanumeric() {
+    let root = temp_dir("collectids");
+    let reg_path = root.join("registry.json");
+    static HOSTILE: &[Source] = &[Source { name: "hostile", collect: hostile_ids, url_key: no_key }];
+    let report = collect::collect_from(&reg_path, &config_at(&root), HOSTILE, "all", 1).unwrap();
+    assert_eq!(report.added, ["hostile-12-ab"]);
+    assert_eq!(report.errors.len(), 3);
+    assert!(registry::read_at(&reg_path, |reg| Ok(reg.contests.len() == 1)).unwrap());
+    fs::remove_dir_all(&root).unwrap();
+}
+
 fn window(remaining: f64, time_left: f64) -> Window {
     Window {
         provider: "anthropic".into(),
@@ -386,10 +504,10 @@ fn running(counts: [usize; 5]) -> BTreeMap<u8, usize> {
     (1..=5).zip(counts).collect()
 }
 
-fn capacity(free_gb: f64, run: [usize; 5], pressure: &str, report: &Value) -> Value {
+fn capacity(free_gb: impl Into<Option<f64>>, run: [usize; 5], pressure: &str, report: &Value) -> Value {
     let cfg = config_with(json!({"max_running": 4, "ram_reserve_gb": 8,
         "max_running_by_level": {"1": 3, "2": 1, "3": 2, "4": 1, "5": 0}}));
-    budget::capacity_with(&cfg, &running(run), report, free_gb, pressure)
+    budget::capacity_with(&cfg, &running(run), report, free_gb.into(), pressure)
 }
 
 fn slots(cap: &Value) -> Vec<u64> {
@@ -417,6 +535,8 @@ fn capacity_caps_each_level_by_count_and_memory_budget() {
     assert_eq!(roomy["running_by_level"], json!({"1": 1, "2": 1, "3": 0, "4": 0, "5": 0}));
     assert_eq!(roomy["limits"]["ram_gb_by_level"], json!({"1": 2, "2": 3, "3": 4, "4": 6, "5": 8}));
     assert_eq!(roomy["ram"]["reserve_gb"], json!(8));
+    assert_eq!(roomy["ram"]["basis"], "measured");
+    assert!(roomy["ram"].get("warning").is_none());
 }
 
 #[test]
@@ -434,6 +554,24 @@ fn capacity_stops_on_memory_pressure_and_bounds_workers_by_memory() {
 }
 
 #[test]
+fn capacity_with_unknown_memory_keeps_count_and_level_limits() {
+    let none = json!({"reports": []});
+    let cap = capacity(None, [1, 1, 0, 0, 0], "unknown", &none);
+    // Count limit 4 - 2 running = 2; per-level caps 3,1,2,1,0 minus running; memory does not cut.
+    assert_eq!(cap["slots"], 2);
+    assert_eq!(slots(&cap), [2, 0, 2, 1, 0]);
+    assert_eq!(cap["recommended_workers"], 6);
+    assert_eq!(cap["ram"]["basis"], "unavailable");
+    assert!(cap["ram"]["warning"].as_str().is_some_and(|w| !w.is_empty()));
+    assert_eq!(cap["ram"]["available_gb"], Value::Null);
+    assert_eq!(cap["ram"]["budget_gb"], Value::Null);
+    // Pressure and token throttling still block when memory is unknown.
+    assert_eq!(slots(&capacity(None, [0; 5], "critical", &none)), [0; 5]);
+    // Measured zero memory still means no room: unknown is not the same as empty.
+    assert_eq!(capacity(0.0, [0; 5], "normal", &none)["slots"], 0);
+}
+
+#[test]
 fn config_override_keeps_unlisted_level_defaults() {
     let cfg = config_with(json!({"max_running_by_level": {"5": 0}}));
     assert_eq!(cfg.max_running_by_level, BTreeMap::from([(1, 3), (2, 2), (3, 2), (4, 1), (5, 0)]));
@@ -442,7 +580,9 @@ fn config_override_keeps_unlisted_level_defaults() {
 #[test]
 fn vm_stat_parses_reusable_pages() {
     let out = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:  65536.\nPages active: 1.\nPages inactive:  65536.\nPages speculative:  0.\n";
-    assert_eq!(budget::parse_vm_stat(out), 2.0);
+    assert_eq!(budget::parse_vm_stat(out), Some(2.0));
+    assert_eq!(budget::parse_vm_stat(""), None, "no vm_stat output");
+    assert_eq!(budget::parse_vm_stat("Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"), None);
 }
 
 #[test]
@@ -510,7 +650,10 @@ fn route_creates_folder_documents_without_repo_or_workspace() {
 
     let summary = route::route(&mut e, &cfg, &none, None, false, false).unwrap();
     let target = root.join("Maeum-Shorts");
-    assert_eq!(summary, json!({"folder": target.to_string_lossy(), "repo": null, "workspace_id": null}));
+    assert_eq!(
+        summary,
+        json!({"folder": target.to_string_lossy(), "repo": null, "workspace_id": null, "warnings": []})
+    );
     assert_eq!(e.state, "routed");
     assert_eq!(e.folder.as_deref(), Some(target.to_string_lossy().as_ref()));
     assert!(e.session.is_none());

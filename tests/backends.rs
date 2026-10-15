@@ -206,7 +206,8 @@ fn render_prompt_fills_placeholders_and_notes_missing_subagents() {
     let dir = scratch("render");
     let entry = routed_entry(&dir);
     let omp = launch::render_prompt(&entry, runners::get("omp").unwrap()).unwrap();
-    assert!(omp.starts_with("# 하네스 실행 지시: 데모 공모전"));
+    assert!(omp.starts_with("# 하네스 실행 지시\n"));
+    assert!(omp.contains("제목: 데모 공모전"));
     assert!(omp.contains("data-analysis"));
     assert!(omp.contains("2026-11-30T23:59+09:00"));
     assert!(omp.contains("저장소: 없음"));
@@ -248,9 +249,13 @@ fn launch_dry_run_per_workspace() {
     let d = dir.display().to_string();
     let prompt = format!("{d}/.harness/launch-prompt.md");
     for (runner, workspace, expect) in [
-        ("omp", "tmux", format!("cd {d} && omp --cwd {d} --model opus @{prompt} ")),
-        ("omp", "orca", format!("cd {d} && omp --cwd {d} --model opus @{prompt} ")),
-        ("omp", "headless", format!("cd {d} && omp --cwd {d} -p --model opus @{prompt} ")),
+        ("omp", "tmux", format!("cd {d} && env HARNESS_SESSION=demo-contest omp --cwd {d} --model opus @{prompt} ")),
+        ("omp", "orca", format!("cd {d} && env HARNESS_SESSION=demo-contest omp --cwd {d} --model opus @{prompt} ")),
+        (
+            "omp",
+            "headless",
+            format!("cd {d} && env HARNESS_SESSION=demo-contest omp --cwd {d} -p --model opus @{prompt} "),
+        ),
     ] {
         let cfg = config_with(runner, workspace);
         let mut entry = routed_entry(&dir);
@@ -417,7 +422,9 @@ fn scout_hours_pick_the_runs_that_search_the_web() {
 fn launchd_plist() {
     let cron = Cron::parse("0 */6 * * *").unwrap();
     let xml = schedule::plist(Path::new("/opt/bin/harness"), Path::new("/repo & co"), &cron, "/usr/bin:/bin").unwrap();
-    assert!(xml.contains("<string>io.github.fmsongx2.autocontest-harness</string>"));
+    let label = schedule::label(Path::new("/repo & co"));
+    assert!(xml.contains(&format!("<key>Label</key>\n  <string>{label}</string>")));
+    assert_eq!(schedule::plist_root(&xml).as_deref(), Some("/repo & co"));
     assert!(xml.contains("<string>/opt/bin/harness</string>\n    <string>autorun</string>"));
     assert!(xml.contains("<key>HARNESS_HOME</key>\n    <string>/repo &amp; co</string>"));
     assert!(xml.contains(
@@ -426,13 +433,40 @@ fn launchd_plist() {
     assert_eq!(xml.matches("<key>Hour</key>").count(), 4);
     assert!(xml.contains("<string>/repo &amp; co/data/logs/launchd.log</string>"));
     assert_eq!(schedule::plist_cron(&xml).as_deref(), Some("0 */6 * * *"));
-    assert!(schedule::plist_path().ends_with("Library/LaunchAgents/io.github.fmsongx2.autocontest-harness.plist"));
+    assert!(schedule::plist_path(&label).ends_with(format!("Library/LaunchAgents/{label}.plist")));
     if Path::new("/usr/bin/plutil").exists() {
         let file = scratch("plist").join("job.plist");
         std::fs::write(&file, &xml).unwrap();
         let lint = std::process::Command::new("/usr/bin/plutil").arg("-lint").arg(&file).output().unwrap();
         assert!(lint.status.success(), "{}", String::from_utf8_lossy(&lint.stdout));
     }
+}
+
+#[test]
+fn launchd_label_is_stable_per_checkout_and_distinct_across_checkouts() {
+    let a = schedule::label(Path::new("/Users/me/Contest-Harness"));
+    assert_eq!(a, schedule::label(Path::new("/Users/me/Contest-Harness")));
+    let suffix = a.strip_prefix(&format!("{}.", schedule::LEGACY_LABEL)).unwrap();
+    assert!(suffix.len() == 8 && suffix.bytes().all(|b| b.is_ascii_hexdigit()), "{a}");
+    // FNV-1a is fixed by definition: the label must not change between builds or Rust versions.
+    assert_eq!(schedule::label(Path::new("")), format!("{}.811c9dc5", schedule::LEGACY_LABEL));
+    for other in ["/Users/me/Contest-Harness2", "/Users/you/Contest-Harness", "/Users/me/Contest-Harness/"] {
+        assert_ne!(schedule::label(Path::new(other)), a, "{other}");
+    }
+}
+
+#[test]
+fn cron_next_run_follows_cron_day_rules() {
+    let at = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap();
+    let next = |cron: &str, after: &str| Cron::parse(cron).unwrap().next_after(at(after));
+    // Strictly after: a run at exactly `after` is not the next one.
+    assert_eq!(next("0 */6 * * *", "2026-10-15 06:00"), Some(at("2026-10-15 12:00")));
+    assert_eq!(next("0 */6 * * *", "2026-10-15 23:59"), Some(at("2026-10-16 00:00")));
+    assert_eq!(next("30 9 * * 1", "2026-10-15 10:00"), Some(at("2026-10-19 09:30")), "next Monday");
+    // Day and weekday both restricted: either matches (the 20th, or the Friday before it).
+    assert_eq!(next("0 9 20 * 5", "2026-10-15 10:00"), Some(at("2026-10-16 09:00")));
+    assert_eq!(next("0 0 29 2 *", "2026-03-01 00:00"), Some(at("2028-02-29 00:00")), "leap day");
+    assert_eq!(next("0 0 31 2 *", "2026-03-01 00:00"), None, "never runs");
 }
 
 #[test]

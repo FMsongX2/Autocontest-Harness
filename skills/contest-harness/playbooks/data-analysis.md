@@ -35,4 +35,4 @@
 
 ## 5. 채점과 제출 준비
 
-핵심 결과와 보고서 초안이 나오면 ContestJudge(stage `draft`), 제출 전 ContestJudge(stage `final`)로 채점하고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `harness score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다. 보고서 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬는다. 코드 제출이 있으면 `scripts/`가 처음부터 끝까지 돌아가는지 깨끗한 환경에서 한 번 확인하고 러너의 기본 `reviewer`(없으면 세션이 직접)로 코드를 검토한다. SUBMISSION.md를 채우고 커밋·푸시 후 `harness transition <id> awaiting_approval --note "<요약>"`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).
+핵심 결과와 보고서 초안이 나오면 ContestJudge(stage `draft`), 제출 전 ContestJudge(stage `final`)로 채점하고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `harness score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다. 보고서 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬는다. 코드 제출이 있으면 `scripts/`가 처음부터 끝까지 돌아가는지 깨끗한 환경에서 한 번 확인하고 러너의 기본 `reviewer`(없으면 세션이 직접)로 코드를 검토한다. SUBMISSION.md를 채우고 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).

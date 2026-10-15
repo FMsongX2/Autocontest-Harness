@@ -49,3 +49,31 @@ pub fn eligibility(text: &str) -> Result<String> {
         Error(format!("프로필에 `## {}` 절이 없거나 비었다(data/profile.example.md 참고)", ELIGIBILITY[0]))
     })
 }
+
+/// Example values from `data/profile.example.md` that mean a line was never filled in.
+const PLACEHOLDERS: &[&str] = &["예/아니오", "학부 / 석사 / 박사", "예) "];
+
+/// Problems worth a warning before the profile is used: a file mode that lets group or others
+/// read it (the profile holds personal details; it should be 0600), and eligibility lines that
+/// still carry the example placeholders (ContestGate would take them as facts).
+pub fn warnings(path: &Path, text: &str) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut out = Vec::new();
+    if let Ok(meta) = fs::metadata(path) {
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            out.push(format!("프로필 권한이 {mode:o}라 다른 사용자도 읽을 수 있다: chmod 600 {}", path.display()));
+        }
+    }
+    let body = section(text, ELIGIBILITY).unwrap_or_default();
+    let unfilled: Vec<&str> =
+        body.lines().filter(|l| PLACEHOLDERS.iter().any(|p| l.contains(p))).map(str::trim).collect();
+    if let Some(first) = unfilled.first() {
+        out.push(format!(
+            "`## {}` 절에 예시 값이 그대로 남아 있다({}줄, 예: {first}). 실제 값으로 고치거나 지운다",
+            ELIGIBILITY[0],
+            unfilled.len()
+        ));
+    }
+    out
+}

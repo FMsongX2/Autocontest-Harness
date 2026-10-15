@@ -1,4 +1,5 @@
-use harness::sources::allforyoung;
+use harness::error::Error;
+use harness::sources::{self, DETAIL_FAILED, allforyoung};
 use serde_json::{Value, json};
 
 fn fixture(name: &str) -> Value {
@@ -44,4 +45,31 @@ fn url_key_accepts_detail_variants_only() {
     );
     assert_eq!(allforyoung::url_key("https://www.allforyoung.com/posts/contest"), None);
     assert_eq!(allforyoung::url_key("https://linkareer.com/activity/88954"), None);
+}
+
+#[test]
+fn failed_detail_fetch_or_parse_keeps_the_list_row() {
+    let listed = allforyoung::parse_list(&fixture("allforyoung_list.json")).unwrap().remove(0);
+    let mut fetch_failed = listed.clone();
+    sources::with_detail(&mut fetch_failed, Err(Error("HTTP 404".into())), allforyoung::apply_detail);
+    let mut changed_shape = listed.clone();
+    sources::with_detail(&mut changed_shape, Ok(json!({"success": false})), allforyoung::apply_detail);
+    for row in [fetch_failed, changed_shape] {
+        assert_eq!(
+            (&row.entry_id, &row.title, &row.deadline, &row.alt_url),
+            (&listed.entry_id, &listed.title, &None, &None)
+        );
+        assert!(row.note.unwrap().starts_with(DETAIL_FAILED));
+    }
+    let mut ok = listed;
+    sources::with_detail(&mut ok, Ok(fixture("allforyoung_detail.json")), allforyoung::apply_detail);
+    assert_eq!(ok.deadline.as_deref(), Some("2026-11-08T23:59+09:00"));
+}
+
+#[test]
+fn list_titles_are_single_line() {
+    let payload = json!({"success": true, "data": [{"id": 7, "category": "공모전",
+        "title": "  2026 청년\n아이디어\t공모전 ", "organization": "서울\r\n청년센터"}]});
+    let rows = allforyoung::parse_list(&payload).unwrap();
+    assert_eq!((rows[0].title.as_str(), rows[0].organizer.as_str()), ("2026 청년 아이디어 공모전", "서울 청년센터"));
 }

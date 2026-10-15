@@ -11,7 +11,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::Item;
-use super::common::{Url, js, note, pause, quote, re, text, unquote, urlencode};
+use super::common::{Url, js, line, note, pause, quote, re, text, unquote, urlencode};
 use crate::error::{Error, Result};
 use crate::http;
 use crate::text::{end_of_day, kst};
@@ -93,7 +93,7 @@ pub fn parse_list(rows: &Value) -> Result<Vec<Item>> {
             entry_id: format!("{NAME}-{id}"),
             title: text(title),
             url: format!("{SITE}/contests/{}", quote(slug, "/")),
-            organizer: js(row, "contest_organizer_name").trim().to_string(),
+            organizer: line(&js(row, "contest_organizer_name")),
             deadline,
             categories,
             note: (!note.is_empty()).then_some(note),

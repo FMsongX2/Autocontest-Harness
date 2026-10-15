@@ -33,7 +33,7 @@ fn command(spec: &Spec, print: bool) -> Vec<String> {
 /// `config_yml`'s `modelPresets.<name>` as a `--config` overlay for one run, written to `target`.
 pub fn preset_overlay(name: &str, config_yml: &Path, target: &Path) -> Result<PathBuf> {
     let text = std::fs::read_to_string(config_yml).map_err(|e| Error(format!("{}: {e}", config_yml.display())))?;
-    let config: Value = serde_yaml_ng::from_str(&text)?;
+    let config: Value = serde_saphyr::from_str(&text).map_err(|e| Error(format!("{}: {e}", config_yml.display())))?;
     let preset = config.get("modelPresets").and_then(|p| p.get(name)).filter(|p| !p.is_null());
     let Some(preset) = preset else { crate::bail!("omp 프리셋이 없다: {name}") };
     let mut overlay = json!({"modelRoles": preset.get("modelRoles").cloned().unwrap_or_else(|| json!({}))});
@@ -126,5 +126,21 @@ impl Runner for Omp {
         let mut done = vec![format!("omp plugin link {root_text}: {}", out.lines().last().unwrap_or("ok"))];
         done.extend(remove_legacy(&paths::omp_agent_dir(), root)?);
         Ok(done)
+    }
+
+    /// `omp plugin list --json` has an enabled `contest-harness` package that resolves to `root`.
+    fn installed(&self, root: &Path) -> Option<bool> {
+        let out = crate::process::output("omp", &["plugin", "list", "--json"], None, crate::process::LOCAL).ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let list: Value = serde_json::from_slice(&out.stdout).ok()?;
+        let root = std::fs::canonicalize(root).ok()?;
+        let linked = list["npm"].as_array()?.iter().any(|p| {
+            p["name"] == "contest-harness"
+                && p["enabled"] != false
+                && p["path"].as_str().and_then(|path| std::fs::canonicalize(path).ok()).is_some_and(|p| p == root)
+        });
+        Some(linked)
     }
 }

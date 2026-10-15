@@ -173,6 +173,25 @@ fn fetch_list(agent: &Agent, page: u32) -> Result<Value> {
     http::Request { url: &url, headers: &headers, body: Some(body.as_bytes()), agent: Some(agent) }.json()
 }
 
+/// Fill a new row from its detail page: host, deadline, organiser, eligibility, prize and application URL.
+pub fn apply_detail(row: &mut Item, page: String) -> Result<()> {
+    let detail = parse_detail(&page);
+    if !detail.host.is_empty() {
+        row.organizer = detail.host;
+    }
+    row.deadline = detail.deadline.or(row.deadline.take());
+    row.note = Some(note(&[
+        ("주관", &detail.organizer),
+        ("응모대상", &detail.eligibility),
+        ("상금", &detail.prize),
+        ("접수처", &detail.homepage),
+    ]));
+    if !detail.homepage.is_empty() {
+        row.alt_url = Some(detail.homepage);
+    }
+    Ok(())
+}
+
 /// Every row on the first `pages` list pages (sponsored rows once); rows not in `known` get their detail page read.
 pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let agent = http::agent_trusting(SECTIGO_DV_R36)?;
@@ -186,21 +205,8 @@ pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
             }
             if !known.contains(&row.entry_id) {
                 pause();
-                let html = http::Request { url: &row.url, headers: &[], body: None, agent: Some(&agent) }.send()?;
-                let detail = parse_detail(&html);
-                if !detail.host.is_empty() {
-                    row.organizer = detail.host;
-                }
-                row.deadline = detail.deadline.or(row.deadline);
-                row.note = Some(note(&[
-                    ("주관", &detail.organizer),
-                    ("응모대상", &detail.eligibility),
-                    ("상금", &detail.prize),
-                    ("접수처", &detail.homepage),
-                ]));
-                if !detail.homepage.is_empty() {
-                    row.alt_url = Some(detail.homepage);
-                }
+                let fetched = http::Request { url: &row.url, headers: &[], body: None, agent: Some(&agent) }.send();
+                super::with_detail(&mut row, fetched, apply_detail);
             }
             items.push(row);
         }

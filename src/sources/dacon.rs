@@ -120,9 +120,9 @@ pub fn parse_list(page_html: &str) -> Result<Vec<Item>> {
         let prize = common::js(card, "prize_info");
         rows.push(Item {
             entry_id: format!("{NAME}-{cpt_id}"),
-            title: card["name"].as_str().unwrap_or("").trim().to_string(),
+            title: common::line(card["name"].as_str().unwrap_or("")),
             url: format!("https://dacon.io/competitions/official/{cpt_id}/overview"),
-            organizer: common::js(card, "sponsor").trim().to_string(),
+            organizer: common::line(&common::js(card, "sponsor")),
             deadline: kst(str_field(card, "period_end")),
             categories: common::js(card, "keyword")
                 .split('|')
@@ -274,6 +274,19 @@ pub fn summarize(detail: &Detail) -> (Option<String>, String) {
     (deadline, parts.join(" / "))
 }
 
+/// Fill a new row from its detail API payload: the earliest registration/submission deadline,
+/// a note listing every candidate, and the sponsor when the card had none.
+pub fn apply_detail(row: &mut Item, payload: Value) -> Result<()> {
+    let detail = parse_detail(&payload)?;
+    let (deadline, note) = summarize(&detail);
+    row.deadline = deadline.or(row.deadline.take());
+    row.note = Some(note);
+    if row.organizer.is_empty() {
+        row.organizer = common::line(&detail.sponsor);
+    }
+    Ok(())
+}
+
 /// The single list page (DACON does not paginate) minus finished contests; only new ones open the detail API.
 pub fn collect(_pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let now = text::now();
@@ -290,16 +303,9 @@ pub fn collect(_pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
             common::pause();
             let id = row.entry_id.split_once('-').map_or("", |(_, id)| id);
             let url = format!("https://newapi.dacon.io/competition?cpt_id={id}");
-            let payload =
-                http::Request { url: &url, headers: &[("Accept", "application/json")], body: None, agent: None }
-                    .json()?;
-            let detail = parse_detail(&payload)?;
-            let (deadline, note) = summarize(&detail);
-            row.deadline = deadline.or(row.deadline);
-            row.note = Some(note);
-            if row.organizer.is_empty() {
-                row.organizer = detail.sponsor;
-            }
+            let fetched =
+                http::Request { url: &url, headers: &[("Accept", "application/json")], body: None, agent: None }.json();
+            super::with_detail(&mut row, fetched, apply_detail);
         }
         if row.note.as_deref() == Some("") {
             row.note = None;

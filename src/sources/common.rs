@@ -23,6 +23,12 @@ pub(crate) fn text(fragment: &str) -> String {
     collapse(&unescape(&TAG.replace_all(fragment, " ")))
 }
 
+/// A JSON title or organizer as one line: whitespace runs (newlines included) collapse to one
+/// space and other control characters are dropped.
+pub(crate) fn line(value: &str) -> String {
+    collapse(&value.replace(|c: char| c.is_control() && !c.is_whitespace(), ""))
+}
+
 /// `urllib.parse.urlparse` reduced to the parts the sources look at.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Url<'a> {

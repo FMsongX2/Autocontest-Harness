@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use super::{Open, Workspace, shell_command};
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::registry::Entry;
 use crate::runners::which;
 
@@ -10,12 +10,9 @@ pub struct Orca;
 
 /// Call `orca <args> --json` and return its `result` (Orca reports failures as `ok: false`).
 pub fn orca_json(args: &[&str]) -> Result<Value> {
-    let out = std::process::Command::new("orca")
-        .args(args)
-        .arg("--json")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| Error(format!("orca 실행 실패: {e}")))?;
+    let mut argv = args.to_vec();
+    argv.push("--json");
+    let out = crate::process::output("orca", &argv, None, crate::process::LOCAL)?;
     let joined = args.join(" ");
     let Ok(mut payload) = serde_json::from_slice::<Value>(&out.stdout) else {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -78,6 +75,20 @@ pub fn created_worktree_id(result: &Value) -> Result<String> {
     }
 }
 
+/// `--name=<folder name>`: the worktree is named after the contest folder (already restricted to
+/// `[A-Za-z0-9._-]` by route), falling back to the id. One argv element, so it is never an option.
+pub fn worktree_name(entry: &Entry) -> Result<String> {
+    let folder = entry.folder.as_deref().map(std::path::Path::new).and_then(|p| p.file_name()).and_then(|n| n.to_str());
+    let name = folder.unwrap_or(&entry.id);
+    if name.is_empty()
+        || name.starts_with(['-', '.'])
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    {
+        crate::bail!("Orca 작업 공간 이름으로 쓸 수 없는 폴더 이름: {name}");
+    }
+    Ok(format!("--name={name}"))
+}
+
 impl Workspace for Orca {
     fn name(&self) -> &'static str {
         "orca"
@@ -91,13 +102,14 @@ impl Workspace for Orca {
         true
     }
 
-    /// A worktree named after the contest inside the contests repository (`orca_repo_path`).
+    /// A worktree named after the contest folder inside the contests repository (`orca_repo_path`).
+    /// The name comes from the validated folder name, never from the scraped title, and travels as
+    /// one `--name=<value>` element so it cannot be parsed as an option.
     fn create(&self, entry: &Entry, config: &Config) -> Result<Option<String>> {
         let repo = format!("path:{}", config.orca_repo_path().display());
-        let name: String = entry.title.chars().take(60).collect();
+        let name = worktree_name(entry)?;
         let comment = format!("harness {}", entry.id);
-        let result =
-            orca_json(&["worktree", "create", "--repo", &repo, "--name", &name, "--no-parent", "--comment", &comment])?;
+        let result = orca_json(&["worktree", "create", "--repo", &repo, &name, "--no-parent", "--comment", &comment])?;
         created_worktree_id(&result).map(Some)
     }
 

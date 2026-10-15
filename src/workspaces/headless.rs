@@ -18,22 +18,43 @@ unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
 }
 
-/// `pid:<pid>:<log>` → the pid.
+/// `pid:<pid>[/<start>]:<log>` → the pid.
 pub fn pid_of(handle: &str) -> Result<i32> {
+    Ok(parse(handle)?.0)
+}
+
+/// `pid:<pid>[/<start>]:<log>` → (pid, start time recorded at launch). Handles written before the
+/// start time was recorded have none.
+fn parse(handle: &str) -> Result<(i32, Option<&str>)> {
     let rest = handle.strip_prefix("pid:").ok_or_else(|| Error(format!("headless handle이 아니다: {handle}")))?;
-    match rest.split(':').next().and_then(|p| p.parse::<i32>().ok()) {
-        Some(pid) if pid > 1 => Ok(pid),
+    let head = rest.split(':').next().unwrap_or_default();
+    let (pid, start) = match head.split_once('/') {
+        Some((pid, start)) => (pid, Some(start).filter(|s| !s.is_empty())),
+        None => (head, None),
+    };
+    match pid.parse::<i32>() {
+        Ok(pid) if pid > 1 => Ok((pid, start)),
         _ => crate::bail!("headless handle의 pid가 잘못됐다: {handle}"),
     }
 }
 
-/// `pid:<pid>:<log>` → the log path (tail needs it and the trait only passes the handle).
+/// `pid:<pid>[/<start>]:<log>` → the log path (tail needs it and the trait only passes the handle).
 fn log_path(handle: &str) -> Result<PathBuf> {
     let rest = handle.strip_prefix("pid:").ok_or_else(|| Error(format!("headless handle이 아니다: {handle}")))?;
     match rest.split_once(':') {
         Some((_, log)) if !log.is_empty() => Ok(PathBuf::from(log)),
         _ => crate::bail!("headless handle에 로그 경로가 없다: {handle}"),
     }
+}
+
+/// The start time of `pid` as `ps -o lstart=` prints it, with spaces and colons replaced so it fits
+/// in the handle. `None` when no such process exists.
+pub fn start_time(pid: i32) -> Option<String> {
+    let pid = pid.to_string();
+    let out = crate::process::output("ps", &["-o", "lstart=", "-p", &pid], None, crate::process::LOCAL).ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    (out.status.success() && !words.is_empty()).then(|| words.join("_").replace(':', "."))
 }
 
 impl Workspace for Headless {
@@ -73,7 +94,10 @@ impl Workspace for Headless {
             command.pre_exec(|| if setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) });
         }
         let child = command.spawn().map_err(|e| Error(format!("headless 실행 실패: {e}")))?;
-        Ok(format!("pid:{}:{}", child.id(), log.display()))
+        let pid = child.id();
+        // The start time lets `close` tell this session from a later process that reused the pid.
+        let start = i32::try_from(pid).ok().and_then(start_time).map(|s| format!("/{s}")).unwrap_or_default();
+        Ok(format!("pid:{pid}{start}:{}", log.display()))
     }
 
     fn tail(&self, handle: &str, lines: usize) -> Result<String> {
@@ -84,19 +108,26 @@ impl Workspace for Headless {
     }
 
     /// SIGTERM to the session's process group (`sh -c` and the runner under it) if it still runs.
+    /// Never a bare pid: when the pid now belongs to a process with another start time, the session
+    /// is gone and the handle is stale, which counts as closed.
     fn close(&self, handle: &str) -> Result<()> {
-        let pid = pid_of(handle)?;
-        // SAFETY: kill only sends a signal; signal 0 just probes for existence.
-        unsafe {
-            if kill(pid, 0) != 0 {
-                return Ok(());
-            }
-            // The child called setsid, so its pid is also its process group id.
-            if kill(-pid, SIGTERM) != 0 && kill(pid, SIGTERM) != 0 {
-                let err = std::io::Error::last_os_error();
-                if err.raw_os_error() != Some(ESRCH) {
-                    crate::bail!("headless 세션(pid {pid}) 종료 실패: {err}");
-                }
+        let (pid, start) = parse(handle)?;
+        // SAFETY: kill only sends a signal; signal 0 just probes whether the group exists.
+        if unsafe { kill(-pid, 0) } != 0 {
+            return Ok(());
+        }
+        // While any member of the group lives, its id (the leader's pid) cannot be handed out again;
+        // so only a live leader with a different start time means the pid was reused.
+        if let (Some(start), Some(now)) = (start, start_time(pid))
+            && now != start
+        {
+            return Ok(());
+        }
+        // SAFETY: as above; the child called setsid, so its pid is its process group id.
+        if unsafe { kill(-pid, SIGTERM) } != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() != Some(ESRCH) {
+                crate::bail!("headless 세션(pid {pid}) 종료 실패: {err}");
             }
         }
         Ok(())

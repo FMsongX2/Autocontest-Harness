@@ -1,12 +1,13 @@
 [package]
 name = "autocontest-harness"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Discover, gate, route and run contest entries with coding agents"
 license = "MIT"
 repository = "https://github.com/FMsongX2/Autocontest-Harness"
 readme = "README.md"
+build = "build.rs"
 
 [lib]
 name = "harness"
@@ -23,12 +24,11 @@ indexmap = { version = "2", features = ["serde"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-serde_yaml_ng = "0.10"
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
 ureq = "3"
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
 strip = true

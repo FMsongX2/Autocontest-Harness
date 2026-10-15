@@ -43,13 +43,7 @@ fn entry(id: &str, title: &str, url: &str) -> Entry {
 fn closed(id: &str, title: &str, note: &str) -> Entry {
     let mut e = entry(id, title, "");
     e.state = "closed".into();
-    e.history.push(HistoryItem {
-        at: "2026-10-15T14:43+09:00".into(),
-        from: Some("discovered".into()),
-        to: "closed".into(),
-        by: "t".into(),
-        note: note.into(),
-    });
+    e.history.push(HistoryItem::new("2026-10-15T14:43+09:00".into(), Some("discovered".into()), "closed", "t", note));
     e
 }
 
@@ -115,13 +109,13 @@ fn import_takes_submitted_and_closed_entries_that_say_submitted() {
     harnessed
         .submissions
         .push(json!({"at": "2026-10-13T10:00+09:00", "method": "이메일", "receipt": "회신", "files": ["a.pdf"]}));
-    harnessed.history.push(HistoryItem {
-        at: "2026-10-13T10:00+09:00".into(),
-        from: Some("awaiting_approval".into()),
-        to: "submitted".into(),
-        by: "t".into(),
-        note: "회신".into(),
-    });
+    harnessed.history.push(HistoryItem::new(
+        "2026-10-13T10:00+09:00".into(),
+        Some("awaiting_approval".into()),
+        "submitted",
+        "t",
+        "회신",
+    ));
     let reg = registry(vec![
         harnessed,
         closed("legacy-(2026-10-14 추가) Guro-Shorts", "구로구 유튜브 쇼츠 제출 완료", "이미 다룬 공모전"),

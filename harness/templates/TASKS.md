@@ -19,9 +19,9 @@
 - [ ] T009 (레벨 2 이상) 콘셉트·기획 후보 2~3개 기획 채점(ContestJudge stage `plan`, `.harness/judge/plan-<n>.json`, `harness score <id> --stage plan --file <경로>`), 최고안 선택·보완을 예측 총점이 목표 이상이 되거나 3회까지 반복. T010을 돌렸으면 후보의 범위는 `research/oss.md`의 재사용 결정을 따른다 (RUBRIC.md, research/research.md) after: T008, T010(돌릴 때)
 - [ ] T006 [P] (레벨 5 필수) ReferenceScout 레퍼런스 조사 (research/references.md)
 - [ ] T010 [P] (결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 필수, 레벨 2 PoC는 선택) OpenSourceScout 오픈소스 재사용 조사: 구성 요소별 reuse/fork/reference/build, 라이선스·공고 규칙, 제출물 고지 문안. DomainResearcher 조사와 같은 웨이브 (research/oss.md)
-- [ ] T007 (레벨 5 필수) SPEC·PLAN·TASKS 커밋·푸시 후 `harness transition <id> plan_review --note "<검수 요청 요약과 예측 총점>"`, 사용자 검수 요청하고 멈춤 (PLAN.md) after: T006, T009
+- [ ] T007 (레벨 5 필수) SPEC·PLAN·TASKS 커밋·푸시 후 검수 요청 요약과 예측 총점을 `.private/note.txt`에 쓰고 `harness transition <id> plan_review --note-file .private/note.txt`, 사용자 검수 요청하고 멈춤 (PLAN.md) after: T006, T009
 
-**체크포인트**: SPEC.md·RUBRIC.md 확정, 기획 채점으로 고른 주제·콘셉트와 근거 기록. 레벨 5는 계획 승인(`harness transition <id> running --note "승인: <원문·시각>"`) 전에는 2단계로 가지 않는다.
+**체크포인트**: SPEC.md·RUBRIC.md 확정, 기획 채점으로 고른 주제·콘셉트와 근거 기록. 레벨 5는 계획 승인(사용자가 메인 세션이나 `harness approve <id>`로 기록, `harness show <id> --json`에서 확인) 전에는 2단계로 가지 않는다.
 
 ## 2단계: 기반 (모든 결과물이 기댄다)
 
@@ -48,8 +48,8 @@
 - [ ] T090 서식·형식 최종 반영(한컴독스 확인, PDF는 한컴독스 웹) ([경로])
 - [ ] T091 AI 활용 고지·사용한 오픈소스 고지(`research/oss.md`)·서약·동의서 확인 (SUBMISSION.md)
 - [ ] T092 ContestJudge 최종 채점(stage `final`) `ready`·목표 이상, `harness score <id> --stage final --file <경로>` (JUDGE.md)
-- [ ] T093 SUBMISSION.md 작성, 커밋·푸시, `harness transition <id> awaiting_approval --note "<요약>"`
-- [ ] T094 (승인·제출 뒤) `harness submit` → 커밋·푸시 → `harness clean <id>`(남은 본선·발표가 있으면 정리하지 않는다)
+- [ ] T093 SUBMISSION.md 작성, 커밋·푸시, 요약을 `.private/note.txt`에 쓰고 `harness transition <id> awaiting_approval --note-file .private/note.txt`
+- [ ] T094 (`harness approve`로 제출 승인이 기록된 뒤) 제출 → `harness submit` → 커밋·푸시 → `harness clean <id>`(남은 본선·발표가 있으면 정리하지 않는다)
 
 ## 대응 확인
 

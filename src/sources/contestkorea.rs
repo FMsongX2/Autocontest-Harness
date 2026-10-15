@@ -153,6 +153,21 @@ pub fn parse_detail(page: &str) -> Detail {
     }
 }
 
+/// Fill a new row from its detail page: dated deadline, host, eligibility, prize and notice URL.
+pub fn apply_detail(row: &mut Item, page: String) -> Result<()> {
+    let detail = parse_detail(&page);
+    row.deadline = detail.deadline.or(row.deadline.take());
+    if !detail.organizer.is_empty() {
+        row.organizer = detail.organizer;
+    }
+    let joined = note(&[("참가대상", &detail.eligibility), ("시상", &detail.prize), ("홈페이지", &detail.homepage)]);
+    row.note = Some(if joined.is_empty() { row.note.take().unwrap_or_default() } else { joined });
+    if !detail.homepage.is_empty() {
+        row.alt_url = Some(detail.homepage);
+    }
+    Ok(())
+}
+
 /// Open and upcoming rows on the first `pages` list pages; rows not in `known` get the dated deadline from the detail page.
 pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
     let mut items = Vec::new();
@@ -163,17 +178,8 @@ pub fn collect(pages: u32, known: &HashSet<String>) -> Result<Vec<Item>> {
         for mut row in parse_list(&http::get(&format!("{BASE}list.php?int_gbn=1&page={page}"))?)? {
             if !known.contains(&row.entry_id) {
                 pause();
-                let detail = parse_detail(&http::get(&row.url)?);
-                row.deadline = detail.deadline.or(row.deadline);
-                if !detail.organizer.is_empty() {
-                    row.organizer = detail.organizer;
-                }
-                let joined =
-                    note(&[("참가대상", &detail.eligibility), ("시상", &detail.prize), ("홈페이지", &detail.homepage)]);
-                row.note = Some(if joined.is_empty() { row.note.unwrap_or_default() } else { joined });
-                if !detail.homepage.is_empty() {
-                    row.alt_url = Some(detail.homepage);
-                }
+                let fetched = http::get(&row.url);
+                super::with_detail(&mut row, fetched, apply_detail);
             }
             items.push(row);
         }

@@ -4,8 +4,7 @@
 //! committed and pushed (the repository can be cloned again). Contract: `docs/CONTRACT.md` (harness clean).
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -13,7 +12,8 @@ use serde_json::{Value, json};
 use crate::error::{Error, Result};
 use crate::ledger::{self, Ledger};
 use crate::paths;
-use crate::registry::{Entry, HistoryItem};
+use crate::process;
+use crate::registry::{self, Entry, HistoryItem};
 use crate::text::now;
 use crate::workspaces;
 
@@ -51,7 +51,8 @@ pub struct Options {
     pub purge: bool,
     /// Skip the safety checks.
     pub force: bool,
-    /// Where trashed folders go (default `~/.Trash`, or `data/trash` when there is none).
+    /// Where trashed folders go (default `~/.Trash` on macOS, the XDG trash elsewhere, or
+    /// `data/trash` when there is none).
     pub trash_dir: Option<PathBuf>,
     /// Where kept files go (default `data/archive`); each contest gets `<dir>/<id>/`.
     pub archive_dir: Option<PathBuf>,
@@ -65,11 +66,32 @@ pub fn candidate(entry: &Entry) -> bool {
 }
 
 fn git(folder: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git").arg("-C").arg(folder).args(args).output()?;
+    let mut argv =
+        vec!["-C", folder.to_str().ok_or_else(|| Error(format!("경로가 UTF-8이 아니다: {}", folder.display())))?];
+    argv.extend_from_slice(args);
+    let out = process::output("git", &argv, None, process::LOCAL)?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         Err(Error(String::from_utf8_lossy(&out.stderr).trim().to_string()))
+    }
+}
+
+/// `file` (absolute, or relative to `folder`) as a folder-relative path made only of normal
+/// components; `None` when it names something outside the folder (`..`, another root).
+pub fn folder_relative(folder: &Path, file: &str) -> Option<String> {
+    let path = Path::new(file);
+    let relative = if path.is_absolute() { path.strip_prefix(folder).ok()? } else { path };
+    let normal = relative.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
+    let rel = relative.to_string_lossy().into_owned();
+    (normal && !rel.is_empty()).then_some(rel)
+}
+
+/// Whether `folder/rel` still resolves inside `folder` once symlinks are followed.
+fn resolves_inside(folder: &Path, rel: &str) -> bool {
+    match (folder.canonicalize(), folder.join(rel).canonicalize()) {
+        (Ok(base), Ok(path)) => path.starts_with(base),
+        _ => false,
     }
 }
 
@@ -78,10 +100,7 @@ fn submission_files(entry: &Entry, folder: &Path) -> Vec<String> {
     let mut files = Vec::new();
     for submission in &entry.submissions {
         for file in submission["files"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            let path = Path::new(file);
-            let relative = if path.is_absolute() { path.strip_prefix(folder).ok() } else { Some(path) };
-            if let Some(rel) = relative.map(|p| p.to_string_lossy().into_owned())
-                && !rel.starts_with("..")
+            if let Some(rel) = folder_relative(folder, file)
                 && !files.contains(&rel)
             {
                 files.push(rel);
@@ -91,7 +110,26 @@ fn submission_files(entry: &Entry, folder: &Path) -> Vec<String> {
     files
 }
 
-/// Why `entry` must not be cleaned yet; empty means it is safe.
+/// Bring the upstream refs up to date (network, bounded by [`process::NETWORK`]) so `problems` can
+/// tell whether everything is pushed. Run it before taking the registry lock. A failure is
+/// returned as text; `problems` then compares against the last known upstream.
+pub fn fetch(entry: &Entry) -> Option<String> {
+    let folder = Path::new(entry.folder.as_deref()?);
+    if !folder.join(".git").exists()
+        || git(folder, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).is_err()
+    {
+        return None;
+    }
+    let path = folder.to_str()?;
+    match process::output("git", &["-C", path, "fetch", "--quiet"], None, process::NETWORK) {
+        Ok(out) if out.status.success() => None,
+        Ok(out) => Some(format!("git fetch 실패: {}", String::from_utf8_lossy(&out.stderr).trim())),
+        Err(err) => Some(err.0),
+    }
+}
+
+/// Why `entry` must not be cleaned yet; empty means it is safe. Local checks only: call [`fetch`]
+/// first to compare against the current upstream.
 pub fn problems(entry: &Entry, ledger: &Ledger) -> Vec<String> {
     let mut out = Vec::new();
     if !CLEANABLE.contains(&entry.state.as_str()) {
@@ -115,7 +153,6 @@ pub fn problems(entry: &Entry, ledger: &Ledger) -> Vec<String> {
     if git(folder, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).is_err() {
         out.push("원격 upstream이 없다(push한 적이 없다)".into());
     } else {
-        let _ = git(folder, &["fetch", "--quiet"]);
         match git(folder, &["rev-list", "@{u}..HEAD"]) {
             Ok(ahead) if !ahead.trim().is_empty() => {
                 out.push(format!("push 안 된 커밋이 {}개 있다", ahead.lines().count()))
@@ -167,6 +204,8 @@ pub fn archive_plan(entry: &Entry, folder: &Path) -> Result<ArchivePlan> {
             plan.dropped_bytes += meta.len();
         }
     }
+    // A symlink (or a `..` that slipped through) must not copy something from outside the folder.
+    plan.keep.retain(|f| folder_relative(folder, f).is_some() && resolves_inside(folder, f));
     plan.keep.sort();
     Ok(plan)
 }
@@ -181,6 +220,9 @@ fn copy_into(folder: &Path, files: &[String], target: &Path) -> Result<()> {
     fs::create_dir_all(target)?;
     fs::set_permissions(target, fs::Permissions::from_mode(0o700))?;
     for file in files {
+        if folder_relative(folder, file).is_none() || !resolves_inside(folder, file) {
+            crate::bail!("폴더 밖을 가리키는 파일은 보관하지 않는다: {file}");
+        }
         let to = target.join(file);
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
@@ -190,21 +232,80 @@ fn copy_into(folder: &Path, files: &[String], target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn trash_target(folder: &Path, trash_dir: Option<&Path>) -> PathBuf {
-    let dir = match trash_dir {
-        Some(dir) => dir.to_path_buf(),
-        None => {
-            let mac = paths::home().join(".Trash");
-            if mac.is_dir() { mac } else { paths::data().join("trash") }
+/// Where trashed folders go when `--trash-dir` is not given: `~/.Trash` on macOS; elsewhere the
+/// XDG trash (`$XDG_DATA_HOME/Trash/files`, default `~/.local/share/Trash/files`) when it exists;
+/// otherwise `data/trash`. Pure, so every branch is testable.
+pub fn trash_dir_for(macos: bool, home: &Path, xdg_data_home: Option<&Path>, data: &Path) -> PathBuf {
+    if macos {
+        let mac = home.join(".Trash");
+        if mac.is_dir() {
+            return mac;
         }
-    };
+    } else {
+        let base =
+            xdg_data_home.filter(|p| p.is_absolute()).map_or_else(|| home.join(".local/share"), Path::to_path_buf);
+        let files = base.join("Trash").join("files");
+        if files.is_dir() {
+            return files;
+        }
+    }
+    data.join("trash")
+}
+
+fn default_trash_dir() -> PathBuf {
+    let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
+    trash_dir_for(cfg!(target_os = "macos"), &paths::home(), xdg.as_deref(), &paths::data())
+}
+
+fn trash_target(folder: &Path, trash_dir: Option<&Path>) -> PathBuf {
+    let dir = trash_dir.map_or_else(default_trash_dir, Path::to_path_buf);
     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "contest".into());
     let stamp = now().replace([':', '+'], "").replace('T', "-");
-    dir.join(format!("{name}-{}", &stamp[..15.min(stamp.len())]))
+    dir.join(format!("{name}-{}", stamp.get(..15).unwrap_or(&stamp)))
+}
+
+/// An XDG trash (`…/Trash/files/<name>`) wants `…/Trash/info/<name>.trashinfo` so file managers can
+/// show and restore the folder. Other trash locations need nothing.
+fn write_trashinfo(original: &Path, target: &Path) -> Result<Option<PathBuf>> {
+    let (Some(files), Some(name)) = (target.parent(), target.file_name()) else { return Ok(None) };
+    if files.file_name().is_none_or(|n| n != "files") {
+        return Ok(None);
+    }
+    let Some(trash) = files.parent().filter(|t| t.file_name().is_some_and(|n| n == "Trash")) else { return Ok(None) };
+    let info_dir = trash.join("info");
+    fs::create_dir_all(&info_dir)?;
+    let mut encoded = String::new();
+    for byte in original.to_string_lossy().bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-_.~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    let date = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S");
+    let info = info_dir.join(format!("{}.trashinfo", name.to_string_lossy()));
+    fs::write(&info, format!("[Trash Info]\nPath={encoded}\nDeletionDate={date}\n"))?;
+    Ok(Some(info))
+}
+
+/// Move `folder` to `target` (the Trash) or delete it when there is no target.
+fn remove_folder(folder: &Path, target: Option<&Path>) -> Result<()> {
+    let Some(t) = target else { return Ok(fs::remove_dir_all(folder)?) };
+    if let Some(parent) = t.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let info = write_trashinfo(folder, t)?;
+    fs::rename(folder, t).map_err(|err| {
+        if let Some(info) = &info {
+            let _ = fs::remove_file(info);
+        }
+        Error(format!("폴더를 휴지통으로 옮기지 못했다({}): {err}", t.display()))
+    })
 }
 
 /// Check, then (unless `dry_run` or blocked) close the session, trash the folder and record it in the
-/// registry entry and the ledger at `ledger_path`.
+/// registry entry and the ledger at `ledger_path`. The ledger is written before the folder moves and
+/// restored when the move fails, so the two never disagree about a folder that still exists.
 pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Outcome> {
     let ledger = ledger::load_at(ledger_path)?;
     let mut outcome = Outcome { id: entry.id.clone(), problems: problems(entry, &ledger), ..Default::default() };
@@ -212,7 +313,10 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
         return Ok(outcome);
     }
     let Some(folder) = entry.folder.as_deref().map(PathBuf::from).filter(|f| f.is_dir()) else {
-        crate::bail!("{}: 정리할 폴더가 없다", entry.id);
+        if !outcome.problems.iter().any(|p| p.starts_with("폴더")) {
+            outcome.problems.push("정리할 폴더가 없다".into());
+        }
+        return Ok(outcome);
     };
     let session = entry.session.clone().unwrap_or(Value::Null);
     let backend = session["workspace"].as_str().and_then(|name| workspaces::get(name).ok());
@@ -263,45 +367,93 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     {
         outcome.actions.push(format!("경고: 작업 공간을 제거하지 못했다: {err}"));
     }
-    match &target {
-        Some(t) => {
-            if let Some(parent) = t.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::rename(&folder, t)
-                .map_err(|err| Error(format!("폴더를 휴지통으로 옮기지 못했다({}): {err}", t.display())))?;
-        }
-        None => fs::remove_dir_all(&folder)?,
-    }
 
     let at = now();
+    let id = entry.id.clone();
+    let mut fields = vec![("folder_removed_at", json!(at))];
+    if let Some(url) = &repo_url {
+        fields.push(("repo", json!(url)));
+    }
+    if let Some(a) = &outcome.archive {
+        fields.push(("archive", json!(a)));
+    }
+    let previous = ledger::write_at(ledger_path, |ledger| {
+        let Some(item) = ledger.submissions.iter_mut().find(|s| s.key == id) else { return Ok(None) };
+        let old: Vec<(&str, Option<Value>)> = fields.iter().map(|(k, _)| (*k, item.extra.get(*k).cloned())).collect();
+        for (key, value) in &fields {
+            item.extra.insert((*key).into(), value.clone());
+        }
+        Ok(Some(old))
+    })?;
+    if let Err(err) = remove_folder(&folder, target.as_deref()) {
+        if let Some(old) = previous {
+            let restored = ledger::write_at(ledger_path, |ledger| {
+                if let Some(item) = ledger.submissions.iter_mut().find(|s| s.key == id) {
+                    for (key, value) in old {
+                        match value {
+                            Some(v) => item.extra.insert(key.into(), v),
+                            None => item.extra.remove(key),
+                        };
+                    }
+                }
+                Ok(())
+            });
+            if let Err(e) = restored {
+                crate::bail!("{err} (제출 기록부의 정리 기록도 되돌리지 못했다: {e})");
+            }
+        }
+        return Err(err);
+    }
+
     entry.session = None;
     entry.extra.insert("folder_removed_at".into(), json!(at));
     let mut note = format!("로컬 폴더 정리: {}", outcome.trash.as_deref().unwrap_or("완전히 삭제"));
     if let Some(a) = &outcome.archive {
         note.push_str(&format!(" / 보관: {a}"));
     }
-    entry.history.push(HistoryItem {
-        at: at.clone(),
-        from: Some(entry.state.clone()),
-        to: entry.state.clone(),
-        by: "harness clean".into(),
-        note,
-    });
-    let id = entry.id.clone();
-    let archive_path = outcome.archive.clone();
-    ledger::write_at(ledger_path, |ledger| {
-        if let Some(item) = ledger.submissions.iter_mut().find(|s| s.key == id) {
-            if let Some(url) = &repo_url {
-                item.extra.insert("repo".into(), json!(url));
-            }
-            item.extra.insert("folder_removed_at".into(), json!(at));
-            if let Some(a) = &archive_path {
-                item.extra.insert("archive".into(), json!(a));
-            }
-        }
-        Ok(())
-    })?;
+    let state = entry.state.clone();
+    entry.history.push(HistoryItem::new(at, Some(state.clone()), &state, "harness clean", &note));
     outcome.ok = true;
     Ok(outcome)
+}
+
+/// A failed outcome for an entry whose cleaning stopped with an error.
+fn failed(id: &str, err: Error) -> Outcome {
+    Outcome { id: id.to_string(), problems: vec![err.0], ..Default::default() }
+}
+
+/// `harness clean [<id> | --all]` against the registry at `registry_path`. The network part
+/// (`git fetch`) runs before the exclusive registry lock is taken; under the lock each entry is
+/// re-checked locally and cleaned. One entry's error becomes its failed outcome, so the entries
+/// that were cleaned are always saved.
+pub fn run(registry_path: &Path, ledger_path: &Path, id: Option<&str>, opts: &Options) -> Result<Vec<Outcome>> {
+    let pick = |reg: &registry::Registry| -> Result<Vec<Entry>> {
+        Ok(match id {
+            Some(id) => vec![reg.get(id)?.clone()],
+            None => reg.contests.values().filter(|e| candidate(e)).cloned().collect(),
+        })
+    };
+    let entries = registry::read_at(registry_path, pick)?;
+    let fetch_errors: Vec<(String, String)> =
+        entries.iter().filter_map(|e| fetch(e).map(|err| (e.id.clone(), err))).collect();
+    registry::write_at(registry_path, |reg| {
+        let mut outcomes = Vec::new();
+        for entry in &entries {
+            let mut outcome = match reg.get_mut(&entry.id) {
+                // Changed since the read (cleaned by another run, moved on): skip with a reason.
+                Ok(current) if id.is_none() && !candidate(current) => {
+                    failed(&entry.id, Error("다른 실행이 먼저 정리했거나 상태가 바뀌었다".into()))
+                }
+                Ok(current) => clean(current, ledger_path, opts).unwrap_or_else(|err| failed(&entry.id, err)),
+                Err(err) => failed(&entry.id, err),
+            };
+            if !outcome.ok
+                && let Some((_, err)) = fetch_errors.iter().find(|(e, _)| *e == entry.id)
+            {
+                outcome.problems.push(err.clone());
+            }
+            outcomes.push(outcome);
+        }
+        Ok(outcomes)
+    })
 }
