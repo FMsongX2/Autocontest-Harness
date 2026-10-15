@@ -54,8 +54,9 @@ for t in "${MAC_TARGETS[@]}" "${LINUX_TARGETS[@]}"; do
   mkdir -p "$stage"
   cp "$bin" "$stage/harness"
   cp LICENSE "$stage/"
-  # No macOS extended attributes in the archive (Linux tars warn about them).
-  COPYFILE_DISABLE=1 tar --no-xattrs -czf "$DIST/harness-$VERSION-$t.tar.gz" -C "$stage" harness LICENSE
+  # No macOS extended attributes and no local user/group names in the archive.
+  COPYFILE_DISABLE=1 tar --no-xattrs --uid 0 --gid 0 --uname root --gname root \
+    -czf "$DIST/harness-$VERSION-$t.tar.gz" -C "$stage" harness LICENSE
 done
 (cd "$DIST" && shasum -a 256 harness-*.tar.gz > SHA256SUMS)
 "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/harness" --version 2>/dev/null || true
