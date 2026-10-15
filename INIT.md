@@ -2,7 +2,7 @@
 
 > **For agents.** This file is the setup procedure an agent follows for a new Autocontest-Harness checkout. A user only needs to tell their agent "Read INIT.md and set up the harness" (in omp: `/contest-init`). The procedure is in Korean like the rest of the prompts.
 
-이 문서는 에이전트가 읽고 그대로 따르는 설정 절차다. 사용자는 클론 폴더에서 자기 에이전트에게 "INIT.md를 읽고 설정해 줘"라고 말하면 된다(omp에서는 `/contest-init`). 셸을 쓸 수 있는 에이전트라면 어느 하네스든 이 절차를 따를 수 있다. 다만 공모전 세션을 실제로 띄우려면 그 하네스의 러너 어댑터가 있어야 한다(지금 코어에는 omp와 Claude Code(`claude`) 어댑터가 있다. README의 "러너 어댑터 추가" 참고).
+이 문서는 에이전트가 읽고 그대로 따르는 설정 절차다. 사용자는 클론 폴더에서 자기 에이전트에게 "INIT.md를 읽고 설정해 줘"라고 말하면 된다(omp에서는 `/contest-init`). 셸을 쓸 수 있는 에이전트라면 어느 하네스든 이 절차를 따를 수 있다. 다만 공모전 세션을 실제로 띄우려면 그 하네스의 러너 어댑터가 있어야 한다(지금 코어에는 omp와 Claude Code(`claude`) 어댑터가 있다. [README_ko.md의 러너 어댑터 추가](README_ko.md#러너-어댑터-추가) 참고).
 
 ## 원칙
 

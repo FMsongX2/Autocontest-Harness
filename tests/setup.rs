@@ -90,6 +90,47 @@ fn agent_models_must_name_real_agents() {
     assert_eq!(harness::install::unknown_agents(&cfg, &root).unwrap(), vec!["ContestJugde".to_string()]);
 }
 
+/// `git -C <dir> <args>` with a throwaway identity; trimmed stdout.
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn doctor_ignores_commits_that_change_only_documentation() {
+    let dir = scratch("docs-only");
+    let write = |path: &str, text: &str| {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, text).unwrap();
+    };
+    let commit = |message: &str| {
+        git_in(&dir, &["add", "-A"]);
+        git_in(&dir, &["commit", "-q", "-m", message]);
+        git_in(&dir, &["rev-parse", "--short=12", "HEAD"])
+    };
+    git_in(&dir, &["init", "-q", "-b", "main"]);
+    write("src/main.rs", "fn main() {}\n");
+    write("harness/prompts/launch.md", "a\n");
+    let built = commit("build");
+    for doc in ["README.md", "README_ko.md", "CONTRIBUTING_ko.md", "CHANGELOG.md", "docs/CONTRACT.md"] {
+        write(doc, "text\n");
+    }
+    commit("docs");
+    assert!(harness::doctor::docs_only_since(&dir, &built));
+    write("harness/prompts/launch.md", "b\n");
+    commit("prompt");
+    assert!(!harness::doctor::docs_only_since(&dir, &built), "prompts tell agents which commands exist");
+    assert!(!harness::doctor::docs_only_since(&dir, "0123456789ab"), "a commit the clone does not have");
+}
+
 /// A checkout with the repository's prompts and agents and its own empty `data/`.
 fn checkout(name: &str) -> PathBuf {
     let base = scratch(name);

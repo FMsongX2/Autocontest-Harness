@@ -67,7 +67,7 @@ pub fn run() -> Vec<Check> {
     let config = match config::load() {
         Ok(config) => config,
         Err(err) => {
-            out.push(fail("config", err.0, "data/config.example.json과 README의 설정 표를 보고 고친다"));
+            out.push(fail("config", err.0, "data/config.example.json과 README_ko.md의 설정 표를 보고 고친다"));
             return out;
         }
     };
@@ -91,10 +91,26 @@ pub fn run() -> Vec<Check> {
     out
 }
 
+/// Paths that only document the harness. Prompts, agents, the skill and `INIT.md` tell agents which
+/// commands to run, so a change there still means the binary may not match the checkout.
+const DOCS_ONLY: [&str; 7] = [
+    ":(exclude)README*.md",
+    ":(exclude)CONTRIBUTING*.md",
+    ":(exclude)SECURITY*.md",
+    ":(exclude)CHANGELOG*.md",
+    ":(exclude)docs",
+    ":(exclude)references",
+    ":(exclude)LICENSE",
+];
+
 fn version(root: &Path) -> Check {
     let built = env!("HARNESS_GIT_SHA");
+    let release = env!("CARGO_PKG_VERSION");
     match stdout_of("git", &["rev-parse", "--short=12", "HEAD"], Some(root)) {
-        Some(head) if head == built => ok("version", format!("{} ({built})", env!("CARGO_PKG_VERSION"))),
+        Some(head) if head == built => ok("version", format!("{release} ({built})")),
+        Some(head) if docs_only_since(root, built) => {
+            ok("version", format!("{release} ({built}), 클론 {head}까지 바뀐 것은 문서뿐"))
+        }
         Some(head) => warn(
             "version",
             format!(
@@ -102,10 +118,16 @@ fn version(root: &Path) -> Check {
             ),
             "scripts/install.sh(또는 cargo install --path . --root ~/.local --locked --force)로 바이너리를 다시 설치한다",
         ),
-        None => {
-            ok("version", format!("{} ({built}), 클론이 git 저장소가 아니라 비교하지 않음", env!("CARGO_PKG_VERSION")))
-        }
+        None => ok("version", format!("{release} ({built}), 클론이 git 저장소가 아니라 비교하지 않음")),
     }
+}
+
+/// Whether the checkout differs from commit `built` in documentation only. False when `built` is not
+/// in the clone's history (a shallow clone, or a binary built elsewhere).
+pub fn docs_only_since(root: &Path, built: &str) -> bool {
+    let mut args = vec!["diff", "--quiet", built, "HEAD", "--", "."];
+    args.extend(DOCS_ONLY);
+    process::output("git", &args, Some(root), LOCAL).is_ok_and(|out| out.status.success())
 }
 
 fn platform() -> Check {
