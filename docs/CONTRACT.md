@@ -517,17 +517,18 @@ ContestGate가 쓰고 `harness gate`가 읽는다.
 1. 상태가 `submitted` 또는 `closed`다.
 2. 제출 기록부(13절)에 이 공모전 기록이 있다.
 3. 폴더가 git 저장소이고 원격 upstream이 있으며, 작업 트리가 깨끗하고(`git status --porcelain`이 비어 있음, 무시되지 않은 untracked 파일 없음), push 안 된 커밋이 없다(먼저 `git fetch`, `git rev-list @{u}..HEAD`가 비어 있음).
-4. 레지스트리 `submissions[].files`에 적힌 파일 가운데 폴더 안에 있는 것은 모두 git이 추적한다(`git ls-files --error-unmatch`). `.gitignore`에 걸려 git에 없는 제출본이 있으면 지우지 않는다.
+4. 레지스트리 `submissions[].files`에 적힌 파일이 git이나 폴더에 있다. git이 추적하지 않는 제출본(서명본 등)은 문제가 아니고 아래 2단계에서 보관된다. git에도 폴더에도 없으면 지우지 않는다.
 
 동작:
 
 1. 세션 닫기: `session`의 작업 환경으로 handle을 닫는다(Orca 터미널 닫기, tmux 창 종료, headless 프로세스 종료). 작업 공간이 있으면 제거한다(Orca worktree). 작업 공간 제거가 실패해도 폴더 정리는 계속하고 경고를 낸다.
-2. 폴더 삭제: 기본은 휴지통으로 옮긴다(macOS `~/.Trash/<이름>-<시각>`, 휴지통이 없으면 저장소 `data/trash/`). `--purge`면 완전히 지운다.
-3. 레지스트리: `session`을 `null`로, 새 필드 `folder_removed_at`에 시각을 쓴다. `folder`는 그대로 둔다. 상태는 바꾸지 않고 `history`에 같은 상태로 note `로컬 폴더 정리: <휴지통 경로 또는 삭제>`를 남긴다.
-4. 제출 기록부: 해당 항목에 `repo`(원격 URL)와 `folder_removed_at`을 기록한다.
-5. `<contests_root>/.shared/existing_contests.md`의 줄은 지우지 않는다(중복 대조용).
+2. 보관: git이 추적하지 않는 제출본과 공모전 폴더의 `.private/` 안 파일(접수 증빙, 폼 수정 링크, 개인정보가 든 사본)을 `data/archive/<id>/`(git 제외, 권한 0700)로 복사한다. 그 밖의 git 제외 파일(렌더, 캐시, 가상 환경)은 개수와 용량만 `actions`에 적고 폴더와 함께 보낸다.
+3. 폴더 삭제: 기본은 휴지통으로 옮긴다(macOS `~/.Trash/<이름>-<시각>`, 휴지통이 없으면 저장소 `data/trash/`). `--purge`면 완전히 지운다.
+4. 레지스트리: `session`을 `null`로, 새 필드 `folder_removed_at`에 시각을 쓴다. `folder`는 그대로 둔다. 상태는 바꾸지 않고 `history`에 같은 상태로 note `로컬 폴더 정리: <휴지통 경로 또는 삭제> / 보관: <경로>`를 남긴다.
+5. 제출 기록부: 해당 항목에 `repo`(원격 URL), `folder_removed_at`, `archive`(보관 경로)를 기록한다.
+6. `<contests_root>/.shared/existing_contests.md`의 줄은 지우지 않는다(중복 대조용).
 
-출력 JSON: `{id, ok, problems: [...], actions: [...], trash: <경로 또는 null>}`. `--all`이면 이 객체의 배열이다.
+출력 JSON: `{id, ok, problems: [...], actions: [...], trash: <경로 또는 null>, archive: <경로 또는 null>}`. `--all`이면 이 객체의 배열이다.
 
 흐름:
 

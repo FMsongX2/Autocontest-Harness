@@ -405,17 +405,18 @@ Once a contest is submitted and nothing is left to do in its folder, the contest
 1. The state is `submitted` or `closed`.
 2. The contest is in the submission ledger.
 3. The folder is a git repository with an upstream, a clean working tree (no changes and no untracked files that are not ignored), and no unpushed commits (checked after `git fetch`).
-4. Every file listed in the registry's `submissions[].files` that lies inside the folder is tracked by git, so a git-ignored submission file is never lost.
+4. Every file listed in the registry's `submissions[].files` exists in git or in the folder. Signed copies and other files kept out of git on purpose are fine; they are archived in the next step.
 
 Then it:
 
 1. Closes the session (Orca terminal, tmux window, or headless process) and removes the Orca workspace if there is one. A failure here is reported as a warning and cleanup continues.
-2. Moves the folder to the trash (`~/.Trash/<name>-<time>`, or `data/trash/` when there is no trash). `--purge` deletes it instead.
-3. Sets `session` to null and records `folder_removed_at` in the registry, with a history note in the same state. The state does not change.
-4. Records the remote `repo` URL and `folder_removed_at` in the ledger entry, so the folder can be restored with `git clone`.
-5. Keeps the line in `<contests_root>/.shared/existing_contests.md`, which dedupe still uses.
+2. Copies what git does not hold and cannot be rebuilt into `data/archive/<id>/` (git-ignored, mode 0700): the submission files that are not tracked, and everything under the contest folder's `.private/` (receipts, form edit links, copies with personal details). Other ignored files (renders, caches, virtual environments) are only counted and go with the folder.
+3. Moves the folder to the trash (`~/.Trash/<name>-<time>`, or `data/trash/` when there is no trash). `--purge` deletes it instead.
+4. Sets `session` to null and records `folder_removed_at` in the registry, with a history note in the same state. The state does not change.
+5. Records the remote `repo` URL, `folder_removed_at` and the `archive` path in the ledger entry, so the folder can be restored with `git clone`.
+6. Keeps the line in `<contests_root>/.shared/existing_contests.md`, which dedupe still uses.
 
-`--dry-run` prints the checks and the planned actions only. JSON output is `{id, ok, problems, actions, trash}` (an array with `--all`).
+`--dry-run` prints the checks and the planned actions only. JSON output is `{id, ok, problems, actions, trash, archive}` (an array with `--all`).
 
 ## User profile
 
@@ -937,17 +938,18 @@ orca automations create --name "Contest harness" --trigger "0 */6 * * *" --timez
 1. 상태가 `submitted` 또는 `closed`다.
 2. 제출 기록부에 이 공모전 기록이 있다.
 3. 폴더가 upstream이 있는 git 저장소이고, 작업 트리가 깨끗하며(변경 없음, 무시되지 않은 untracked 파일 없음), push 안 된 커밋이 없다(`git fetch` 뒤 확인).
-4. 레지스트리 `submissions[].files`에 적힌 파일 가운데 폴더 안에 있는 것은 모두 git이 추적한다. git 제외 규칙에 걸린 제출본은 잃지 않는다.
+4. 레지스트리 `submissions[].files`에 적힌 파일이 git이나 폴더에 있다. 서명본처럼 일부러 git에서 뺀 파일은 문제가 아니고, 다음 단계에서 보관된다.
 
 그다음:
 
 1. 세션(Orca 터미널, tmux 창, headless 프로세스)을 닫고, Orca 작업 공간이 있으면 지운다. 여기서 실패하면 경고하고 정리는 계속한다.
-2. 폴더를 휴지통(`~/.Trash/<이름>-<시각>`, 휴지통이 없으면 `data/trash/`)으로 옮긴다. `--purge`면 완전히 지운다.
-3. 레지스트리에서 `session`을 비우고 `folder_removed_at`을 기록하며, 같은 상태로 history note를 남긴다. 상태는 바꾸지 않는다.
-4. 기록부 항목에 원격 `repo` URL과 `folder_removed_at`을 기록해, 나중에 `git clone`으로 되살릴 수 있게 한다.
-5. `<contests_root>/.shared/existing_contests.md`의 줄은 중복 대조용이라 지우지 않는다.
+2. git에 없고 다시 만들 수 없는 파일을 `data/archive/<id>/`(git 제외, 권한 0700)에 보관한다. git이 추적하지 않는 제출본과 공모전 폴더의 `.private/` 안 파일(접수 증빙, 폼 수정 링크, 개인정보가 든 사본)이다. 그 밖의 git 제외 파일(렌더, 캐시, 가상 환경)은 개수만 세고 폴더와 함께 보낸다.
+3. 폴더를 휴지통(`~/.Trash/<이름>-<시각>`, 휴지통이 없으면 `data/trash/`)으로 옮긴다. `--purge`면 완전히 지운다.
+4. 레지스트리에서 `session`을 비우고 `folder_removed_at`을 기록하며, 같은 상태로 history note를 남긴다. 상태는 바꾸지 않는다.
+5. 기록부 항목에 원격 `repo` URL, `folder_removed_at`, 보관 위치 `archive`를 기록해, 나중에 `git clone`으로 되살릴 수 있게 한다.
+6. `<contests_root>/.shared/existing_contests.md`의 줄은 중복 대조용이라 지우지 않는다.
 
-`--dry-run`은 검사 결과와 할 일만 보여 준다. JSON 출력은 `{id, ok, problems, actions, trash}`다(`--all`이면 배열).
+`--dry-run`은 검사 결과와 할 일만 보여 준다. JSON 출력은 `{id, ok, problems, actions, trash, archive}`다(`--all`이면 배열).
 
 ### 사용자 정보
 

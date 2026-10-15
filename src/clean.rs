@@ -1,6 +1,7 @@
-//! Clean up a finished contest: close its session and move the local folder to the Trash, but only
-//! when the submission is in the ledger and everything is committed and pushed (nothing is lost;
-//! the repository can be cloned again). Contract: `docs/CONTRACT.md` (harness clean).
+//! Clean up a finished contest: close its session, keep what git does not hold and cannot be rebuilt
+//! (untracked submission files and the `.private/` folder) in `data/archive/<id>/`, and move the
+//! local folder to the Trash — only when the submission is in the ledger and everything else is
+//! committed and pushed (the repository can be cloned again). Contract: `docs/CONTRACT.md` (harness clean).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,20 @@ use crate::workspaces;
 
 const CLEANABLE: &[&str] = &["submitted", "closed"];
 
+/// Folder for files that must outlive the contest folder but never go to git (receipts, form edit
+/// links, copies with personal details). `harness clean` archives it.
+pub const PRIVATE_DIR: &str = ".private";
+
+/// What `clean` keeps and what it leaves behind with the folder.
+#[derive(Debug, Default, PartialEq)]
+pub struct ArchivePlan {
+    /// Folder-relative files copied to the archive.
+    pub keep: Vec<String>,
+    /// Other ignored files (renders, caches, environments) that go with the folder.
+    pub dropped: usize,
+    pub dropped_bytes: u64,
+}
+
 #[derive(Debug, Default, Serialize)]
 pub struct Outcome {
     pub id: String,
@@ -25,6 +40,8 @@ pub struct Outcome {
     pub problems: Vec<String>,
     pub actions: Vec<String>,
     pub trash: Option<String>,
+    /// Where untracked submission files and private notes were kept.
+    pub archive: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -36,6 +53,8 @@ pub struct Options {
     pub force: bool,
     /// Where trashed folders go (default `~/.Trash`, or `data/trash` when there is none).
     pub trash_dir: Option<PathBuf>,
+    /// Where kept files go (default `data/archive`); each contest gets `<dir>/<id>/`.
+    pub archive_dir: Option<PathBuf>,
 }
 
 /// Entries `harness clean --all` looks at: finished, with a folder that has not been cleaned yet.
@@ -115,11 +134,60 @@ pub fn problems(entry: &Entry, ledger: &Ledger) -> Vec<String> {
         Ok(_) => {}
     }
     for file in submission_files(entry, folder) {
-        if git(folder, &["ls-files", "--error-unmatch", "--", &file]).is_err() {
-            out.push(format!("제출 파일이 git에 없다(.gitignore로 빠졌을 수 있다): {file}"));
+        if !tracked(folder, &file) && !folder.join(&file).is_file() {
+            out.push(format!("제출 파일이 git에도 폴더에도 없다: {file}"));
         }
     }
     out
+}
+
+fn tracked(folder: &Path, file: &str) -> bool {
+    git(folder, &["ls-files", "--error-unmatch", "--", file]).is_ok()
+}
+
+/// Untracked submission files (they are what was sent) plus everything in `.private/`. Other ignored
+/// files are rebuildable byproducts and only counted.
+pub fn archive_plan(entry: &Entry, folder: &Path) -> Result<ArchivePlan> {
+    let mut plan = ArchivePlan {
+        keep: submission_files(entry, folder)
+            .into_iter()
+            .filter(|f| !tracked(folder, f) && folder.join(f).is_file())
+            .collect(),
+        ..ArchivePlan::default()
+    };
+    let ignored = git(folder, &["ls-files", "--others", "--ignored", "--exclude-standard", "-z"])?;
+    for file in ignored.split('\0').filter(|f| !f.is_empty()) {
+        if plan.keep.iter().any(|k| k == file) {
+            continue;
+        }
+        if Path::new(file).starts_with(PRIVATE_DIR) {
+            plan.keep.push(file.to_string());
+        } else if let Ok(meta) = fs::metadata(folder.join(file)) {
+            plan.dropped += 1;
+            plan.dropped_bytes += meta.len();
+        }
+    }
+    plan.keep.sort();
+    Ok(plan)
+}
+
+fn archive_target(entry: &Entry, archive_dir: Option<&Path>) -> PathBuf {
+    let dir = archive_dir.map(Path::to_path_buf).unwrap_or_else(|| paths::data().join("archive"));
+    dir.join(entry.id.replace(['/', '\\'], "_"))
+}
+
+fn copy_into(folder: &Path, files: &[String], target: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(target)?;
+    fs::set_permissions(target, fs::Permissions::from_mode(0o700))?;
+    for file in files {
+        let to = target.join(file);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(folder.join(file), &to).map_err(|err| Error(format!("보관하지 못했다({file}): {err}")))?;
+    }
+    Ok(())
 }
 
 fn trash_target(folder: &Path, trash_dir: Option<&Path>) -> PathBuf {
@@ -157,14 +225,31 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     if let (Some(ws), Some(id)) = (backend, workspace_id) {
         outcome.actions.push(format!("작업 공간 제거: {} {id}", ws.name()));
     }
+    let plan = archive_plan(entry, &folder)?;
+    let archive = (!plan.keep.is_empty()).then(|| archive_target(entry, opts.archive_dir.as_deref()));
+    if let Some(a) = &archive {
+        outcome.actions.push(format!("제출본·{PRIVATE_DIR} 파일 {}개 보관 → {}", plan.keep.len(), a.display()));
+    }
+    if plan.dropped > 0 {
+        let place = if opts.purge { "함께 삭제" } else { "휴지통으로" };
+        outcome.actions.push(format!(
+            "그 밖의 git 제외 파일 {}개({:.1}MB, 렌더·캐시 등)는 보관하지 않음({place})",
+            plan.dropped,
+            plan.dropped_bytes as f64 / 1_048_576.0
+        ));
+    }
     outcome.actions.push(match &target {
         Some(t) => format!("폴더를 휴지통으로: {} → {}", folder.display(), t.display()),
         None => format!("폴더 완전히 삭제: {}", folder.display()),
     });
     outcome.trash = target.as_ref().map(|t| t.display().to_string());
+    outcome.archive = archive.as_ref().map(|a| a.display().to_string());
     if opts.dry_run {
         outcome.ok = true;
         return Ok(outcome);
+    }
+    if let Some(a) = &archive {
+        copy_into(&folder, &plan.keep, a)?;
     }
 
     let repo_url = git(&folder, &["remote", "get-url", "origin"]).ok().map(|u| u.trim().to_string());
@@ -192,7 +277,10 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     let at = now();
     entry.session = None;
     entry.extra.insert("folder_removed_at".into(), json!(at));
-    let note = format!("로컬 폴더 정리: {}", outcome.trash.as_deref().unwrap_or("완전히 삭제"));
+    let mut note = format!("로컬 폴더 정리: {}", outcome.trash.as_deref().unwrap_or("완전히 삭제"));
+    if let Some(a) = &outcome.archive {
+        note.push_str(&format!(" / 보관: {a}"));
+    }
     entry.history.push(HistoryItem {
         at: at.clone(),
         from: Some(entry.state.clone()),
@@ -201,12 +289,16 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
         note,
     });
     let id = entry.id.clone();
+    let archive_path = outcome.archive.clone();
     ledger::write_at(ledger_path, |ledger| {
         if let Some(item) = ledger.submissions.iter_mut().find(|s| s.key == id) {
             if let Some(url) = &repo_url {
                 item.extra.insert("repo".into(), json!(url));
             }
             item.extra.insert("folder_removed_at".into(), json!(at));
+            if let Some(a) = &archive_path {
+                item.extra.insert("archive".into(), json!(a));
+            }
         }
         Ok(())
     })?;

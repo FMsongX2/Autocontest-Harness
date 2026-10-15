@@ -52,7 +52,7 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 | `harness score <id> --stage plan\|draft\|final --file <judge.json> [--note N]` / `harness score <id>` | ContestJudge 출력(`.harness/judge/<stage>-<n>.json`)을 검증해 항목 `scores`에 기록(`target` 없으면 90) / 점수 이력(시각, 단계, 총점/목표, 판정, 가장 많이 깎인 기준 셋) |
 | `harness submit <id> --method M --receipt R [--files F...]` | 제출 기록 → `submitted`. 제출 기록부에도 한 줄 더한다 |
 | `harness submitted [--json]` / `harness submitted add --title T [--url U] [--org O] [--date D] [--method M] [--receipt R] [--folder F] [--note N]` / `harness submitted import` | 제출 기록부(이미 제출한 공모전) 목록 / 하네스 밖에서 낸 공모전 기록 / 레지스트리의 제출 기록을 한 번 옮기기 |
-| `harness clean <id> [--dry-run] [--purge] [--force]` / `harness clean --all [--dry-run]` | 제출 끝난 공모전 정리: 세션 닫기 + 로컬 폴더를 휴지통으로(`--purge`면 완전 삭제). 조건(`submitted`·`closed`, 제출 기록부에 있음, git 작업 트리 깨끗·push 완료, 제출본이 git에 추적됨)이 하나라도 어긋나면 이유(`problems`)만 내고 지우지 않는다(`--force`는 검사 생략). 레지스트리 `folder_removed_at`, 기록부 `repo`로 나중에 `git clone`해 되살린다. `--all`은 `submitted`·`closed` 전부 |
+| `harness clean <id> [--dry-run] [--purge] [--force]` / `harness clean --all [--dry-run]` | 제출 끝난 공모전 정리: 세션 닫기 + git이 추적하지 않는 제출본과 `.private/`를 `data/archive/<id>/`에 보관 + 로컬 폴더를 휴지통으로(`--purge`면 완전 삭제). 조건(`submitted`·`closed`, 제출 기록부에 있음, git 작업 트리 깨끗·push 완료, 제출본이 git이나 폴더에 있음)이 하나라도 어긋나면 이유(`problems`)만 내고 지우지 않는다(`--force`는 검사 생략). 레지스트리 `folder_removed_at`, 기록부 `repo`·`archive`로 나중에 되살린다. `--all`은 `submitted`·`closed` 전부 |
 | `harness profile path\|eligibility\|show [--json]` | 사용자 정보(`data/profile.md`, 사용자가 직접 쓰는 마크다운, git 제외). 하네스는 읽기만 한다. 게이트는 `eligibility --json`(`## 참가 자격` 절)만, 개인 값은 승인된 제출 단계에서만 `show --json`(파일 전체) |
 | `harness budget` / `harness capacity --json` | 공급자 한도 기반 권장 병렬 수 / 지금 새로 띄울 수 있는 세션 수: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`available_gb`, `reserve_gb`, `budget_gb`, `pressure`), `limits`, `providers` |
 | `harness tick [--no-collect] [--auto-launch]` / `harness board` | 주기 실행(config `auto_launch`가 `true`면 플래그 없이도 실행까지) / `BOARD.md` 갱신 |
@@ -122,7 +122,7 @@ running    ↔ awaiting_approval (승인 대기 중 수정 요청이 오면 runn
 ## 제출 이후
 
 - 승인받은 세션이 제출하고 접수 증빙(접수 번호, 확인 메일, 화면 캡처 경로)을 받아 `harness submit <id> --method <폼|메일|사이트|우편> --receipt "<증빙>" --files <파일...>`로 기록한다. 제출 기록부(`data/submissions.json`)에도 남아 같은 공모전이 다시 배정되지 않는다.
-- 정리: 제출본까지 커밋·push한 뒤 `harness clean <id> --dry-run`으로 막는 이유가 없는지 보고, 마지막 명령으로 `harness clean <id>`를 실행해 세션을 닫고 로컬 폴더를 휴지통으로 옮긴다. 본선·발표·보완 제출처럼 같은 폴더로 할 일이 남았으면 정리하지 않고 `harness transition <id> running --note "<남은 일>"`으로 돌아간다. 정기 실행은 끝에 `harness clean --all`을 돌린다.
+- 정리: 접수 증빙·폼 수정 링크·개인정보가 든 사본처럼 git에 올리지 않되 남길 파일은 공모전 폴더의 `.private/`(gitignore)에 둔다. 나머지 결과물을 커밋·push한 뒤 `harness clean <id> --dry-run`으로 막는 이유가 없는지 보고, 마지막 명령으로 `harness clean <id>`를 실행해 세션을 닫고 보관할 파일을 `data/archive/<id>/`에 남긴 뒤 로컬 폴더를 휴지통으로 옮긴다. 본선·발표·보완 제출·사용자가 직접 보낼 메일처럼 같은 폴더로 할 일이 남았으면 정리하지 않고 `harness transition <id> running --note "<남은 일>"`으로 돌아간다. 정기 실행은 끝에 `harness clean --all`을 돌린다.
 - 결과 발표 뒤 `harness transition <id> closed --note won|lost|ended|withdrawn`.
 
 ## 플레이북

@@ -13,6 +13,7 @@ data/submissions.json
 data/local-rules.md
 data/persona.md
 data/trash/
+data/archive/
 data/*.lock
 data/registry.json
 data/main-system.md

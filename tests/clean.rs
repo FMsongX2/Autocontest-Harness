@@ -103,12 +103,14 @@ fn anything_that_could_lose_work_blocks_cleaning() {
     assert!(ahead.iter().any(|p| p.starts_with("push 안 된 커밋")), "{ahead:?}");
     git(&fx.folder, &["push", "-q"]);
 
-    // A final video kept out of git by .gitignore would be lost.
-    fs::write(fx.folder.join("big.mp4"), "video").unwrap();
+    // A recorded submission file that is neither in git nor in the folder cannot be kept.
     let mut entry = fx.entry.clone();
-    entry.submissions[0]["files"] = json!(["submission/final.hwp", "big.mp4"]);
-    let ignored = clean::problems(&entry, &ledger);
-    assert!(ignored.iter().any(|p| p.contains("제출 파일이 git에 없다") && p.ends_with("big.mp4")), "{ignored:?}");
+    entry.submissions[0]["files"] = json!(["submission/final.hwp", "gone.mp4"]);
+    let missing = clean::problems(&entry, &ledger);
+    assert!(
+        missing.iter().any(|p| p.starts_with("제출 파일이 git에도 폴더에도 없다") && p.ends_with("gone.mp4")),
+        "{missing:?}"
+    );
 
     entry.state = "running".into();
     assert!(clean::problems(&entry, &ledger).iter().any(|p| p.starts_with("상태가 running")));
@@ -117,6 +119,43 @@ fn anything_that_could_lose_work_blocks_cleaning() {
     let mut blocked = entry.clone();
     let outcome = clean::clean(&mut blocked, &fx.ledger, &Options::default()).unwrap();
     assert!(!outcome.ok && fx.folder.exists(), "blocked cleaning leaves the folder");
+    fs::remove_dir_all(&fx.root).unwrap();
+}
+
+#[test]
+fn ignored_submission_copies_and_private_notes_are_archived_before_trashing() {
+    let mut fx = fixture("archive");
+    fs::write(fx.folder.join(".gitignore"), "big.mp4\n.private/\ncache/\n.DS_Store\n").unwrap();
+    git(&fx.folder, &["commit", "-q", "-am", "Ignore private files"]);
+    git(&fx.folder, &["push", "-q"]);
+    fs::write(fx.folder.join("big.mp4"), "signed final video").unwrap(); // the signed copy kept out of git
+    fs::create_dir_all(fx.folder.join(".private")).unwrap();
+    fs::write(fx.folder.join(".private/form_edit_url.txt"), "https://forms.example/edit").unwrap();
+    fs::create_dir_all(fx.folder.join("cache")).unwrap();
+    fs::write(fx.folder.join("cache/blob.bin"), "rebuildable").unwrap();
+    fs::write(fx.folder.join(".DS_Store"), "x").unwrap();
+    fx.entry.submissions[0]["files"] = json!(["submission/final.hwp", "big.mp4"]);
+    let ledger = ledger::load_at(&fx.ledger).unwrap();
+    assert!(
+        clean::problems(&fx.entry, &ledger).is_empty(),
+        "an ignored but present submission copy is kept, not a blocker"
+    );
+
+    let plan = clean::archive_plan(&fx.entry, &fx.folder).unwrap();
+    assert_eq!(plan.keep, vec![".private/form_edit_url.txt".to_string(), "big.mp4".into()]);
+    assert_eq!(plan.dropped, 2, "the cache file and .DS_Store go with the folder, not into the archive");
+    let archive = fx.root.join("archive");
+    let opts =
+        Options { trash_dir: Some(fx.root.join("trash")), archive_dir: Some(archive.clone()), ..Options::default() };
+    let outcome = clean::clean(&mut fx.entry, &fx.ledger, &opts).unwrap();
+    assert!(outcome.ok && !fx.folder.exists(), "{outcome:?}");
+    let kept = archive.join("x-done");
+    assert_eq!(fs::read_to_string(kept.join("big.mp4")).unwrap(), "signed final video");
+    assert!(kept.join(".private/form_edit_url.txt").exists());
+    assert!(!kept.join("cache").exists() && !kept.join(".DS_Store").exists() && !kept.join("README.md").exists());
+    assert!(fx.entry.history.last().unwrap().note.contains("보관"));
+    let item = ledger::load_at(&fx.ledger).unwrap().get("x-done").cloned().unwrap();
+    assert_eq!(item.extra["archive"].as_str().unwrap(), kept.display().to_string());
     fs::remove_dir_all(&fx.root).unwrap();
 }
 

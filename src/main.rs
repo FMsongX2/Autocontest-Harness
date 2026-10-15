@@ -572,7 +572,7 @@ fn run(cli: &Cli) -> Result<u8> {
         Command::Submitted { action } => submitted(json_mode, action.as_ref()),
         Command::Profile { action } => profile_command(json_mode, action),
         Command::Clean { id, all: _, dry_run, purge, force } => {
-            let opts = clean::Options { dry_run: *dry_run, purge: *purge, force: *force, trash_dir: None };
+            let opts = clean::Options { dry_run: *dry_run, purge: *purge, force: *force, ..clean::Options::default() };
             let ledger_path = ledger::path();
             let outcomes = registry::write(|reg| {
                 let ids: Vec<String> = match id {
