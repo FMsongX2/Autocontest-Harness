@@ -84,7 +84,7 @@ cd ~/contests/Contest-Harness
 scripts/install.sh       # prebuilt binary, checksum-verified; links ~/.local/bin/harness, which must be on PATH
 ```
 
-`scripts/install.sh` downloads the binary for your platform from the GitHub release whose tag matches the version in `Cargo.toml` (`v0.4.0`), checks it against the release's `SHA256SUMS`, installs it to `bin/harness` in the clone (git-ignored), and links `$BIN_DIR/harness` to it (default `~/.local/bin`). Prebuilt targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, and `aarch64-unknown-linux-musl`. When no asset fits, the script builds from source with `cargo build --release --locked`; `scripts/install.sh --from-source` forces that. It ends by printing `harness --version`. To build from source without the script, run `cargo install --path . --root ~/.local --locked`.
+`scripts/install.sh` downloads the binary for your platform from the GitHub release whose tag matches the version in `Cargo.toml` (`v0.5.0`), checks it against the release's `SHA256SUMS`, installs it to `bin/harness` in the clone (git-ignored), and links `$BIN_DIR/harness` to it (default `~/.local/bin`). Prebuilt targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, and `aarch64-unknown-linux-musl`. When no asset fits, the script builds from source with `cargo build --release --locked`; `scripts/install.sh --from-source` forces that. It ends by printing `harness --version`. To build from source without the script, run `cargo install --path . --root ~/.local --locked`.
 
 The binary works on one checkout: `HARNESS_HOME` when it is set, otherwise the nearest directory above the real binary path (symlinks resolved) that contains `harness/prompts/launch.md`, otherwise the checkout it was built from. It reads `data/`, prompts, agents, and the skill from there. Every command except `doctor`, `--help`, and `--version` refuses to run when that directory has no `harness/prompts/launch.md`, and creates nothing there.
 
@@ -401,7 +401,7 @@ Every command accepts `--json`. CLI messages and `BOARD.md` are in Korean. Exit 
 
 | Command | What it does |
 |---|---|
-| `harness --version` | Prints the version and the commit the binary was built from: `0.4.0 (<12-character sha>)` |
+| `harness --version` | Prints the version and the commit the binary was built from: `0.5.0 (<12-character sha>)` |
 | `harness doctor` | Checks the checkout, config, tools, and scheduled run. Exit 1 if any check fails. See [Setup check](#setup-check-harness-doctor) |
 | `harness init` | Creates what a new checkout needs: `data/` (0700), `data/config.json` and `data/profile.md` from the committed examples (0600), and `data/logs/`. Existing files are kept. Then runs the doctor. JSON is `{created: [...], kept: [...], checks: [...], next: "<root>/INIT.md"}`. Exit 0 |
 | `harness config path` | Prints the config file path (`data/config.json`) |
@@ -779,7 +779,7 @@ cd ~/contests/Contest-Harness
 scripts/install.sh       # 미리 빌드한 바이너리를 체크섬으로 확인해 설치하고 ~/.local/bin/harness로 링크한다. ~/.local/bin이 PATH에 있어야 한다
 ```
 
-`scripts/install.sh`는 `Cargo.toml`의 버전과 태그가 같은 GitHub 릴리스(`v0.4.0`)에서 이 플랫폼용 바이너리를 내려받아 릴리스의 `SHA256SUMS`로 확인하고, 클론의 `bin/harness`(git 제외)에 설치한 뒤 `$BIN_DIR/harness`(기본 `~/.local/bin`)로 링크한다. 미리 빌드한 대상은 `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`이다. 맞는 파일이 없으면 `cargo build --release --locked`로 소스에서 빌드하고, `scripts/install.sh --from-source`는 소스 빌드를 강제한다. 끝에 `harness --version`을 출력한다. 스크립트 없이 소스에서 빌드하려면 `cargo install --path . --root ~/.local --locked`를 쓴다.
+`scripts/install.sh`는 `Cargo.toml`의 버전과 태그가 같은 GitHub 릴리스(`v0.5.0`)에서 이 플랫폼용 바이너리를 내려받아 릴리스의 `SHA256SUMS`로 확인하고, 클론의 `bin/harness`(git 제외)에 설치한 뒤 `$BIN_DIR/harness`(기본 `~/.local/bin`)로 링크한다. 미리 빌드한 대상은 `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`이다. 맞는 파일이 없으면 `cargo build --release --locked`로 소스에서 빌드하고, `scripts/install.sh --from-source`는 소스 빌드를 강제한다. 끝에 `harness --version`을 출력한다. 스크립트 없이 소스에서 빌드하려면 `cargo install --path . --root ~/.local --locked`를 쓴다.
 
 바이너리가 다루는 클론은 하나다. `HARNESS_HOME`이 있으면 그곳, 없으면 실제 바이너리 경로(심볼릭 링크를 풀어서)의 위쪽 폴더 가운데 `harness/prompts/launch.md`가 있는 가장 가까운 곳, 그것도 없으면 빌드한 클론이다. `data/`, 지시문, 에이전트, 스킬을 그곳에서 읽는다. 그 폴더에 `harness/prompts/launch.md`가 없으면 `doctor`, `--help`, `--version`을 뺀 모든 명령이 실행을 거절하고, 그곳에 아무것도 만들지 않는다.
 
@@ -1096,7 +1096,7 @@ harness config unset max_running_by_level.5  # 기본값으로 되돌린다
 
 | 명령 | 하는 일 |
 |---|---|
-| `harness --version` | 버전과 바이너리를 빌드한 커밋을 보여 준다: `0.4.0 (<12자리 sha>)` |
+| `harness --version` | 버전과 바이너리를 빌드한 커밋을 보여 준다: `0.5.0 (<12자리 sha>)` |
 | `harness doctor` | 클론, 설정, 도구, 정기 실행을 점검한다. 실패가 하나라도 있으면 종료 코드 1. [설치 점검](#설치-점검harness-doctor) 참고 |
 | `harness init` | 새 클론에 필요한 것을 만든다: `data/`(0700), 커밋된 예시에서 `data/config.json`과 `data/profile.md`(0600), `data/logs/`. 있는 파일은 그대로 둔다. 끝에 점검을 돌린다. JSON은 `{created: [...], kept: [...], checks: [...], next: "<루트>/INIT.md"}`. 종료 코드 0 |
 | `harness config path` | 설정 파일 경로(`data/config.json`)를 보여 준다 |

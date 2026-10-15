@@ -201,7 +201,7 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 
 ### CLI
 
-모든 명령은 전역 플래그 `--json`을 받는다(사람용 텍스트 대신 JSON). CLI 메시지와 `BOARD.md`는 한국어다. `harness --version`은 `0.4.0 (<12자리 git sha>)` 형식으로 버전과 빌드 커밋을 낸다.
+모든 명령은 전역 플래그 `--json`을 받는다(사람용 텍스트 대신 JSON). CLI 메시지와 `BOARD.md`는 한국어다. `harness --version`은 `0.5.0 (<12자리 git sha>)` 형식으로 버전과 빌드 커밋을 낸다.
 
 | 명령 | 하는 일 |
 |---|---|
@@ -243,7 +243,7 @@ skipped | duplicate → discovered (판정을 바로잡아 다시 게이트할 �
 | `harness chat [--runner R] [--workspace terminal\|orca\|tmux]` | 저장소 루트에서 메인 인터페이스 세션을 연다(12절). 기본 러너는 설정 `runner`, 기본 작업 환경은 `terminal` |
 | `harness autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
 | `harness doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `harness install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
-| `harness --version` | `0.4.0 (<12자리 git sha>)` |
+| `harness --version` | `0.5.0 (<12자리 git sha>)` |
 | `harness schedule install [--scheduler orca\|launchd\|cron]` | 설정 `schedule.cron` 주기로 정기 실행을 등록하거나, 이미 있으면 갱신한다. 기본 스케줄러는 설정 `schedule.scheduler`. 다른 스케줄러에도 정기 실행이 있으면 결과에 `warning`을 낸다(6절 정기 실행) |
 | `harness schedule remove [--scheduler orca\|launchd\|cron]` | `orca`는 하네스 automation을 지운다(그 worktree는 남기고 id를 알려 준다). `launchd`는 작업을 내리고 plist를 지운다. `cron`은 이 체크아웃의 crontab 블록만 지운다 |
 | `harness schedule status` | 설정 주기와 세 스케줄러의 실제 상태. 텍스트는 설정 줄 다음에 orca·launchd·cron마다 설치 여부, 설정과 일치 여부, 다음 실행을 짧게 낸다(JSON 필드는 아래 정기 실행 절) |
