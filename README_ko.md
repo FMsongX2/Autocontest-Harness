@@ -34,27 +34,17 @@ Rust 바이너리 하나(`harness`)와 에이전트 지시문 묶음으로 이�
 
 ## 동작 방식
 
-```mermaid
-flowchart LR
-  A[수집<br/>harness collect<br/>ContestScout] --> B[게이트<br/>ContestGate<br/>harness gate]
-  B -->|pass| C[라우팅<br/>harness route<br/>폴더·저장소·작업 공간]
-  B -->|fail / hold| X[탈락 / 보류]
-  C --> D[실행<br/>harness launch<br/>러너 + 작업 환경 + 레벨 지시문]
-  D --> E{레벨}
-  E -->|1| F[세션 하나 + 플레이북]
-  E -->|2| G[세션 + 조사 에이전트<br/>ContestEditor]
-  E -->|3-4| H[HQ: SPEC·PLAN·TASKS<br/>워커 웨이브·리뷰어<br/>레벨 4: 실험 루프]
-  E -->|5| P[ReferenceScout·OpenSourceScout·SPEC·PLAN<br/>plan_review: 사람 승인]
-  P --> H
-  F & G & H --> J[ContestJudge<br/>harness score]
-  J --> Q[페르소나 검사<br/>harness check]
-  Q --> K[awaiting_approval<br/>사람 승인]
-  K --> L[harness submit]
-```
+<img src="docs/diagrams/pipeline_ko.svg" width="960" alt="스윔레인: harness CLI가 공고를 수집하고, 에이전트가 게이트를 판정하고(미통과면 탈락·보류로 끝), CLI가 라우팅·실행하고, 에이전트가 레벨대로 작업하고, CLI가 점수와 페르소나 흔적을 검사하고, 사용자가 승인하면 에이전트가 제출한다. 레벨 5는 계획 검토에서 한 번 더 멈춘다.">
+
+<p>그림 1. 공고에서 제출까지, 단계마다 누가 하는지</p>
 
 레지스트리 상태 순서: `discovered → gate_pass | rejected | hold → routed → running → (plan_review →) running → awaiting_approval → submitted → closed`. 대부분의 상태에서 `skipped`나 `duplicate`로도 옮길 수 있다. 전체 전이표는 [docs/CONTRACT.md](docs/CONTRACT.md) 4절에 있다. 레지스트리는 CLI만 쓴다. 에이전트는 `harness`를 불러 상태를 바꾼다.
 
 ### 구조
+
+<img src="docs/diagrams/architecture_ko.svg" width="960" alt="구성도: 사용자와 스케줄러가 harness CLI를 부른다. data/는 CLI만 쓰고, CLI가 HTTP로 공고를 수집하고, private GitHub 저장소가 딸린 공모전 폴더를 만들고, 작업 환경에 에이전트 세션을 띄운다. 에이전트는 CLI를 다시 부르고 공모전 폴더에 커밋한다.">
+
+<p>그림 2. 구성 요소와 서로 부르는 관계</p>
 
 - **Rust 코어**(`src/`). 바이너리 하나가 레지스트리, 수집기, 중복 판정, 게이트 기록, 라우팅, 용량 계산, 보드, 페르소나 검사, 세션 실행을 맡는다. 부르는 도구(`git`, `gh`, 러너·작업 환경 CLI) 말고는 실행 시 의존성이 없다. 외부 명령(`git`, `gh`, `orca`, `tmux`, `omp usage`, `launchctl`, `crontab`, `ps`)은 따로 만든 프로세스 그룹에서 제한 시간(네트워크 120초, 로컬 30초)을 두고 돌리며, 시간을 넘기면 끝낸다. git은 `GIT_TERMINAL_PROMPT=0`과 batch 모드 SSH로 돌려 암호 입력을 기다리지 않는다.
 - **러너 어댑터**(`src/runners/`). `Runner` trait이 에이전트 하네스와 맞닿는 인터페이스다. 대화형 명령, 한 번 실행 명령, 서브에이전트·모델 프리셋 지원 여부, Orca에서 띄울 에이전트, 하네스 에이전트·스킬·확장 설치법을 정한다. 코어에는 `omp`와 `claude`(Claude Code) 어댑터가 들어 있고, 다른 하네스의 어댑터는 pull request로 받는다([러너 어댑터 추가](#러너-어댑터-추가) 참고).
@@ -645,6 +635,7 @@ Contest-Harness/
 │   └── registry.json           공모전 레지스트리 (git 제외)
 ├── INIT.md                     에이전트가 따르는 설정 절차
 ├── docs/CONTRACT.md            명령, 상태, 파일 형식, 백엔드
+├── docs/diagrams/              README 그림: HTML 원본(diagram-design)과 내보낸 SVG
 ├── CONTRIBUTING.md             러너 어댑터·수집 출처 추가 방법
 ├── SECURITY.md                 위협 모델, 취약점 신고
 ├── CHANGELOG.md                릴리스 기록
@@ -687,6 +678,8 @@ Contest-Harness/
 | [kaggle-competition-harness](https://github.com/chenxi-bot21/kaggle-competition-harness) | MIT | 감사 가능한 제출 기록, 최종 제출은 사람이 하는 원칙 |
 
 <p>표 8. 참고 프로젝트</p>
+
+그림 1과 2는 [diagram-design](https://github.com/cathrynlavery/diagram-design)(MIT, Copyright (c) 2025 Cathryn Lavery)으로 그렸다. `docs/diagrams/`의 HTML 원본은 그 템플릿에서 시작했고, SVG는 그 `scripts/export_svg.py --system-fonts`로 내보냈다.
 
 ## 라이선스
 

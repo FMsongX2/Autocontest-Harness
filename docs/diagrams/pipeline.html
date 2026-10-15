@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A contest from listing to submission</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #bf4520;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', 'Noto Serif KR', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Swimlane · Autocontest-Harness</p>
+    <h1>A contest from listing to submission</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pipeline-title pipeline-desc">
+        <title id="pipeline-title">How a contest moves through the harness</title>
+        <desc id="pipeline-desc">Swimlane diagram: the harness CLI collects a listing, an agent gates it, the CLI routes and launches it, an agent works by level, the CLI checks score and persona traces, you approve, and the agent submits; Level 5 also stops once for a plan review.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+        <!-- Lanes -->
+        <line x1="40" y1="56" x2="920" y2="56" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <line x1="40" y1="144" x2="920" y2="144" stroke="rgba(45,49,66,0.1)" stroke-width="1"/>
+        <line x1="40" y1="232" x2="920" y2="232" stroke="rgba(45,49,66,0.1)" stroke-width="1"/>
+        <line x1="40" y1="320" x2="920" y2="320" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <line x1="128" y1="56" x2="128" y2="320" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="48" y="103" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">YOU</text>
+        <text x="48" y="191" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">AGENTS</text>
+        <text x="48" y="279" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">HARNESS CLI</text>
+        <!-- Connectors (behind nodes) -->
+        <path d="M 192,252 V 196 Q 192,188 200,188 H 256" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 304,212 V 252" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 352,188 H 408 Q 416,188 416,196 V 252" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 464,276 H 520 Q 528,276 528,268 V 212" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 576,188 H 632 Q 640,188 640,196 V 252" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 688,276 H 744 Q 752,276 752,268 V 124" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 800,100 H 856 Q 864,100 864,108 V 164" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <path d="M 512,164 V 100 Q 512,92 520,92 H 704" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <path d="M 704,108 H 552 Q 544,108 544,116 V 164" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <!-- Connector labels -->
+        <rect x="364" y="168" width="32" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="380" y="177" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">PASS</text>
+        <rect x="312" y="226.0" width="68" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="346" y="235.0" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">FAIL · HOLD</text>
+        <rect x="692" y="182.0" width="52" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="718" y="191.0" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">AWAITING</text>
+        <rect x="568" y="72" width="88" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="612" y="81" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">L5 PLAN REVIEW</text>
+        <rect x="602" y="116" width="52" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="628" y="125" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">APPROVED</text>
+        <!-- Steps -->
+        <rect x="144" y="252" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="144" y="252" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="192" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Collect</text>
+        <text x="192" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness collect</text>
+        <rect x="256" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="256" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="304" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gate</text>
+        <text x="304" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ContestGate</text>
+        <rect x="368" y="252" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="368" y="252" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="416" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Launch</text>
+        <text x="416" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">route · launch</text>
+        <rect x="480" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="480" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="528" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Work</text>
+        <text x="528" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">level 1–5</text>
+        <rect x="592" y="252" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="592" y="252" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="640" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Checks</text>
+        <text x="640" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">score · persona</text>
+        <rect x="704" y="76" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="704" y="76" width="96" height="48" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <text x="752" y="97" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Approve</text>
+        <text x="752" y="112" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness approve</text>
+        <rect x="816" y="164" width="96" height="48" rx="6" fill="#f5f5f5"/>
+        <rect x="816" y="164" width="96" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="864" y="185" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Submit</text>
+        <text x="864" y="200" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">harness submit</text>
+        <rect x="256" y="252" width="96" height="48" rx="20" fill="#f5f5f5"/>
+        <rect x="256" y="252" width="96" height="48" rx="20" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+        <text x="304" y="273" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Rejected</text>
+        <text x="304" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">or on hold</text>
+        <!-- Legend -->
+        <line x1="40" y1="356" x2="920" y2="356" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <text x="40" y="372" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="385" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <text x="60" y="393" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Your approval</text>
+        <rect x="156" y="385" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="176" y="393" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Step</text>
+        <rect x="228" y="384" width="20" height="12" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+        <text x="254" y="393" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">End state</text>
+        <line x1="328" y1="390" x2="356" y2="390" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <text x="364" y="393" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">After approval</text>
+        <line x1="464" y1="390" x2="492" y2="390" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="500" y="393" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Next step</text>
+        <line x1="576" y1="390" x2="604" y2="390" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <text x="612" y="393" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Level 5 plan review</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

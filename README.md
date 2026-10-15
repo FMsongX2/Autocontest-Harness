@@ -37,27 +37,17 @@ The harness automates these steps: collecting, deduplicating, gating, sizing, sc
 
 ## How it works
 
-```mermaid
-flowchart LR
-  A[Collect<br/>harness collect<br/>ContestScout] --> B[Gate<br/>ContestGate<br/>harness gate]
-  B -->|pass| C[Route<br/>harness route<br/>folder, repo, workspace]
-  B -->|fail / hold| X[Rejected / on hold]
-  C --> D[Launch<br/>harness launch<br/>runner + workspace + level prompt]
-  D --> E{Level}
-  E -->|1| F[Single session + playbook]
-  E -->|2| G[Session + researcher<br/>ContestEditor]
-  E -->|3-4| H[HQ: SPEC, PLAN, TASKS<br/>worker waves, reviewers<br/>Level 4: experiment loop]
-  E -->|5| P[ReferenceScout, OpenSourceScout, SPEC, PLAN<br/>plan_review: human approval]
-  P --> H
-  F & G & H --> J[ContestJudge<br/>harness score]
-  J --> Q[Persona guard<br/>harness check]
-  Q --> K[awaiting_approval<br/>human approval]
-  K --> L[harness submit]
-```
+<img src="docs/diagrams/pipeline.svg" width="960" alt="Swimlane: the harness CLI collects a listing, an agent gates it (fail or hold stops there), the CLI routes and launches it, an agent works by level, the CLI checks score and persona traces, you approve, and the agent submits. Level 5 also stops once for a plan review.">
+
+<p>Figure 1. A contest from listing to submission, by who does each step</p>
 
 Registry states: `discovered → gate_pass | rejected | hold → routed → running → (plan_review →) running → awaiting_approval → submitted → closed`. Most states can also move to `skipped` or `duplicate`. [docs/CONTRACT.md](docs/CONTRACT.md) section 4 has the full transition table. Only the CLI writes to the registry. Agents change state by calling `harness`.
 
 ### Architecture
+
+<img src="docs/diagrams/architecture.svg" width="960" alt="Architecture: you and a scheduler call the harness CLI. Only the CLI writes data/; it collects listings over HTTP, routes contest folders with private GitHub repositories, and launches agent sessions in a workspace. Agents call the CLI back and commit to the contest folder.">
+
+<p>Figure 2. Components and who talks to whom</p>
 
 - **Rust core** (`src/`). One binary handles the registry, collectors, dedupe, gate records, routing, capacity, the board, the persona guard, and session launch. It has no runtime dependencies beyond the tools it calls (`git`, `gh`, the runner and workspace CLIs). External commands (`git`, `gh`, `orca`, `tmux`, `omp usage`, `launchctl`, `crontab`, `ps`) run in their own process group with a timeout (120 s for network calls, 30 s for local ones) and are killed when it runs out; git runs with `GIT_TERMINAL_PROMPT=0` and SSH in batch mode, so nothing waits for a password prompt.
 - **Runner adapters** (`src/runners/`). The `Runner` trait is the interface to an agent harness: its interactive and one-shot commands, whether it has subagents and model presets, which Orca agent runs it, and how to install the harness agents, skill, and extension. The core ships the `omp` and `claude` (Claude Code) adapters. Adapters for other harnesses come as pull requests (see [Adding a runner adapter](#adding-a-runner-adapter)).
@@ -648,6 +638,7 @@ Contest-Harness/
 │   └── registry.json           contest registry (git-ignored)
 ├── INIT.md                     setup procedure an agent follows
 ├── docs/CONTRACT.md            commands, states, file formats, backends
+├── docs/diagrams/              README figures: HTML sources (diagram-design) and the exported SVGs
 ├── CONTRIBUTING.md             adding a runner adapter or a source
 ├── SECURITY.md                 threat model, vulnerability reporting
 ├── CHANGELOG.md                release notes
@@ -690,6 +681,8 @@ The design borrows structure and output formats from these projects, not their c
 | [kaggle-competition-harness](https://github.com/chenxi-bot21/kaggle-competition-harness) | MIT | An auditable submission ledger, with final submission left to a human |
 
 <p>Table 8. Reference projects</p>
+
+Figures 1 and 2 are drawn with [diagram-design](https://github.com/cathrynlavery/diagram-design) (MIT, Copyright (c) 2025 Cathryn Lavery). Their HTML sources in `docs/diagrams/` start from its template, and the SVGs are exported with its `scripts/export_svg.py --system-fonts`.
 
 ## License
 
