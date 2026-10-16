@@ -45,11 +45,11 @@
 
 ## 마지막 단계: 마무리
 
-- [ ] T090 서식·형식 최종 반영(한컴독스 확인, PDF는 한컴독스 웹) ([경로])
+- [ ] T090 서식·형식 최종 반영 뒤 최종 파일 전 페이지를 렌더링해 비전으로 직접 검수(줄간격·배치·잘림·겹침 포함, 메타데이터·텍스트 검사만으로 완료 금지). 파일 해시·렌더 도구·전체/확인 쪽수·페이지별 근거 기록, 수정 뒤 전 페이지 재검수(HWP/HWPX 렌더·PDF 변환은 한컴독스 웹) ([경로])
 - [ ] T091 AI 활용 고지·사용한 오픈소스 고지(`research/oss.md`)·서약·동의서 확인 (SUBMISSION.md)
 - [ ] T092 ContestJudge 최종 채점(stage `final`) `ready`·목표 이상, `ach score <id> --stage final --file <경로>` (JUDGE.md)
 - [ ] T093 SUBMISSION.md 작성, 커밋·푸시, 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`
-- [ ] T094 (`ach approve`로 제출 승인이 기록된 뒤) 제출 → `ach submit` → 커밋·푸시 → `ach clean <id>`(남은 본선·발표가 있으면 정리하지 않는다)
+- [ ] T094 (`ach approve`로 제출 승인이 기록된 뒤) 개인정보·서명을 채우거나 파일을 다시 저장·변환했다면 전 페이지 재렌더·비전 재검수 및 제출 파일 해시 대조 → 제출 → `ach submit` → 커밋·푸시 → `ach clean <id>`(남은 본선·발표가 있으면 정리하지 않는다)
 
 ## 대응 확인
 

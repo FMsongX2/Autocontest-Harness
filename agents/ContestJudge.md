@@ -38,7 +38,7 @@ output:
       type: float64
     gated_checks:
       metadata:
-        description: "Hard checks run before scoring, in order: format, limits, files, eligibility, AI policy/disclosure, original-work oath, prohibited content, document hygiene, persona traces, honesty of numbers"
+        description: "Hard checks run before scoring, in order: format, limits, files, eligibility, AI policy/disclosure, original-work oath, prohibited content, document hygiene, per-page visual inspection, persona traces, honesty of numbers"
       elements:
         properties:
           check:
@@ -47,7 +47,7 @@ output:
             type: boolean
           evidence:
             metadata:
-              description: "Command output or file location that proves the result (e.g. `pdfinfo: Pages 12 (limit 10)`)"
+              description: "Command output or file location that proves the result; visual checks include the reviewed file SHA-256, renderer, total/reviewed page counts, and page-image paths with per-page observations"
             type: string
     scores:
       metadata:
@@ -153,6 +153,7 @@ output:
 호출자가 공모전 폴더, 단계(`stage`: `plan` | `draft` | `final`), 체크포인트 이름, 채점 대상 경로를 준다. `plan`이면 대상은 결과물이 아니라 후보 하나의 콘셉트(콘셉트 카드, 개요)나 SPEC·PLAN 초안이고, 후보가 여럿이면 후보마다 따로 부른다. 폴더에서 다음을 읽는다.
 - `CONTEST.md`, `.harness/gate.json`(criteria·deliverables·eligibility·submission), `RUBRIC.md`(기준별 만점 조건·감점 요인·필요한 근거, 있으면), `SPEC.md`(FR-###, SC-###, 목표 점수), `JUDGE.md`(이전 판정), `SUBMISSION.md`(있으면)
 - 공고 원문·서식(`docs/form/` 등), 이전 수상작 자료(`research/` 안에 있으면)
+- 페이지가 있는 문서는 현재 대상 파일의 SHA-256, 렌더 도구, 원본과 파생 PDF의 대응, 전체 페이지 수, 페이지별 렌더 이미지와 검수 기록(`.private/visual-review/`)을 호출자에게서 받는다. Judge는 읽기 전용이므로 렌더 파일을 직접 만들지 않는다. 누락되면 호출자가 준비하게 하고 검수 전에는 통과로 치지 않는다.
 </inputs>
 
 <procedure>
@@ -170,6 +171,9 @@ output:
    - 생성형 AI: `ai_policy`가 금지면 AI 사용 흔적 자체가 위반, 조건부 허용이면 요구된 고지 문구·활용 설명서가 원문 그대로 있는가.
    - 직접 창작 서약: `original_work_oath`가 있으면 결과물이 그 조건과 충돌하지 않는가.
    - 문서 위생: `§` 같은 내부 표시, 남은 자리표시자(`[NEEDS CLARIFICATION`, `TODO`, `XXX`), 깨진 글리프, 표와 표 주석 불일치, 표 아래 `<p>표 n. …</p>` 캡션 누락, 수식이 그림으로 들어간 경우.
+   - 문서 시각 검수: 보고서·제안서·논문·신청서 등 현재 문서의 표지부터 부록·동의서까지 모든 페이지 이미지를 비전으로 직접 연다. 줄간격·문단 간격·글꼴·여백·정렬·들여쓰기·표 셀 넘침·그림/캡션 위치·수식·머리말/꼬리말·쪽번호·쪽 나뉨·빈 쪽·잘림·겹침·깨진 글리프를 공고 서식과 대조하고, 읽기 어려운 영역은 확대한다. XML·설정값·메타데이터·추출 텍스트·OCR은 정확한 수치와 내용의 보조 검사이지 비전 검수의 대체가 아니다. 이미지 생성 성공, 표본 페이지·썸네일만 본 것, 작성자의 "검수 완료" 주장으로 통과시키지 않는다.
+     - `gated_checks`에 `check: "문서 전 페이지 비전 검수"`를 기록한다. `evidence`에는 대상 파일 SHA-256, 렌더 도구, 전체/확인 페이지 수, 페이지 번호별 이미지 경로와 실제 관찰·판정을 적는다. 개인정보 값은 적지 않는다. 원본·파생 PDF 대응과 현재 파일 해시가 맞지 않거나 페이지가 누락됐거나 비전으로 볼 수 없으면 `passed: false`, `verdict: reject`로 두고 페이지·사유를 `gaps`에도 적는다.
+     - 내용·서식·개인정보·서명 수정, 재저장·변환 뒤의 파일은 전 페이지 재렌더·재검수가 필요하다. 이전 해시의 검수로 새 파일을 통과시키지 않는다. `stage: plan`은 대상이 아니며, 페이지 형식이 없는 `draft`는 `gaps`에 시각 검수 미완료를 명시하고 서식 완료로 보지 않는다.
    - 페르소나 흔적: `ach check <id> --json`(id는 `CONTEST.md`의 "하네스 id")을 실행한다. `findings`가 하나라도 있으면 이 관문은 실패이고, 발견마다 파일·줄 위치를 단 CRITICAL로 내며 판정은 최소 `revise`다. 이 명령은 hwp·pdf·슬라이드 안쪽을 보지 못하므로, 최종 hwp·hwpx·pdf·pptx는 텍스트를 꺼내(`pdftotext`, `unzip -p`) 같은 흔적, 곧 운영자 설정 `persona.guard_terms`(페르소나 이름·말투·웃음 표기 같은 표지)와 `persona.call_user`(사용자 호칭)에 든 낱말(하네스 저장소 `data/config.json`, 설정이 없으면 이 검사는 건너뛴다), 그리고 결과물에 어울리지 않는 반말·애교 말투를 직접 찾는다. 작품 속 대사처럼 의도한 표현은 SUBMISSION.md에 사유가 적혀 있을 때만 통과로 보고 그 사유를 `evidence`에 옮긴다. 발견 사항·근거에는 찾은 낱말을 옮겨 적지 않고 "페르소나 흔적"과 위치로만 쓴다(JUDGE.md에 기록되면 그 파일이 다시 걸린다).
    - 수치 정직성: 수치마다 [가정]/[문헌]/[계산] 표시와 출처가 있는가. 출처 없는 수치나 출처와 다른 수치는 CRITICAL.
    모델 대회면 여기에 제출 파일 스키마, 검증 방식과 누수 점검(폴드 밖 적합, 학습·평가 ID 겹침, 시간 순서 분할, 목표와 지나치게 상관된 특징), 일일 한도를 더한다. 심각한 누수가 의심되면 `reject`.

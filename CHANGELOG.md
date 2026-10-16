@@ -4,6 +4,12 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## Unreleased
+
+### Changed
+- Paginated report, proposal, paper, and application deliverables require direct visual inspection of every rendered page. Metadata, style values, extracted text, OCR, and successful image generation do not replace page-by-page inspection.
+- Authoring playbooks, launch/HQ instructions, ContestEditor, ContestJudge, and submission templates require file hashes and page-specific evidence; edits, signing, saving, or conversion invalidate the previous visual review. ContestJudge rejects incomplete final-page inspection. This is an agent-review requirement, not image analysis performed by `ach`.
+
 ## 0.6.0 - 2026-10-16
 
 You talk to the main session; the agents call the harness core, now named `ach`, which is no longer installed on your `PATH`.
