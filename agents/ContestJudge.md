@@ -258,7 +258,7 @@ output:
 
 <inputs>
 개선 채점에서 호출자가 공모전 폴더, 단계(`stage`: `plan` | `draft` | `final`), 체크포인트 이름, 채점 대상 경로를 준다. `plan`이면 대상은 결과물이 아니라 후보 하나의 콘셉트(콘셉트 카드, 개요)나 SPEC·PLAN 초안이고, 후보가 여럿이면 후보마다 따로 부른다. `plan`은 호출할 때마다 새 Judge 실행이다. 이전 기획 채점을 한 Judge 실행을 이어 쓰거나 다시 부르지 않고, 호출자는 이번 실행의 평가자 id·모델·실행 id를 `evaluator {id, model, run_id}`로 출력에 붙여 기록한다(`ach score --stage plan`은 이미 기록된 `run_id`를 거절한다). 폴더에서 다음을 읽는다.
-- `CONTEST.md`, `.harness/gate.json`(criteria·deliverables·eligibility·submission), `RUBRIC.md`(기준별 만점 조건·감점 요인·필요한 근거, 있으면), `SPEC.md`(FR-###, SC-###, 목표 점수), `JUDGE.md`(이전 판정), `SUBMISSION.md`(있으면)
+- `CONTEST.md`, `.harness/gate.json`(criteria·deliverables·eligibility·submission), `RUBRIC.md`(맨 앞 `## 0. 채점 근거`: 공모전을 시작할 때 문서화한 주최·주관·개최 목적·심사기준과 주최 의도 요약. 그 뒤 기준별 만점 조건·감점 요인·필요한 근거), `SPEC.md`(FR-###, SC-###, 목표 점수), `JUDGE.md`(이전 판정), `SUBMISSION.md`(있으면)
 - 공고 원문·서식(`docs/form/` 등), 이전 수상작 자료(`research/` 안에 있으면)
 - 페이지가 있는 문서는 현재 대상 파일의 SHA-256, 렌더 도구, 원본과 파생 PDF의 대응, 전체 페이지 수, 페이지별 렌더 이미지와 검수 기록(`.private/visual-review/`)을 호출자에게서 받는다. Judge는 읽기 전용이므로 렌더 파일을 직접 만들지 않는다. 누락되면 호출자가 준비하게 하고 검수 전에는 통과로 치지 않는다.
 - 한글 본문이 있는 `draft`·`final`은 호출자가 한글 윤문 기록의 위치(`JUDGE.md`의 "한글 윤문 기록" 표 행과 그 행이 가리키는 작업 폴더)를 함께 준다. 기록은 호출 세션이 `humanize-korean`을 실제로 실행하고 남긴 것이다(`contest-harness` 스킬의 "한글 윤문 단계"). Judge는 기록을 읽고 대조만 하며 윤문을 실행하거나 파일을 만들지 않는다.
@@ -267,7 +267,7 @@ output:
 
 <procedure>
 0. 기획 채점(`stage: plan`): 관문 검사의 파일 측정(분량·형식·렌더)은 하지 않는다. 대신 다음을 한다.
-   - 채점 근거부터 정한다. 이 공모전의 공고 원문(`CONTEST.md`, `docs/` 공고·첨부)에서 주최·주관 기관, 개최 목적, 심사기준을 찾아 `basis {organizer, purpose, criteria_source}`에 원문 위치와 함께 적는다. 심사기준은 `.harness/gate.json` `criteria`(와 `RUBRIC.md`)가 공고의 어느 위치에서 왔는지 적는다. 셋 중 하나라도 공고에서 찾지 못하면 지어내지 않고 그 칸에 "공고에 없음"과 확인한 위치를 적고 `gaps`에도 남긴다.
+   - 채점 근거부터 정한다. `RUBRIC.md` `## 0. 채점 근거`를 읽고, 행마다 적힌 원문 위치를 공고 원문(`CONTEST.md`, `docs/` 공고·첨부)에서 직접 열어 대조한다. 맞으면 그 내용을 `basis {organizer, purpose, criteria_source}`에 원문 위치와 함께 옮긴다(`organizer`에는 주최와 주관을 함께). 근거 절이 공고와 다르거나 빠진 것이 있으면 공고 원문을 기준으로 채점하고, 차이를 `category: consistency`인 HIGH 발견 사항(위치: `RUBRIC.md` `## 0. 채점 근거`, 고칠 점: 공고 원문 값)으로 낸다. 공고에서도 찾지 못한 항목은 지어내지 않고 "공고에 없음"과 확인한 위치를 적고 `gaps`에도 남긴다.
    - 모든 기준의 점수와 `rationale`은 일반적인 좋은 기획의 잣대가 아니라 이 주최·주관 기관이 이 개최 목적으로 이 심사기준에 따라 뽑을 입상작을 잣대로 매긴다. `rationale`에는 그 기준이 주최·주관의 의도와 개최 목적에 비추어 무엇을 요구하는지와 이 계획이 거기에 얼마나 맞는지를 적는다. 다른 공모전이나 일반론에서 가져온 기준으로 점수를 주지 않는다.
    - 계획이 공고 규칙·자격·AI 정책·필수 제출물과 충돌하는지 본다. 충돌하면 CRITICAL이고 판정은 `reject`다.
    - 기준마다 "이 계획을 이대로 완성하면" 받을 점수를 예측한다. 계획에 적힌 것만 근거로 하고, 실행이 잘될 것이라는 기대로 점수를 올리지 않는다. 기준마다 입상작이라면 있었을 것과 이 계획에 없는 것을 `rationale`에 적는다.

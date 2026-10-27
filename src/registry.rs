@@ -849,10 +849,13 @@ fn check_gate_criteria(entry: &Entry, criteria: &[Value]) -> Result<()> {
 /// criteria come from, each taken from this contest's notice.
 const PLAN_BASIS_FIELDS: &[&str] = &["organizer", "purpose", "criteria_source"];
 
-/// A plan score must say what it was scored against (`basis {organizer, purpose, criteria_source}`)
+/// A plan score must be scored against the contest basis documented at contest start (`RUBRIC.md`
+/// "## 0. 채점 근거", see [`crate::rubric`]), say so (`basis {organizer, purpose, criteria_source}`),
 /// and come from a fresh Judge run (`evaluator {id, model, run_id}` attached by the caller, with a
-/// `run_id` no earlier score of this contest used). Returns the normalized `(basis, evaluator)`.
+/// `run_id` no earlier score of this contest used). Returns the normalized `(basis, evaluator)`;
+/// `basis.document` is the `{path, sha256}` of the documented section.
 fn plan_provenance(entry: &Entry, judge: &Value) -> Result<(Value, Value)> {
+    let document = crate::rubric::basis_document(entry)?;
     let fields = |key: &str, names: &[&str], hint: &str| -> Result<Map<String, Value>> {
         let Some(object) = judge.get(key).and_then(Value::as_object) else {
             bail!("{}: plan 채점에는 {key} {{{}}}가 있어야 한다({hint})", entry.id, names.join(", "))
@@ -867,7 +870,8 @@ fn plan_provenance(entry: &Entry, judge: &Value) -> Result<(Value, Value)> {
         }
         Ok(out)
     };
-    let basis = fields("basis", PLAN_BASIS_FIELDS, "이 공모전 공고의 주최·주관, 개최 목적, 심사기준 출처")?;
+    let mut basis = fields("basis", PLAN_BASIS_FIELDS, "이 공모전 공고의 주최·주관, 개최 목적, 심사기준 출처")?;
+    basis.insert("document".into(), document);
     let evaluator = fields("evaluator", &["id", "model", "run_id"], "호출 세션이 이번 Judge 실행의 값을 붙인다")?;
     let run_id = &evaluator["run_id"];
     if entry.scores.iter().any(|s| s.pointer("/evaluator/run_id") == Some(run_id)) {

@@ -1,6 +1,6 @@
 {
   "name": "contest-harness",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Autocontest-Harness extension, skill, commands and agents for omp: /contest board and capacity",
   "type": "module",
   "private": true,

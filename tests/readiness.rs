@@ -42,6 +42,12 @@ fn running(id: &str, level: u8, kind: &str) -> Entry {
     apply_gate(&mut e, gate, "ContestGate").unwrap();
     let dir = temp_dir(id);
     fs::write(dir.join("form.md"), "신청서 본문\n").unwrap();
+    fs::write(
+        dir.join("RUBRIC.md"),
+        "## 0. 채점 근거\n\n| 항목 | 내용 | 공고 원문 위치 |\n|---|---|---|\n| 주최 | 기관 | 1쪽 |\n\
+         | 주관 | 공고에 없음 | 1쪽 확인 |\n| 개최 목적 | 목적 | 1쪽 |\n| 심사기준 | 완성도 100 | 3쪽 |\n",
+    )
+    .unwrap();
     e.folder = Some(dir.to_string_lossy().into_owned());
     transition(&mut e, "routed", "t", "").unwrap();
     transition(&mut e, "running", "t", "").unwrap();

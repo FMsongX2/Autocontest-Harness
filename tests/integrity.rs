@@ -596,6 +596,12 @@ fn followup_wait_releases_slot_without_losing_submission_or_allowing_resubmissio
 fn plan_review_ends_only_through_approve() {
     let dir = temp_dir("planreview");
     fs::write(dir.join("submission.md"), "제품 설명\n").unwrap();
+    fs::write(
+        dir.join("RUBRIC.md"),
+        "## 0. 채점 근거\n\n| 항목 | 내용 | 공고 원문 위치 |\n|---|---|---|\n| 주최 | 기관 | 1쪽 |\n\
+         | 주관 | 재단 | 1쪽 |\n| 개최 목적 | 목적 | 1쪽 |\n| 심사기준 | 완성도 100 | 3쪽 |\n",
+    )
+    .unwrap();
     let mut e = entry("x-5", "프로덕션 해커톤", "https://e.com/5");
     apply_gate(&mut e, gate(5), "t").unwrap();
     e.folder = Some(dir.to_string_lossy().into_owned());

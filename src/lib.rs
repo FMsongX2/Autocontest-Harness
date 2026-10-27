@@ -23,6 +23,7 @@ pub mod profile;
 pub mod readiness;
 pub mod registry;
 pub mod route;
+pub mod rubric;
 pub mod rules;
 pub mod runners;
 pub mod runtime;

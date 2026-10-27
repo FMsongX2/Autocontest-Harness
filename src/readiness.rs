@@ -102,7 +102,7 @@ fn cached_sha256(path: &Path) -> Result<String> {
 }
 
 /// The contest folder as recorded and canonicalised.
-fn folder(entry: &Entry) -> Result<(PathBuf, PathBuf)> {
+pub(crate) fn folder(entry: &Entry) -> Result<(PathBuf, PathBuf)> {
     let Some(raw) = entry.folder.as_deref().filter(|f| !f.is_empty()) else {
         bail!("{}: 공모전 폴더가 기록돼 있지 않다", entry.id)
     };

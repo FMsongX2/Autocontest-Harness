@@ -24,7 +24,12 @@ fn temp_dir(tag: &str) -> PathBuf {
     dir
 }
 
-/// A running entry of `level` with a folder holding `out.md`.
+/// `RUBRIC.md` with the contest basis documented (section "## 0. 채점 근거").
+const RUBRIC: &str = "# 점수표\n\n## 0. 채점 근거\n\n| 항목 | 내용 | 공고 원문 위치 |\n|---|---|---|\n\
+| 주최 | 예시 기관 | 공고 1쪽 |\n| 주관 | 예시 재단 | 공고 1쪽 |\n| 개최 목적 | 지역 문제 해결 아이디어 발굴 | 공고 1쪽 1항 |\n\
+| 심사기준 | 참신성 30, 완성도 70 | 공고 3쪽 5항 |\n\n## 1. 기준별 풀이\n";
+
+/// A running entry of `level` with a folder holding `out.md` and a documented `RUBRIC.md`.
 fn entry(id: &str, level: u8) -> Entry {
     let mut e = new_entry(NewEntry {
         id,
@@ -42,6 +47,7 @@ fn entry(id: &str, level: u8) -> Entry {
     apply_gate(&mut e, gate, "ContestGate").unwrap();
     let dir = temp_dir(id);
     fs::write(dir.join("out.md"), format!("{id} 결과물\n")).unwrap();
+    fs::write(dir.join("RUBRIC.md"), RUBRIC).unwrap();
     e.folder = Some(dir.to_string_lossy().into_owned());
     transition(&mut e, "routed", "t", "").unwrap();
     transition(&mut e, "running", "t", "").unwrap();
@@ -219,6 +225,35 @@ fn plan_scores_need_the_contest_basis_and_a_fresh_judge_run() {
     assert_eq!(e.scores.len(), 2);
     // draft and final keep their own rules.
     record_score(&mut e, &judge(26.0, 61.0, "revise"), "draft", "f", "").unwrap();
+}
+
+#[test]
+fn plan_scores_need_the_basis_documented_in_the_rubric_first() {
+    let mut e = entry("x-2", 2);
+    let rubric = folder(&e).join("RUBRIC.md");
+    let mut j = judge(25.0, 60.0, "revise");
+    plan_provenance(&mut j, "run-a");
+    let refused = |e: &mut Entry| record_score(e, &j, "plan", "f", "").unwrap_err().to_string();
+
+    fs::remove_file(&rubric).unwrap();
+    assert!(refused(&mut e).contains("RUBRIC.md"), "no rubric yet");
+    fs::write(&rubric, "# 점수표\n\n## 1. 기준별 풀이\n").unwrap();
+    assert!(refused(&mut e).contains("## 0. 채점 근거"), "rubric without the basis section");
+    // The template placeholders and a row without its notice location do not count.
+    fs::write(&rubric, RUBRIC.replace("| 주관 | 예시 재단 | 공고 1쪽 |", "| 주관 | [ ] | [ ] |")).unwrap();
+    assert!(refused(&mut e).contains("주관 행"), "{}", refused(&mut e));
+    fs::write(&rubric, RUBRIC.replace("| 공고 1쪽 1항 |", "| |")).unwrap();
+    assert!(refused(&mut e).contains("개최 목적 행"), "{}", refused(&mut e));
+    // A row under another heading does not fill the section.
+    let moved = RUBRIC.replace("## 0. 채점 근거\n", "## 0. 채점 근거\n\n## 9. 기타\n");
+    fs::write(&rubric, moved).unwrap();
+    assert!(refused(&mut e).contains("주최, 주관, 개최 목적, 심사기준"));
+    assert!(e.scores.is_empty());
+
+    fs::write(&rubric, RUBRIC).unwrap();
+    let r = record_score(&mut e, &j, "plan", "f", "").unwrap();
+    assert_eq!(r["basis"]["document"]["path"], "RUBRIC.md");
+    assert_eq!(r["basis"]["document"]["sha256"].as_str().map(str::len), Some(64));
 }
 
 #[test]

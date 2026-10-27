@@ -115,11 +115,12 @@ OpenSourceScout는 결과물에 코드·모델·서비스·실험 파이프라�
 
 공모전 평가기준을 점수로 바꾸고 그 점수를 올리는 방향으로 일한다. 다 만든 뒤에만 채점하지 않고 기획 단계에서 먼저 채점한다. 레벨 2 이상은 이것이 기본 진행 방식이다.
 
-1. 점수표: `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`)에 `.harness/gate.json`의 `criteria`를 기준별로 풀어 쓴다(배점, 만점 조건, 감점 요인, 필요한 근거, 입상작이라면 있었을 것, 공고 원문 위치). 배점이 공개되지 않았으면 [가정] 균등 배분. 목표 총점은 SPEC의 값(기본 90/100).
+0. 채점 근거(공모전을 시작할 때 가장 먼저): 공고 원문을 읽고 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`)의 `## 0. 채점 근거` 표에 주최, 주관, 개최 목적, 심사기준을 공고에 적힌 그대로 원문 위치와 함께 쓰고, 주최 의도 요약(이 주최가 이 목적으로 뽑을 입상작)을 적어 커밋한다. 레벨 3~5는 ContestHQ가 1단계(공고 정독) 직후, 레벨 2는 세션이 조사 전에 쓴다. 공고에 없는 항목은 "공고에 없음"과 확인한 위치를 쓴다. 공고 변경 검토로 주최·목적·심사기준이 바뀌면 이 절을 먼저 고친다. `ach score --stage plan`은 이 절의 네 행(주최·주관·개최 목적·심사기준)이 내용과 원문 위치로 채워져 있지 않으면 거절하고, 채점에 쓴 절의 해시를 `basis.document`로 남긴다.
+1. 점수표: 같은 `RUBRIC.md`의 `## 1. 기준별 풀이`에 `.harness/gate.json`의 `criteria`를 기준별로 풀어 쓴다(배점, 만점 조건, 감점 요인, 필요한 근거, 입상작이라면 있었을 것, 공고 원문 위치). 배점이 공개되지 않았으면 [가정] 균등 배분. 목표 총점은 SPEC의 값(기본 90/100).
 2. 기획 채점(stage `plan`): 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge가 "이대로 완성하면"으로 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 기획에 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지. 그 뒤에 만든다.
-   - 호출 때마다 반드시 지시한다: 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하고 그 근거를 `basis {organizer, purpose, criteria_source}`에 공고 위치와 함께 내라고. 호출 메시지에는 공모전 폴더와 공고 원문 위치(`CONTEST.md`, `docs/`)를 함께 준다.
+   - 호출 때마다 반드시 지시한다: `RUBRIC.md` `## 0. 채점 근거`에 문서화한 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하고(근거 절은 공고 원문과 대조한다) 그 근거를 `basis {organizer, purpose, criteria_source}`에 공고 위치와 함께 내라고. 호출 메시지에는 공모전 폴더와 공고 원문 위치(`CONTEST.md`, `docs/`)를 함께 준다.
    - 후보마다, 재채점마다 새 ContestJudge를 부른다. 앞선 기획 채점을 한 Judge 실행을 이어 쓰거나 다시 부르지 않는다. 받은 출력에 이번 실행의 `evaluator {id, model, run_id}`(평가자 이름, 실제 모델 id, 이번 실행의 고유 id)를 붙여 저장한다.
-   - `ach score --stage plan`은 `basis` 세 칸이 비었거나 `evaluator`가 없거나 이미 기록된 `run_id`면 거절한다.
+   - `ach score --stage plan`은 `RUBRIC.md` 채점 근거 절이 비었거나, `basis` 세 칸이 비었거나, `evaluator`가 없거나, 이미 기록된 `run_id`면 거절한다.
 3. 중간 채점(stage `draft`): 초안이 나오면 채점하고, 배점이 큰 기준의 감점부터 고친다.
 4. 최종 채점(stage `final`): 제출 직전. 한글 본문이면 ContestEditor 다듬기와 그 뒤의 한글 윤문 단계를 마친 파일을 채점한다. 레벨 2는 평가표가 있으면 ContestEditor 다듬기 뒤에 채점한다. Judge에게는 제출할 파일 목록(공모전 폴더 기준 상대 경로), 전 페이지 비전 검수 기록, 한글 윤문 기록 위치를 넘긴다. Judge의 `final` 출력에는 실제로 검토한 파일과 직접 계산한 SHA-256이 `artifacts[{path, sha256}]`로 들어 있어야 한다.
 5. 기록: ContestJudge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 매번 `ach score <id> --stage <stage> --file <경로>`로 남긴다. `final`은 `artifacts`가 없거나 해시가 지금 파일과 다르면 거절된다. 단계별 총점 추이는 `RUBRIC.md` 표에도 적는다.

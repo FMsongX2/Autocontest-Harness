@@ -4,6 +4,16 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.8.2 - 2026-10-27
+
+### Changed
+- The contest basis is documented once, when the contest starts. `RUBRIC.md` gains a first section `## 0. 채점 근거`: organizer (주최), host (주관), purpose (개최 목적) and judging criteria (심사기준), each as written in the notice with its location, plus a short summary of what the organizer would pick as a winner. ContestHQ writes it right after reading the notice (level 3-5); a level 2 session writes it before research.
+- Every plan-scoring Judge run uses that section as the shared yardstick. It checks the section against the notice and, where they differ, scores against the notice and reports the difference.
+- `ach score --stage plan` refuses until the section exists with all four rows filled (content and notice location, no template placeholders), and stores the section's `{path, sha256}` as `basis.document`.
+
+### Migration
+- Running contests without the section must add it to `RUBRIC.md` before their next plan score. Plan scores recorded earlier are unchanged.
+
 ## 0.8.1 - 2026-10-27
 
 ### Changed
