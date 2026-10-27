@@ -608,6 +608,10 @@ fn plan_review_ends_only_through_approve() {
         if with_files {
             j["artifacts"] = readiness_request(&dir)["artifacts"].clone();
         }
+        if stage == "plan" {
+            j["basis"] = json!({"organizer": "주최", "purpose": "목적", "criteria_source": "공고 심사기준"});
+            j["evaluator"] = json!({"id": "ContestJudge", "model": "stub/judge", "run_id": "run-plan"});
+        }
         j
     };
     registry::record_score(&mut e, &judge("plan", false), "plan", "plan.json", "").unwrap();

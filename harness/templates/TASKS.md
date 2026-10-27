@@ -16,7 +16,7 @@
 - [ ] T002 [P] 이전 수상작·심사평 조사 (research/research.md)
 - [ ] T003 [P] 도구·계정 확인(한컴독스, GPU 서버 등) (PLAN.md)
 - [ ] T008 (레벨 2 이상) 점수표 작성 (RUBRIC.md)
-- [ ] T009 (레벨 2 이상) 콘셉트·기획 후보 2~3개 기획 채점(ContestJudge stage `plan`, `.harness/judge/plan-<n>.json`, `ach score <id> --stage plan --file <경로>`), 최고안 선택·보완을 예측 총점이 목표 이상이 되거나 3회까지 반복. T010을 돌렸으면 후보의 범위는 `research/oss.md`의 재사용 결정을 따른다 (RUBRIC.md, research/research.md) after: T008, T010(돌릴 때)
+- [ ] T009 (레벨 2 이상) 콘셉트·기획 후보 2~3개 기획 채점(후보마다·재채점마다 새 ContestJudge stage `plan`, 이 공모전의 주최·주관·개최 목적·심사기준 근거 `basis`와 `evaluator` 포함, `.harness/judge/plan-<n>.json`, `ach score <id> --stage plan --file <경로>`), 최고안 선택·보완을 예측 총점이 목표 이상이 되거나 3회까지 반복. T010을 돌렸으면 후보의 범위는 `research/oss.md`의 재사용 결정을 따른다 (RUBRIC.md, research/research.md) after: T008, T010(돌릴 때)
 - [ ] T006 [P] (레벨 5 필수) ReferenceScout 레퍼런스 조사 (research/references.md)
 - [ ] T010 [P] (결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 필수, 레벨 2 PoC는 선택) OpenSourceScout 오픈소스 재사용 조사: 구성 요소별 reuse/fork/reference/build, 라이선스·공고 규칙, 제출물 고지 문안. DomainResearcher 조사와 같은 웨이브 (research/oss.md)
 - [ ] T007 (레벨 5 필수) SPEC·PLAN·TASKS 커밋·푸시 후 검수 요청 요약과 예측 총점을 `.private/note.txt`에 쓰고 `ach transition <id> plan_review --note-file .private/note.txt`, 사용자 검수 요청하고 멈춤 (PLAN.md) after: T006, T009

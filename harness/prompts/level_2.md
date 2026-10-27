@@ -3,7 +3,7 @@
 - 순서: 공고·평가표 정리 → 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`) → 조사(`DomainResearcher` 하나, 논문 근거는 `ArticleResearcher`) → 개요 후보 2~3개 → 기획 채점 → 초안 → 중간 채점 → 다듬기 → 최종 채점 → 제출 준비.
 - PoC(시연용 코드·모델·데모)를 계획하면 조사 때 `OpenSourceScout`(agent: OpenSourceScout)를 골라 써서 가져다 쓸 오픈소스를 `research/oss.md`에 받고, 맞는 것이 없는 부분만 만든다. 글만 쓰면 쓰지 않는다.
 - 점수표: `.harness/gate.json`의 `criteria`(단계·이름·배점)를 기준별로 만점 조건, 감점 요인, 필요한 근거, 입상작이라면 있었을 것, 공고 원문 위치로 풀어 쓴다. 배점이 공개되지 않았으면 [가정] 균등 배분. 목표 총점은 90/100(공고 사정상 다르게 잡으면 `RUBRIC.md`에 근거와 함께 적는다).
-- 기획 채점(stage `plan`): 개요 후보마다 `ContestJudge`(agent: ContestJudge)에게 "이대로 완성하면" 예측 채점을 받는다. 가장 높은 후보를 고르고 Judge가 낸 기준별 기획 변경(`plan_changes`)을 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 반복한 뒤 쓴다.
+- 기획 채점(stage `plan`): 개요 후보마다 `ContestJudge`(agent: ContestJudge)에게 "이대로 완성하면" 예측 채점을 받는다. 가장 높은 후보를 고르고 Judge가 낸 기준별 기획 변경(`plan_changes`)을 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 반복한 뒤 쓴다. 후보마다·재채점마다 새 ContestJudge를 부르고(이전 실행을 이어 쓰지 않는다), 매번 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하고 `basis`로 밝히라고 지시한다. 출력에는 이번 실행의 `evaluator {id, model, run_id}`를 붙여 기록한다(스킬 "점수 루프" 2단계).
 - 중간·최종 채점: 초안이 나오면 stage `draft`로 채점하고 배점이 큰 기준의 감점부터 고친다. 제출 직전 stage `final`로 채점한다.
 - 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 남긴다. `RUBRIC.md`의 총점 추이 표에도 적는다.
 - 조사 결과는 `research/research.md`와 `research/sources.json`에 남기고, 문서 안 수치마다 [가정]/[문헌]/[계산]과 출처를 단다.

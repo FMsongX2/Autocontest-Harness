@@ -78,6 +78,11 @@ fn score(e: &mut Entry, stage: &str, total: f64, verdict: &str) {
     if stage == "final" {
         j["artifacts"] = files(e, &["form.md"]);
     }
+    if stage == "plan" {
+        j["basis"] = json!({"organizer": "주최", "purpose": "목적", "criteria_source": "공고 심사기준"});
+        j["evaluator"] =
+            json!({"id": "ContestJudge", "model": "stub/judge", "run_id": format!("run-{}", e.scores.len())});
+    }
     record_score(e, &j, stage, "judge.json", "").unwrap();
 }
 

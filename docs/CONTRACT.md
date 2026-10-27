@@ -295,7 +295,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
 | `ach doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD. 그 사이 커밋이 문서(`README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `CHANGELOG*.md`, `docs/`, `references/`, `LICENSE`)만 바꿨으면 ok, 바이너리 커밋이 클론 이력에 없으면 경고), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `ach install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
 | `ach --version` | `<버전> (<12자리 git sha>)` |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.0", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.1", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트(17절). `--file`이면 기록하고, 없으면 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다(17절). 기본은 읽기 전용이고, `--apply`는 관측 결과만 저장한다(띄우거나 닫지 않는다) |
 | `ach recover <id> --expected-observation <토큰> [--dry-run]` | 모든 복구 조건이 맞을 때만 같은 대화 기록으로 세션을 다시 연다(17절) |
@@ -649,7 +649,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 흐름(레벨 2~5):
 
 1. 점수표(`RUBRIC.md`, 템플릿 `harness/templates/RUBRIC.md`): `.harness/gate.json`의 `criteria`(단계·이름·배점)를 기준별로 풀어 쓴다. 만점 조건, 감점 요인, 필요한 근거, 입상작이라면 있었을 것, 공고 원문 위치. 배점이 공개되지 않았으면 [가정] 균등 배분. 목표 총점은 SPEC의 값(기본 90/100).
-2. 기획 채점(stage `plan`): 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge가 점수표로 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 기획에 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 하고, 그 뒤에 만든다.
+2. 기획 채점(stage `plan`): 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge가 점수표로 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 기획에 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 하고, 그 뒤에 만든다. 호출 세션은 매번 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하라고 지시하고, 후보마다·재채점마다 새 ContestJudge 실행을 부른다(이전 실행을 이어 쓰지 않는다).
 3. 중간 채점(stage `draft`): 결과물 초안이 나오면 채점하고, 배점이 큰 기준의 감점부터 고친다.
 4. 최종 채점(stage `final`): 제출 직전. 한글 본문이면 ContestEditor 다듬기와 그 뒤 호출 세션의 한글 윤문(`skills/contest-harness/SKILL.md` "한글 윤문 단계")을 마친 파일을 채점한다. 호출 세션은 제출할 파일 목록, 전 페이지 비전 검수 기록, 한글 윤문 기록 위치를 Judge에 넘긴다.
 5. 점수는 매번 `ach score`로 레지스트리에 남긴다. 기준별 점수와 총점 추이가 남아야 무엇이 점수를 올렸는지 안다.
@@ -657,7 +657,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 
 데이터:
 
-- ContestJudge의 출력 JSON은 공모전 폴더 `.harness/judge/<stage>-<n>.json`에 저장한다. 최상위 필드 `stage`(`plan`, `draft`, `final` 중 하나), `total`, `target`, `verdict`, `scores[{name, round, weight, score, rationale}]`(`round`는 심사 단계 이름). stage `plan`에는 선택 필드 `candidate`(채점한 콘셉트 후보)와 `plan_changes[{criterion, gain, change}]`(점수를 올릴 기획 변경)가 붙는다. stage `final`에는 `artifacts[{path, sha256}]`가 반드시 있어야 한다: Judge가 실제로 검토한 제출 파일의 공모전 폴더 기준 상대 경로와 Judge가 직접 계산한 SHA-256이다.
+- ContestJudge의 출력 JSON은 공모전 폴더 `.harness/judge/<stage>-<n>.json`에 저장한다. 최상위 필드 `stage`(`plan`, `draft`, `final` 중 하나), `total`, `target`, `verdict`, `scores[{name, round, weight, score, rationale}]`(`round`는 심사 단계 이름). stage `plan`에는 선택 필드 `candidate`(채점한 콘셉트 후보)와 `plan_changes[{criterion, gain, change}]`(점수를 올릴 기획 변경)가 붙고, 필수 필드 `basis {organizer, purpose, criteria_source}`(공고에 적힌 주최·주관, 개최 목적, 심사기준 출처를 원문 위치와 함께)와 호출 세션이 붙이는 `evaluator {id, model, run_id}`(이번 Judge 실행)가 있어야 한다. 이 공모전에 이미 기록된 `run_id`는 거절한다. stage `final`에는 `artifacts[{path, sha256}]`가 반드시 있어야 한다: Judge가 실제로 검토한 제출 파일의 공모전 폴더 기준 상대 경로와 Judge가 직접 계산한 SHA-256이다.
 - 판정 규칙: 페르소나 흔적 말고 관문 실패나 규칙 위반이 있으면 `reject`, 페르소나 흔적만 실패했으면 `revise`. 그 밖에 총점이 목표 미만이거나 CRITICAL·HIGH가 남으면 `revise`. 한글 본문의 윤문 기록이 없거나 지금 파일 해시와 맞지 않거나 검사 실패인데 윤문본을 채택했으면 HIGH 발견 사항이고(관문 검사가 아니다) 판정은 최소 `revise`다.
 - `ach score <id> --stage plan|draft|final --file <judge.json> [--note N]`이 이 파일을 검증해 레지스트리 항목의 `scores`에 더한다. `target`이 없으면 90.
 - `ach score <id>`(stage 없이)는 점수 이력을 보여 준다(시각, 단계, 총점/목표, 판정, 가장 많이 깎인 기준 셋). `ach show --json`에도 `scores`가 그대로 나온다.
@@ -674,6 +674,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 | `file` | 문자열 | 읽은 Judge 출력 파일 경로 |
 | `revision` | 정수(0.7.0부터) | 기록할 때의 작업 판(4절) |
 | `artifacts` | `[{path, sha256}]`(0.7.0부터 `final`만) | Judge가 검토한 파일과 해시. 기록할 때 지금 파일과 같아야 한다 |
+| `basis`, `evaluator` | 객체(0.8.1부터 `plan`만) | 채점 근거(주최·주관, 개최 목적, 심사기준 출처)와 채점한 Judge 실행 `{id, model, run_id}` |
 
 <p>표 14. 점수 기록</p>
 

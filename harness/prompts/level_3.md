@@ -2,7 +2,7 @@
 - 진행 방식은 점수 루프다: 점수표 `RUBRIC.md` → 기획 채점 반복(후보 2~3개, 최고안 선택, 예측 총점이 목표 이상이 되거나 3회까지) → 만들기 → 중간(`draft`)·최종(`final`) 채점 → `ach score` 기록 → 관문.
 - 순서: `RUBRIC.md`·`SPEC.md` 초안 → 조사(`DomainResearcher`, 논문은 `ArticleResearcher`; 하나부터 시작해 최대 5개 병렬. 결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 같은 웨이브에 `OpenSourceScout` 필수) → 주제·콘셉트 후보 기획 채점(`ContestJudge` stage `plan`) → `SPEC.md` 확정·`PLAN.md` → `TASKS.md`(`[P]` 웨이브) → 웨이브마다 러너의 서브에이전트(task·agent 도구) 워커 병렬 실행 → 체크포인트마다 채점과 리뷰.
 - 오픈소스 재사용: `OpenSourceScout`가 `research/oss.md`에 구성 요소마다 `reuse`/`fork`/`reference`/`build`를 정한다. SPEC·PLAN의 `## 오픈소스 재사용` 절과 기획 채점 후보의 범위는 이 결정을 따른다. 맞는 것이 없는 부분만 만들고, 아낀 품은 배점이 큰 심사기준에 돌린다. 글·창작만 하는 결과물이면 건너뛴다.
-- 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 남긴다.
+- 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 남긴다. 기획 채점은 후보마다·재채점마다 새 ContestJudge를 부르고, 매번 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하고 `basis`로 밝히라고 지시하며, 출력에 이번 실행의 `evaluator {id, model, run_id}`를 붙인다(스킬 "점수 루프" 2단계).
 - 서비스형이면 SPEC 전에 `ReferenceScout`로 레퍼런스를, 화면이 있으면 체크포인트에서 `UxReviewer`를 골라 쓸 수 있다.
 - 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표(`gate.json`의 `criteria`)가 있으면 최종 채점 전에 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
 - 웨이브 폭은 매번 `ach capacity --json`의 `recommended_workers`를 넘기지 않는다(`ram.budget_gb`로 묶인 값). 0이거나 `ram.pressure`가 warning 이상이면 순차로 직접 한다.

@@ -845,13 +845,50 @@ fn check_gate_criteria(entry: &Entry, criteria: &[Value]) -> Result<()> {
     Ok(())
 }
 
+/// Fields of a plan score's `basis`: the organizer/host, the contest purpose and where the judging
+/// criteria come from, each taken from this contest's notice.
+const PLAN_BASIS_FIELDS: &[&str] = &["organizer", "purpose", "criteria_source"];
+
+/// A plan score must say what it was scored against (`basis {organizer, purpose, criteria_source}`)
+/// and come from a fresh Judge run (`evaluator {id, model, run_id}` attached by the caller, with a
+/// `run_id` no earlier score of this contest used). Returns the normalized `(basis, evaluator)`.
+fn plan_provenance(entry: &Entry, judge: &Value) -> Result<(Value, Value)> {
+    let fields = |key: &str, names: &[&str], hint: &str| -> Result<Map<String, Value>> {
+        let Some(object) = judge.get(key).and_then(Value::as_object) else {
+            bail!("{}: plan 채점에는 {key} {{{}}}가 있어야 한다({hint})", entry.id, names.join(", "))
+        };
+        let mut out = Map::new();
+        for name in names {
+            let value = object.get(*name).and_then(Value::as_str).map(text::one_line).filter(|v| !v.is_empty());
+            let Some(value) = value else {
+                bail!("{}: plan 채점의 {key}.{name}이(가) 비어 있다({hint})", entry.id)
+            };
+            out.insert((*name).into(), Value::String(value));
+        }
+        Ok(out)
+    };
+    let basis = fields("basis", PLAN_BASIS_FIELDS, "이 공모전 공고의 주최·주관, 개최 목적, 심사기준 출처")?;
+    let evaluator = fields("evaluator", &["id", "model", "run_id"], "호출 세션이 이번 Judge 실행의 값을 붙인다")?;
+    let run_id = &evaluator["run_id"];
+    if entry.scores.iter().any(|s| s.pointer("/evaluator/run_id") == Some(run_id)) {
+        bail!(
+            "{}: 이미 기록된 Judge 실행이다(run_id {}). plan 채점은 매번 새 Judge 실행으로 받는다",
+            entry.id,
+            run_id.as_str().unwrap_or("")
+        );
+    }
+    Ok((Value::Object(basis), Value::Object(evaluator)))
+}
+
 /// Validate a Judge output against the entry and append it to `entry.scores`; returns the record.
 /// On top of [`score_record`]: the rows match `gate.json` criteria when the gate lists them, the
 /// record carries the current work `revision`, and `artifacts` (`[{path, sha256}]`, the files the
 /// Judge reviewed) are checked against the contest folder as it is now and stored as
-/// folder-relative paths. `final` requires them; `plan` and `draft` store them when given.
+/// folder-relative paths. `final` requires them; `plan` and `draft` store them when given. `plan`
+/// also requires the contest basis and a fresh Judge run ([`plan_provenance`]).
 pub fn record_score(entry: &mut Entry, judge: &Value, stage: &str, file: &str, note: &str) -> Result<Value> {
     let mut record = score_record(judge, stage, file, note)?;
+    let provenance = if stage == "plan" { Some(plan_provenance(entry, judge)?) } else { None };
     if matches!(stage, "plan" | "final") {
         let pending = crate::rules::stage_problems(entry, stage);
         if pending.contains(&"rules_pending_review") || pending.contains(&"rules_state_invalid") {
@@ -871,6 +908,10 @@ pub fn record_score(entry: &mut Entry, judge: &Value, stage: &str, file: &str, n
     let object = record.as_object_mut().expect("score_record builds an object");
     object.insert("revision".into(), serde_json::json!(revision(entry)));
     object.insert("rules_binding".into(), crate::rules::binding(entry));
+    if let Some((basis, evaluator)) = provenance {
+        object.insert("basis".into(), basis);
+        object.insert("evaluator".into(), evaluator);
+    }
     if let Some(binding) = independent {
         object.insert("independent_assessment".into(), binding);
     }

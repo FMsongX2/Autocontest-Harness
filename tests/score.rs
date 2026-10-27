@@ -65,10 +65,19 @@ fn judge(a: f64, b: f64, verdict: &str) -> Value {
     ]})
 }
 
+/// Contest basis and a fresh Judge run, as the caller attaches them to a plan score.
+fn plan_provenance(j: &mut Value, run_id: &str) {
+    j["basis"] = json!({"organizer": "주최 기관 / 주관 기관", "purpose": "공고의 개최 목적", "criteria_source": "공고 심사기준"});
+    j["evaluator"] = json!({"id": "ContestJudge", "model": "stub/judge", "run_id": run_id});
+}
+
 fn add(e: &mut Entry, stage: &str, a: f64, b: f64, verdict: &str) {
     let mut j = judge(a, b, verdict);
     if stage == "final" {
         j["artifacts"] = artifacts(e);
+    }
+    if stage == "plan" {
+        plan_provenance(&mut j, &format!("run-{}", e.scores.len()));
     }
     record_score(e, &j, stage, "/c/.harness/judge/x.json", "").unwrap();
 }
@@ -176,8 +185,40 @@ fn record_score_checks_gate_criteria_and_reviewed_files() {
     assert_eq!(r["revision"].as_u64(), Some(registry::revision(&e) as u64));
     assert_eq!(e.scores.len(), 1);
     // plan and draft need no files.
-    record_score(&mut e, &judge(25.0, 60.0, "revise"), "plan", "f", "").unwrap();
+    add(&mut e, "plan", 25.0, 60.0, "revise");
     assert_eq!(e.scores.len(), 2);
+}
+
+#[test]
+fn plan_scores_need_the_contest_basis_and_a_fresh_judge_run() {
+    let mut e = entry("x-1", 2);
+    let refused = |e: &mut Entry, j: &Value| record_score(e, j, "plan", "f", "").unwrap_err().to_string();
+    let bare = judge(25.0, 60.0, "revise");
+    assert!(refused(&mut e, &bare).contains("basis"), "a plan score without the contest basis");
+
+    let mut j = bare.clone();
+    plan_provenance(&mut j, "run-a");
+    j["basis"]["purpose"] = json!("  ");
+    assert!(refused(&mut e, &j).contains("basis.purpose"), "a blank purpose");
+    plan_provenance(&mut j, "run-a");
+    j.as_object_mut().unwrap().remove("evaluator");
+    assert!(refused(&mut e, &j).contains("evaluator"), "no Judge run named");
+    assert!(e.scores.is_empty());
+
+    plan_provenance(&mut j, "run-a");
+    let r = record_score(&mut e, &j, "plan", "f", "").unwrap();
+    assert_eq!(r["basis"]["organizer"], "주최 기관 / 주관 기관");
+    assert_eq!(r["evaluator"]["run_id"], "run-a");
+
+    // Re-scoring a revised plan with the same Judge run is refused; a new run is recorded.
+    let mut again = judge(27.0, 63.0, "revise");
+    plan_provenance(&mut again, "run-a");
+    assert!(refused(&mut e, &again).contains("새 Judge 실행"));
+    plan_provenance(&mut again, "run-b");
+    record_score(&mut e, &again, "plan", "f", "").unwrap();
+    assert_eq!(e.scores.len(), 2);
+    // draft and final keep their own rules.
+    record_score(&mut e, &judge(26.0, 61.0, "revise"), "draft", "f", "").unwrap();
 }
 
 #[test]

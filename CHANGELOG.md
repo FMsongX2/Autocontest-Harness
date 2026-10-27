@@ -4,6 +4,15 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.8.1 - 2026-10-27
+
+### Changed
+- Plan scoring is tied to the contest at hand. Every `ContestJudge` plan call is a new run told to score against this contest's organizer and host, its stated purpose, and its judging criteria. The Judge reports them as `basis {organizer, purpose, criteria_source}` with notice locations, and each criterion rationale is written against them.
+- `ach score --stage plan` refuses a score without the three `basis` fields or without `evaluator {id, model, run_id}`, and refuses a `run_id` already recorded for the contest, so a plan cannot be re-scored by reusing an earlier Judge run. Both objects are stored with the score.
+
+### Migration
+- Plan scores recorded before 0.8.1 stay valid. New plan scores from running sessions need `basis` and `evaluator`; the refusal message names the missing field.
+
 ## 0.8.0 - 2026-10-27
 
 ### Added
