@@ -105,8 +105,47 @@ pub fn pick_preset(runner: &dyn Runner, config: &Config, level: u8, preset: Opti
     .filter(|p| !p.is_empty()))
 }
 
-fn session_field<'a>(entry: &'a Entry, key: &str) -> Option<&'a str> {
+pub(crate) fn session_field<'a>(entry: &'a Entry, key: &str) -> Option<&'a str> {
     entry.session.as_ref()?.get(key)?.as_str()
+}
+
+/// The command-line inputs of a contest session in `folder`: the preset file (written to
+/// `.harness/` unless `dry_run`), the level's model when there is no preset, and `runner_args`.
+/// Contest sessions never get the persona: their code, reports and commits must not carry it.
+/// `prompt` is left empty; a caller that holds the instructions in memory sets it.
+pub(crate) fn contest_spec(
+    runner: &dyn Runner,
+    config: &Config,
+    level: u8,
+    folder: &Path,
+    preset: Option<&str>,
+    first_message: &str,
+    dry_run: bool,
+) -> Result<Spec> {
+    let meta = folder.join(".harness");
+    let preset_file = match preset {
+        None => None,
+        Some(name) if dry_run => Some(dry_preset_path(runner, name, &meta)?),
+        Some(name) => {
+            std::fs::create_dir_all(&meta)?;
+            Some(runner.preset_file(name, &meta)?)
+        }
+    };
+    Ok(Spec {
+        cwd: folder.to_path_buf(),
+        prompt_file: meta.join("launch-prompt.md"),
+        prompt: None,
+        first_message: first_message.to_string(),
+        system_append: None,
+        // A preset already picks the models.
+        model: if preset_file.is_some() {
+            None
+        } else {
+            config.model_by_level.get(&level).filter(|m| !m.is_empty()).cloned()
+        },
+        preset_file,
+        extra_args: config.runner_args(runner.name()),
+    })
 }
 
 /// Start the contest session. With `dry_run` nothing is written to the contest or the registry and nothing is started: the prompt is rendered in
@@ -145,35 +184,13 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
     let prompt_path = meta.join("launch-prompt.md");
     let prompt_text = render_prompt(entry, runner)?;
     let preset = pick_preset(runner, config, level, preset)?;
-    let preset_file = match preset.as_deref() {
-        None => None,
-        Some(name) if dry_run => Some(dry_preset_path(runner, name, &meta)?),
-        Some(name) => {
-            std::fs::create_dir_all(&meta)?;
-            Some(runner.preset_file(name, &meta)?)
-        }
-    };
+    let mut spec = contest_spec(runner, config, level, &folder, preset.as_deref(), FIRST_MESSAGE, dry_run)?;
+    // A dry run writes no prompt file, so adapters that pass the text inline read it from here.
+    spec.prompt = Some(prompt_text.clone());
     if !dry_run {
         std::fs::create_dir_all(&meta)?;
         std::fs::write(&prompt_path, &prompt_text)?;
     }
-    let spec = Spec {
-        cwd: folder.clone(),
-        prompt_file: prompt_path.clone(),
-        // A dry run writes no prompt file, so adapters that pass the text inline read it from here.
-        prompt: Some(prompt_text.clone()),
-        first_message: FIRST_MESSAGE.to_string(),
-        // Contest sessions never get the persona: their code, reports and commits must not carry it.
-        system_append: None,
-        // A preset already picks the models.
-        model: if preset_file.is_some() {
-            None
-        } else {
-            config.model_by_level.get(&level).filter(|m| !m.is_empty()).cloned()
-        },
-        preset_file,
-        extra_args: config.runner_args(runner.name()),
-    };
     let argv = if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? };
     let argv = session_env(Some(&entry.id), argv);
     let existing_id = (session_field(entry, "workspace") == Some(workspace.name()))
@@ -203,6 +220,7 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         "workspace": workspace.name(),
         "workspace_id": workspace_id,
         "runner": runner.name(),
+        "preset": preset,
         "handle": null,
     }));
     let opened = workspace.open(&Open { cwd: folder, title: &entry.id, argv, workspace_id: workspace_id.as_deref() });
@@ -215,6 +233,7 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
         "workspace": workspace.name(),
         "workspace_id": workspace_id,
         "runner": runner.name(),
+        "preset": preset,
         "handle": handle,
     }));
     result["workspace_id"] = json!(workspace_id);
@@ -244,7 +263,7 @@ pub fn session_env(id: Option<&str>, argv: Vec<String>) -> Vec<String> {
 
 /// The path a real launch would give the preset file, found by writing it to a scratch directory
 /// (so an unknown preset still fails the dry run) and removing that again.
-fn dry_preset_path(runner: &dyn Runner, name: &str, meta: &Path) -> Result<PathBuf> {
+pub(crate) fn dry_preset_path(runner: &dyn Runner, name: &str, meta: &Path) -> Result<PathBuf> {
     let scratch = std::env::temp_dir().join(format!("harness-dry-run-{}", std::process::id()));
     std::fs::create_dir_all(&scratch)?;
     let written = runner.preset_file(name, &scratch);

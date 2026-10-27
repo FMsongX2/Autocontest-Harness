@@ -11,7 +11,8 @@ use crate::paths;
 
 pub struct Omp;
 
-fn command(spec: &Spec, print: bool) -> Vec<String> {
+/// `omp --cwd <cwd> [-p] [--config <preset>] [--model M] [--append-system-prompt F] <runner_args>`.
+fn base(spec: &Spec, print: bool) -> Vec<String> {
     let mut argv = vec!["omp".to_string(), "--cwd".into(), spec.cwd.display().to_string()];
     if print {
         argv.push("-p".into());
@@ -26,9 +27,43 @@ fn command(spec: &Spec, print: bool) -> Vec<String> {
         argv.extend(["--append-system-prompt".into(), system.display().to_string()]);
     }
     argv.extend(spec.extra_args.iter().cloned());
+    argv
+}
+
+fn command(spec: &Spec, print: bool) -> Vec<String> {
+    let mut argv = base(spec, print);
     argv.push(format!("@{}", spec.prompt_file.display()));
     argv.push(spec.first_message.clone());
     argv
+}
+
+/// omp keeps sessions under `<sessions>/<encoded cwd>/<stamp>_<uuid>.jsonl`; the `session` line
+/// near the top carries `id` and `cwd`. The ids of the sessions whose `cwd` is `cwd`, newest first.
+/// Every project directory is scanned instead of re-deriving omp's directory-name encoding.
+pub fn session_ids_in(sessions: &Path, cwd: &Path) -> Vec<String> {
+    let want = super::canonical(cwd);
+    let mut found: Vec<(String, String)> = Vec::new();
+    for file in super::session_files(sessions) {
+        let header = super::head_objects(&file, 5).into_iter().find(|o| o["type"] == "session");
+        let Some(header) = header else { continue };
+        let (Some(id), Some(dir)) = (header["id"].as_str(), header["cwd"].as_str()) else { continue };
+        if super::valid_session_id(id)
+            && super::canonical(Path::new(dir)) == want
+            && !found.iter().any(|(i, _)| i == id)
+        {
+            let name = file.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+            found.push((id.to_string(), name));
+        }
+    }
+    // File names start with the creation time, so name order is age order.
+    found.sort_by(|a, b| b.1.cmp(&a.1));
+    found.into_iter().map(|(id, _)| id).collect()
+}
+
+/// `modelRoles.default` of a preset overlay written by [`preset_overlay`].
+fn preset_default_model(path: &Path) -> Option<String> {
+    let overlay: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    overlay["modelRoles"]["default"].as_str().filter(|m| !m.is_empty()).map(str::to_string)
 }
 
 /// `config_yml`'s `modelPresets.<name>` as a `--config` overlay for one run, written to `target`.
@@ -117,6 +152,32 @@ impl Runner for Omp {
 
     fn oneshot(&self, spec: &Spec) -> Result<Vec<String>> {
         Ok(command(spec, true))
+    }
+
+    fn session_records(&self, cwd: &Path) -> Option<Vec<String>> {
+        Some(session_ids_in(&paths::omp_agent_dir().join("sessions"), cwd))
+    }
+
+    /// `--restore <id>` reloads the session and finishes what its last process left unfinished.
+    /// omp refuses a prompt with `--restore`, so `message` is not delivered.
+    fn restore(&self, spec: &Spec, session_id: &str, _message: &str, interactive: bool) -> Result<Vec<String>> {
+        if !super::valid_session_id(session_id) {
+            crate::bail!("세션 id가 UUID가 아니다: {session_id}");
+        }
+        let mut argv = base(spec, !interactive);
+        // A restored session keeps the model it last used; the preset overlay alone does not move
+        // it, so the preset's default role is named explicitly.
+        if spec.model.is_none()
+            && let Some(model) = spec.preset_file.as_deref().and_then(preset_default_model)
+        {
+            argv.extend(["--model".into(), model]);
+        }
+        argv.extend(["--restore".into(), session_id.to_string()]);
+        Ok(argv)
+    }
+
+    fn restore_delivers_message(&self) -> bool {
+        false
     }
 
     /// `omp plugin link` loads the extension, skills, commands and agents from the package; the old

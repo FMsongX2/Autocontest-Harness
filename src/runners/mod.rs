@@ -69,6 +69,24 @@ pub trait Runner: Sync {
     fn interactive(&self, spec: &Spec) -> Result<Vec<String>>;
     /// A command that runs the instructions once without a TTY and exits.
     fn oneshot(&self, spec: &Spec) -> Result<Vec<String>>;
+    /// Saved sessions of this harness whose working directory is `cwd`, as ids that
+    /// [`Runner::restore`] accepts, newest first. `None` when the adapter cannot list them; restoring
+    /// then needs an explicit id.
+    fn session_records(&self, _cwd: &Path) -> Option<Vec<String>> {
+        None
+    }
+    /// A command that reopens saved session `session_id` (a UUID, see [`valid_session_id`]) in
+    /// `spec.cwd` with the spec's preset, model, system addition and `runner_args`, then sends
+    /// `message` as the next turn. `interactive` is false for workspaces without a TTY. Adapters that
+    /// cannot restore refuse; the harness never falls back to a fresh session silently.
+    fn restore(&self, _spec: &Spec, session_id: &str, _message: &str, _interactive: bool) -> Result<Vec<String>> {
+        crate::bail!("러너 {}는 저장된 세션 복원을 지원하지 않는다(세션 {session_id})", self.name())
+    }
+    /// Whether [`Runner::restore`] delivers `message`. A runner whose restore only continues the
+    /// interrupted turn returns false; the harness then reports that the message was not sent.
+    fn restore_delivers_message(&self) -> bool {
+        true
+    }
     /// Install the agents (`agents/*.md`, converted if the harness uses another format), the skill
     /// (`skills/contest-harness`) and, where supported, the extension package from `root`. Must be
     /// idempotent. Returns one human-readable line per action.
@@ -117,6 +135,56 @@ pub fn get(name: &str) -> Result<&'static dyn Runner> {
 /// Full path of `binary` on PATH.
 pub fn which(binary: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")?.to_str()?.split(':').map(|dir| Path::new(dir).join(binary)).find(|p| p.is_file())
+}
+
+/// A session id the harness passes to a runner: a UUID (`8-4-4-4-12` hex digits), never anything a
+/// command line could read as an option or a path.
+pub fn valid_session_id(id: &str) -> bool {
+    let parts: Vec<&str> = id.split('-').collect();
+    parts.len() == 5
+        && parts.iter().zip([8, 4, 4, 4, 12]).all(|(p, n)| p.len() == n && p.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The first `max_lines` lines of `path` parsed as JSON objects (unreadable or non-JSON lines skipped).
+pub fn head_objects(path: &Path, max_lines: usize) -> Vec<serde_json::Value> {
+    use std::io::BufRead;
+    let Ok(file) = std::fs::File::open(path) else { return Vec::new() };
+    std::io::BufReader::new(file)
+        .lines()
+        .take(max_lines)
+        .map_while(|line| line.ok())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+        .filter(serde_json::Value::is_object)
+        .collect()
+}
+
+/// `path` with symlinks resolved when it exists, as given otherwise.
+pub fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Session files (`*.jsonl`, not hidden) directly inside each subdirectory of `root`, newest name
+/// first within a subdirectory.
+pub fn session_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for dir in std::fs::read_dir(root).into_iter().flatten().filter_map(|e| e.ok()).map(|e| e.path()) {
+        if !dir.is_dir() {
+            continue;
+        }
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                !name.starts_with('.') && name.ends_with(".jsonl") && p.is_file()
+            })
+            .collect();
+        files.sort();
+        files.reverse();
+        out.extend(files);
+    }
+    out
 }
 
 /// The instructions as text, for harnesses that take them as the first message.

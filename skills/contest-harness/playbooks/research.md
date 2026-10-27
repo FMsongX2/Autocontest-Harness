@@ -54,12 +54,12 @@
 3. 패키지를 새 폴더에 풀고, 새로 만든 환경에서 README의 명령만으로 test 예측을 다시 만든다. 다시 만든 결과와 제출 결과를 비교한다(파일 집합, 크기·형식, 픽셀·값 차이 비율, 가중치 해시). 차이가 있으면 크기를 숫자로 적고(예: 전체 픽셀 중 다른 픽셀 수) 원인을 확인한다.
 4. 형식 관문: 파일 개수·이름 규칙·이미지 크기·클래스 값 집합·압축 용량을 스크립트로 검사한다. 용량 제한을 넘는 가중치는 공고가 안내한 별도 방법(메일 등)을 SUBMISSION.md에 적는다.
 5. 제출 사본에서 내부 호칭·개인 경로·비밀 키를 지운다(저장소 원본은 그대로 둔다).
-6. ContestJudge(stage `final`)로 결과서·패키지를 판정해 `ready`와 목표 이상 점수를 받고 `ach score <id> --stage final --file <경로>`로 기록한다. SUBMISSION.md를 채우고 커밋·푸시 후 후보 run id·검증 점수·재현 결과 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(목표 미달로 내야 하면 `--score-ok "<사유>"`). 제출은 사용자 승인 뒤에만 한다.
+6. ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)로 결과서·패키지를 판정해 `ready`와 목표 이상 점수를 받고 `ach score <id> --stage final --file <경로>`로 기록한다. 결과서가 한글 본문이면 그 전에 한글 윤문 단계를 마친다. SUBMISSION.md를 채우고 커밋·푸시한 뒤 `ach check <id>` → `.private/readiness.json`을 써서(본선 등 남은 일정이 있으면 `followup_required: true`) `ach readiness <id> --file .private/readiness.json` → 후보 run id·검증 점수·재현 결과 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(목표 미달로 내야 하면 `--score-ok "<사유>"`). 제출은 승인이 기록된 뒤에만 한다.
 
 ## 6. 본선 발표와 보고서
 
 - 결과서(모델링 보고서)는 `paper.md` 5절 집필 규칙을 따른다: 한국어 학술 문체, 용어 정의, [가정]/[문헌]/[계산] 표시, 표 캡션은 표 아래 `<p>표 n. …</p>`. 구성은 서식 순서를 따르고, 서식이 없으면 문제 정의 → 데이터와 검증 설계 → 방법 → 실험 결과(기준 모델 대비, 실패한 시도 포함) → 도메인 해석 → 한계(검증 데이터 사용, 비결정성) → 재현 방법.
 - 결과서·발표 자료의 서식은 `contest-harness` 스킬의 "문서 서식의 전 페이지 비전 검수"를 따른다. 최종 파일의 모든 페이지/슬라이드를 렌더링해 비전으로 직접 확인하고, 메타데이터·추출 텍스트 검사만으로 통과시키지 않는다. 수정 뒤 전 페이지 재검수를 하고 파일 해시와 페이지별 근거를 Judge에 넘긴다.
-- 수치는 모두 LEDGER와 `docs/changes/`의 실행으로 거슬러 올라가야 한다. 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬고, 코드는 러너의 기본 `reviewer`로 검토한다.
+- 수치는 모두 LEDGER와 `docs/changes/`의 실행으로 거슬러 올라가야 한다. 마무리 전에 평가표 기준으로 ContestEditor가 문체·문장을 다듬고, 그 뒤 이 세션이 한글 윤문 단계를 실행해 `JUDGE.md`에 기록한다. 코드는 러너의 기본 `reviewer`로 검토한다. 본선 준비를 위해 제출 뒤 다시 작업하면 메인 세션이나 사용자가 `ach resume <id>`로 세션을 연다.
 - 본선이 오프라인이면 일시·장소·참석 확인을 SUBMISSION.md와 사용자 묶음 질문에 넣는다. 발표 자료는 심사기준 순서로 만들고, 예상 질문(검증 데이터 사용, 일반화, 도메인 의미, 실패 사례)과 답을 `docs/presentation/QA.md`에 준비한다. 시연이 필요하면 맥에서 돌릴 수 있는 가벼운 추론 경로를 미리 확인한다.
 - 대회가 끝나면 데이터 활용 서약대로 로컬·서버·저장소(검증 이미지가 든 그림 포함)의 데이터 사본을 파기하고, 파기한 곳과 시각을 README에 적는다. 결과 발표 뒤 `ach transition <id> closed --note won|lost|ended|withdrawn`.

@@ -9,6 +9,8 @@ echo "== cargo clippy"
 cargo clippy --all-targets --locked -- -D warnings
 echo "== cargo test"
 cargo test --locked
+echo "== controller and brief regression tests"
+python3 -B -m unittest discover -s tests -p 'test_*.py'
 if command -v cargo-audit >/dev/null 2>&1; then
   echo "== cargo audit"
   cargo audit --deny warnings

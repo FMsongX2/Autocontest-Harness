@@ -59,4 +59,4 @@
 
 ## 6. 제출 준비
 
-SUBMISSION.md(제출 양식 필드별 답, 저장소·배포·영상 URL, 팀원 정보 항목)를 채우고 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(`plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다. 개인 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 그 양식에만 넣고, 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.
+SUBMISSION.md(제출 양식 필드별 답, 저장소·배포·영상 URL, 팀원 정보 항목)를 채운다. 제출이 URL 위주면 저장소 커밋·배포 주소·영상 주소를 적은 제출 목록 파일(예: `submission/manifest.md`)도 만들어 최종 채점과 제출 준비 기록의 `artifacts`에 넣는다. 커밋·푸시하고 `ach check <id>` → `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json` → 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(`plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`). 그다음 `ach approval-status <id>`를 확인하고 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다. 개인 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 그 양식에만 넣고, 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.

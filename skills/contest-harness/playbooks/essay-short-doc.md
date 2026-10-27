@@ -20,13 +20,13 @@
 - 이전 수상작(주최 발표)을 찾아 길이, 어조, 구조, 핵심 단어를 표로 정리한다.
 - 주최가 알리려는 메시지와 핵심 키워드를 공고·보도자료에서 뽑는다.
 - 안을 넉넉히 만든다(슬로건은 20개 이상, 수기·짧은 글은 구성이 다른 3안). ContestJudge로 채점해 상위안을 고르고 다듬는다. 응모 편수 제한 안에서 낸다. 레벨 2 이상으로 매겨졌으면 점수 루프를 따른다: `RUBRIC.md` → 구성안 기획 채점(stage `plan`) → 쓰기 → `final` 채점, 매번 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다.
-- 한국어 맞춤법·띄어쓰기를 확인하고, 사실 주장은 출처를 확인한다.
+- 한국어 맞춤법·띄어쓰기를 확인하고, 사실 주장은 출처를 확인한다. 칼럼·에세이·수기·신청서 본문은 최종 채점 전에 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다(슬로건처럼 한두 줄 문구는 대상이 아니다).
 
 ## 4. 서식
 
-hwp/hwpx 신청서는 `idea-proposal.md` 7절대로 채우고 한컴독스 웹에서 정렬을 확인한다. PDF는 한컴독스 웹으로만 만든다. 개인정보는 제출 승인이 `ach approve`로 기록된 뒤 제출 단계에서만 `ach profile show --for <id> --json`에서 꺼내 그 서식에만 채우고, 저장소 파일·커밋 메시지·로그·메모에 남기지 않는다.
+hwp/hwpx 신청서는 `idea-proposal.md` 7절대로 채우고 한컴독스 웹에서 정렬을 확인한다. PDF는 한컴독스 웹으로만 만든다. 개인정보는 제출 승인이 기록된 뒤 제출 단계에서만 `ach profile show --for <id> --json`에서 꺼내 `.private/approved/`의 별도 최종 사본 서식에만 채우고(`contest-harness` 스킬 "제출 준비 기록과 승인" 4번), 저장소 파일·커밋 메시지·로그·메모에 남기지 않는다.
 짧은 문서나 한 쪽짜리 신청서도 예외가 아니다. `contest-harness` 스킬의 "문서 서식의 전 페이지 비전 검수"대로 실제 제출 파일의 모든 페이지를 렌더링해 비전으로 직접 본다. 줄간격·메타데이터·내용 검사만으로 끝내지 않고, 개인정보·서명을 채우거나 수정한 뒤에는 전 페이지를 다시 확인한다.
 
 ## 5. 제출 준비
 
-ContestJudge `ready` 확인 → SUBMISSION.md(제출처, 입력값, 첨부) → 커밋·푸시 → 최종안 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt` → 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춤.
+ContestJudge `ready` 확인(`final`은 제출 파일 목록을 넘겨 `artifacts`를 받는다) → SUBMISSION.md(제출처, 입력값, 첨부) → 커밋·푸시 → `ach check <id>` → `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json` → 최종안 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt` → `ach approval-status <id>` 확인 → 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춤.

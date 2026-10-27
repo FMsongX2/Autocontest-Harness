@@ -69,6 +69,14 @@ impl Workspace for Tmux {
         }
     }
 
+    fn is_open(&self, handle: &str) -> Result<Option<bool>> {
+        match run("tmux", &["display-message", "-p", "-t", handle, "#{window_id}"]) {
+            Ok(_) => Ok(Some(true)),
+            Err(e) if ["can't find", "no server running"].iter().any(|m| e.0.contains(m)) => Ok(Some(false)),
+            Err(e) => Err(e),
+        }
+    }
+
     fn remove_workspace(&self, _workspace_id: &str) -> Result<()> {
         Ok(())
     }

@@ -26,6 +26,19 @@ pub const INHERIT: &str = "inherit";
 /// file flag for interactive sessions, so the system addition travels as text. `--` ends the
 /// options: list options (`--add-dir`, `--tools`, ...) would otherwise swallow the prompt.
 fn command(spec: &Spec, print: bool) -> Result<Vec<String>> {
+    let mut argv = options(spec, print)?;
+    argv.push("--".into());
+    let path = spec.prompt_file.display().to_string();
+    if path.chars().any(char::is_whitespace) {
+        argv.push(prompt_text(spec)?);
+    } else {
+        argv.push(format!("@{path} {}", spec.first_message));
+    }
+    Ok(argv)
+}
+
+/// `claude [-p] [--model M] [--append-system-prompt TEXT] <runner_args>`.
+fn options(spec: &Spec, print: bool) -> Result<Vec<String>> {
     let mut argv = vec!["claude".to_string()];
     if print {
         argv.push("-p".into());
@@ -37,14 +50,29 @@ fn command(spec: &Spec, print: bool) -> Result<Vec<String>> {
         argv.extend(["--append-system-prompt".into(), text]);
     }
     argv.extend(spec.extra_args.iter().cloned());
-    argv.push("--".into());
-    let path = spec.prompt_file.display().to_string();
-    if path.chars().any(char::is_whitespace) {
-        argv.push(prompt_text(spec)?);
-    } else {
-        argv.push(format!("@{path} {}", spec.first_message));
-    }
     Ok(argv)
+}
+
+/// Claude Code keeps each conversation as `<home>/.claude/projects/<encoded cwd>/<uuid>.jsonl`, whose
+/// lines carry `sessionId` and `cwd`. The ids of the conversations started in `cwd`, newest first.
+pub fn session_ids_at(home: &Path, cwd: &Path) -> Vec<String> {
+    let want = super::canonical(cwd);
+    let mut found: Vec<(std::time::SystemTime, String)> = Vec::new();
+    for file in super::session_files(&home.join(".claude").join("projects")) {
+        let Some(stem) = file.file_stem().and_then(|s| s.to_str()).filter(|s| super::valid_session_id(s)) else {
+            continue;
+        };
+        let matches = super::head_objects(&file, 30).iter().any(|o| {
+            o["sessionId"].as_str() == Some(stem)
+                && o["cwd"].as_str().is_some_and(|dir| super::canonical(Path::new(dir)) == want)
+        });
+        if matches && !found.iter().any(|(_, id)| id == stem) {
+            let modified = file.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            found.push((modified, stem.to_string()));
+        }
+    }
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
+    found.into_iter().map(|(_, id)| id).collect()
 }
 
 /// omp tool names -> Claude Code tool names. Tools Claude Code lacks (`spawns`, ...) are dropped.
@@ -253,6 +281,20 @@ impl Runner for Claude {
 
     fn oneshot(&self, spec: &Spec) -> Result<Vec<String>> {
         command(spec, true)
+    }
+
+    fn session_records(&self, cwd: &Path) -> Option<Vec<String>> {
+        Some(session_ids_at(&paths::home(), cwd))
+    }
+
+    /// `--resume <id>` reopens the conversation under the same id; `message` follows after `--`.
+    fn restore(&self, spec: &Spec, session_id: &str, message: &str, interactive: bool) -> Result<Vec<String>> {
+        if !super::valid_session_id(session_id) {
+            crate::bail!("세션 id가 UUID가 아니다: {session_id}");
+        }
+        let mut argv = options(spec, !interactive)?;
+        argv.extend(["--resume".into(), session_id.to_string(), "--".into(), message.to_string()]);
+        Ok(argv)
     }
 
     fn install(&self, root: &Path) -> Result<Vec<String>> {

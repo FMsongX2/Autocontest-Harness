@@ -612,7 +612,10 @@ fn board_groups_states_and_formats_rows() {
     }
     let text = board::render_on(&reg, today);
     assert!(text.starts_with("# 공모전 보드\n\n갱신: "));
-    assert!(text.contains("## 레벨 5 계획 검수 대기 (1)\n\n| 마감 | 공모전 | 유형·레벨 | 폴더 | id |\n|---|---|---|---|---|\n| D-3 | [프로덕션 \\| 해커톤](https://e.com/r) | software / L5 | Prod-Hack | `x-review` |\n"));
+    assert!(text.contains("## 레벨 5 계획 검수 대기 (1)\n\n| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 런타임 | 다음 조치 | 막힘 | 근거 시각 |\n|---|---|---|---|---|---|---|---|---|\n| D-3 | [프로덕션 \\| 해커톤](https://e.com/r) | software / L5 | Prod-Hack | `x-review` | unobserved(none) | user_plan_review | observation_none, checkpoint_missing | "), "{text}");
+    // The plan review waits for the user: listed with codes only.
+    assert!(text.contains("## 사용자 확인 필요 (1)\n\n| id | 상태 | 이유 | 다음 조치 | 기한 |\n|---|---|---|---|---|\n| `x-review` | plan_review | - | user_plan_review | - |\n"), "{text}");
+    assert!(text.find("## 사용자 확인 필요").unwrap() < text.find("## 제출 승인 대기").unwrap());
     assert!(text.contains("| - | 정책 서비스 | software / L3 | - | `x-l3` |"));
     assert!(text.contains("## 제출 승인 대기 (0)\n\n(없음)\n"));
     assert!(text.contains("## 새로 발견(게이트 전) (45)"));
@@ -681,4 +684,77 @@ fn route_creates_folder_documents_without_repo_or_workspace() {
     apply(&mut other, gate("pass", json!({"folder": "Maeum-Shorts"}))).unwrap();
     assert!(route::route(&mut other, &cfg, &none, None, false, false).is_err());
     fs::remove_dir_all(&root).unwrap();
+}
+
+/// The board and the pure runtime summary show codes and times, never checkpoint prose, readiness
+/// blocker text or history notes, and say when a checkpoint belongs to an older work revision.
+#[test]
+fn board_lists_attention_codes_without_private_text() {
+    use harness::runtime;
+    let today = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+    let mut reg = Registry::default();
+    let mut blocked = entry("x-blocked", "비공개 메모 시험", "https://e.com/b", "manual");
+    apply(&mut blocked, gate("pass", json!({}))).unwrap();
+    transition(&mut blocked, "routed", "t", "SECRET-NOTE 개인 연락처").unwrap();
+    transition(&mut blocked, "running", "t", "SECRET-NOTE").unwrap();
+    let revision = registry::revision(&blocked);
+    let file = json!([{"path": "draft.md", "sha256": "0".repeat(64)}]);
+    blocked.extra.insert(
+        "runtime".into(),
+        json!({"latest_checkpoint": 1, "checkpoints": [{"seq": 1, "recorded_at": "2026-10-15T09:00+09:00",
+            "observed_at": "2026-10-15T09:00+09:00", "stage": "draft", "revision": revision, "workflow_state": "running",
+            "history_len": blocked.history.len(), "completed_artifacts": file,
+            "next_action": "SECRET-NEXT 주민번호 확인", "blocked_reason": "SECRET-BLOCK 담당자 개인 메일",
+            "needs_user_input": true, "next_action_at": "2026-10-16T09:00:00+09:00"}]}),
+    );
+    blocked.extra.insert(
+        "submission_readiness".into(),
+        json!({"seq": 1, "at": "2026-10-15T10:00+09:00", "revision": revision, "state": "running",
+            "submission_ready": false, "needs_user_input": true, "blockers": ["SECRET-READY 서명 필요"],
+            "artifacts": file, "followup_required": false}),
+    );
+    let summary = runtime::summary(&blocked);
+    assert!(!summary.to_string().contains("SECRET"), "{summary}");
+    assert_eq!(summary["next_action"], "user_input");
+    assert_eq!(summary["needs_user_input"], true);
+    assert_eq!(summary["runtime_state"], "unobserved", "no observation is not a healthy runtime");
+    assert_eq!(summary["checkpoint"]["integrity"], "unknown", "the pure summary never assumes files are intact");
+    assert_eq!(summary["artifact_integrity"], "unknown");
+    assert!(
+        summary["last_evidence_at"].is_string(),
+        "the newest of history, checkpoint and readiness times: {summary}"
+    );
+    for code in ["checkpoint_blocked", "needs_user_input", "readiness_needs_user_input", "readiness_blockers"] {
+        assert!(summary["blockers"].as_array().unwrap().contains(&json!(code)), "{code}: {summary}");
+    }
+
+    let mut stale = entry("x-stale", "옛 체크포인트", "", "manual");
+    apply(&mut stale, gate("pass", json!({}))).unwrap();
+    transition(&mut stale, "routed", "t", "").unwrap();
+    transition(&mut stale, "running", "t", "").unwrap();
+    stale.extra.insert(
+        "runtime".into(),
+        json!({"latest_checkpoint": 1, "checkpoints": [{"seq": 1, "recorded_at": "2026-10-01T09:00+09:00",
+            "stage": "plan", "revision": 999, "completed_artifacts": file, "next_action": "SECRET-OLD",
+            "blocked_reason": null, "needs_user_input": false, "next_action_at": null}]}),
+    );
+    let old = runtime::summary(&stale);
+    assert_eq!(old["checkpoint"]["status"], "stale");
+    assert!(old["gaps"].as_array().unwrap().contains(&json!("checkpoint_stale_revision")), "{old}");
+    assert_eq!(old["next_action"], "observe_runtime");
+
+    for e in [blocked, stale] {
+        reg.contests.insert(e.id.clone(), e);
+    }
+    let text = board::render_on(&reg, today);
+    assert!(!text.contains("SECRET"), "{text}");
+    assert!(text.contains("## 사용자 확인 필요 (1)"), "{text}");
+    assert!(
+        text.contains("| `x-blocked` | running | checkpoint_blocked, needs_user_input, readiness_needs_user_input, readiness_blockers | user_input | 2026-10-16T09:00:00+09:00 |"),
+        "{text}"
+    );
+    let row = text.lines().find(|l| l.contains("[비공개 메모 시험]")).unwrap();
+    assert!(row.contains("| unobserved(none) | user_input · 2026-10-16T09:00:00+09:00 |"), "{row}");
+    let row = text.lines().find(|l| l.contains("`x-stale` |") && l.starts_with("| -")).unwrap();
+    assert!(row.contains("checkpoint_stale_revision"), "{row}");
 }

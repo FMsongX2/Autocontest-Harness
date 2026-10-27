@@ -72,6 +72,21 @@ output:
       metadata:
         description: "Files that could not be edited (e.g. binary HWP, PDF without source) and checks that could not run"
       type: string
+    humanize:
+      metadata:
+        description: "Korean prose texts only: one row per inspected file reporting the caller's humanize-korean record as found in JUDGE.md (run_id, route, workspace, guarded_check result, adoption, recorded SHA-256) and whether this editor's edits make a new caller run necessary. This agent never runs humanize-korean itself"
+      elements:
+        properties:
+          file:
+            type: string
+          record:
+            metadata:
+              description: "The record row as found, or `없음`"
+            type: string
+          rerun_required:
+            metadata:
+              description: "true when the file changed after the recorded run (this editor edited it, or the recorded SHA-256 differs) so the caller must run humanize-korean again before final judging"
+            type: boolean
 ---
 
 글 산출물을 `.harness/gate.json`의 평가표(`criteria`) 항목마다 읽고, 문체·어투·문장을 점검해 결과물 파일을 직접 다듬는다. 내용·수치·주장은 바꾸지 않는다. 채점은 ContestJudge의 일이고, 이 에이전트는 Judge 직전에 문장을 다듬는다. 레벨 2 이상의 글 산출물에서 평가표가 있을 때 쓴다(`docs/CONTRACT.md` 5절).
@@ -81,6 +96,12 @@ output:
 - `.harness/gate.json`의 `criteria`(단계·항목·배점), `deliverables`의 `limits`(분량·글자 수·쪽수·파일 규칙)
 - `CONTEST.md`, 공고 원문·서식(`docs/form/` 등)에서 요구한 어조·문체·작성 요령, `SPEC.md`(있으면 용어·문체 규칙)
 `criteria`가 비어 있으면 손대지 않고 `gaps`에 "평가표 없음"을 적고 끝낸다.
+보고서·제안서·정책 제안·논문·기획서·신청서 본문(칼럼·에세이·영상 대본·카드 문구는 제외)은 다듬기 전에 `skill://cs-report`를 읽고 그 문체·교정 규칙을 기준으로 삼는다. 스킬이 가리키는 보고서 작성 기준 문서와 승인 기준본 문단이 있으면 실제로 읽어 문장 호흡·종결(`~다.`)·용어 정의·표 주석·교차 참조 기준을 대조한다(운영자 전용 기준 문서의 위치는 `data/local-rules.md`에 있다). 읽은 스킬 파일과 기준 문서를 `gaps`가 아니라 `files`와 `criteria` 판단에 근거로 적는다. 읽지 못했으면 읽지 못한 이유를 `gaps`에 적는다. 이 스킬의 `@report-reviewer` 병렬 검수는 호출 세션이 맡고, 이 에이전트는 파일을 직접 고친다.
+한글 윤문(`skill://humanize-korean`)은 한글 본문(보고서·제안서·기획서·신청서·칼럼·에세이)에 필수지만, 실행은 이 에이전트가 아니라 호출 세션의 일이다(`contest-harness` 스킬의 "한글 윤문 단계"). 윤문은 격리 작업 폴더를 만들고 스크립트와 하위 에이전트를 돌려야 하는데, 이 에이전트는 호출자가 준 결과물 파일만 고칠 수 있기 때문이다. 이 에이전트는 다음만 한다.
+- 스킬의 `SKILL.md`와 `LOCAL-INTEGRATION.md`를 읽어 보존 규칙(수치·부호·단위·건수, 인용·출처, 수식, 코드, 제목, 표 구조, 공고 서식은 바꾸지 않는다)을 자기 교정에도 똑같이 적용한다.
+- `JUDGE.md`의 "한글 윤문 기록" 표에서 대상 파일의 행을 찾아 `humanize`에 옮긴다. 행이 없으면 `없음`으로 적는다. 호출 세션이 윤문 작업 폴더를 주었으면 그 폴더의 `guarded_check.py` 결과와 채택 기록을 읽어 표의 행과 맞는지 확인한다. 작업 폴더를 만들거나 스크립트를 돌리지 않는다.
+- 이 호출에서 파일을 고쳤거나 기록된 SHA-256이 지금 파일과 다르면 `rerun_required: true`로 적어, 호출 세션이 최종 채점 전에 윤문을 다시 돌리게 한다.
+영상 대본·카드 문구·코드·로그는 윤문 대상이 아니다.
 </inputs>
 
 <procedure>

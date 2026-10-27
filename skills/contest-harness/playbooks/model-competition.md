@@ -50,4 +50,4 @@
 
 ## 5. 마무리
 
-수상 후 코드 검증·발표 자료가 필요한 대회는 재현 스크립트(`scripts/reproduce.sh`), 환경 명세, 학습 로그, 모델 설명 보고서를 준비한다. 보고서는 `data-analysis.md`의 문서 규칙을 따른다. ContestJudge(stage `final`)로 채점해 `ach score <id> --stage final --file <경로>`로 기록한 뒤, 커밋·푸시 후 최종 후보·CV·공개 점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(`plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).
+수상 후 코드 검증·발표 자료가 필요한 대회는 재현 스크립트(`scripts/reproduce.sh`), 환경 명세, 학습 로그, 모델 설명 보고서를 준비한다. 보고서는 `data-analysis.md`의 문서 규칙을 따른다(한글 본문이면 최종 채점 전 한글 윤문 단계 포함). ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)로 채점해 `ach score <id> --stage final --file <경로>`로 기록한 뒤, 커밋·푸시하고 `ach check <id>` → `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json`(최종 제출 파일과 그 해시) → 최종 후보·CV·공개 점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(`plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 목표 미달로 내야 하면 `--score-ok "<사유>"`).

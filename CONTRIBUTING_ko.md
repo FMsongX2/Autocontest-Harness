@@ -6,7 +6,7 @@ pull request를 환영한다. 정해진 모양이 있는 확장은 두 가지다
 
 ## 기본 규칙
 
-- pull request를 열기 전에 `scripts/check.sh`를 돌린다. 이 스크립트는 `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, `cargo audit`(`cargo-audit`이 없으면 알리고 건너뛴다)을 차례로 돌린다. pull request와 릴리스는 이것을 통과해야 한다. CI가 없으므로 출력을 pull request에 붙인다.
+- pull request를 열기 전에 `scripts/check.sh`를 돌린다. 이 스크립트는 `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, Python 컨트롤러 테스트(`python3 -B -m unittest discover -s tests -p 'test_*.py'`, `controllers/` 대상), `cargo audit`(`cargo-audit`이 없으면 알리고 건너뛴다)을 차례로 돌린다. pull request와 릴리스는 이것을 통과해야 한다. CI가 없으므로 출력을 pull request에 붙인다.
 - 개인정보, 운영자 환경 경로, `data/`의 파일(`*.example.*` 제외)은 커밋하지 않는다.
 - 에이전트 지시문, 스킬, 플레이북, 템플릿은 한국어 보고서체로 쓴다. 코드 주석은 영어로 쓴다.
 - 레지스트리는 CLI만 쓴다. 에이전트와 확장은 `ach`를 부른다.
@@ -37,6 +37,8 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 | `orca_agent()` | `None` | Orca가 이 하네스를 띄울 때 쓰는 에이전트 id(`orca automations create --provider`). `schedule.scheduler = "orca"`에 필요하다 |
 | `interactive(spec)` | 없음 | TTY가 있는 세션 명령. 지시문을 먼저 읽고 시작한다 |
 | `oneshot(spec)` | 없음 | TTY 없이 지시문을 한 번 수행하고 끝나는 명령. `headless` 작업 환경과 `ach autorun`이 쓴다 |
+| `session_records(cwd)` | `None` | 작업 디렉터리가 `cwd`인 이 하네스의 저장된 세션 id 목록(`restore`가 받는 값, 최신 순). 어댑터가 목록을 낼 수 없으면 `None`이고, 그때 `ach restart`·`ach resume`은 `--restore <UUID>`를 직접 받아야 한다 |
+| `restore(spec, id, message, interactive)` | 거절 | 저장된 세션 `id`(UUID, `runners::valid_session_id`로 검사)를 `spec.cwd`에서 `spec`의 프리셋·모델·시스템 추가·`runner_args`로 다시 열고 `message`를 다음 턴으로 보내는 명령. TTY 없는 작업 환경이면 `interactive`가 `false`다. 하네스가 복원을 못 하면 거절한다. `ach restart`·`resume`은 새 세션으로 몰래 바꾸지 않는다. omp는 `--restore <id>`, Claude Code는 `--resume <id>` |
 | `install(root)` | 없음 | `root` 클론에서 에이전트, 스킬, 하네스에 있으면 확장 패키지를 설치한다. 여러 번 돌려도 결과가 같아야 하고, 한 일마다 한 줄을 돌려준다 |
 | `installed(root)` | `None` | `root` 클론의 에이전트·스킬·확장이 설치되어 있는지. `Some(true)`나 `Some(false)`, 어댑터가 알 수 없으면 `None`을 돌려준다. `ach doctor`가 알린다. omp 어댑터는 `omp plugin list --json`에 `root`를 가리키는 켜진 `contest-harness` 패키지가 있는지 본다 |
 | `apply_agent_models(models)` | `Some`가 하나라도 있으면 거절, 모두 `None`이면 할 일 없음 | 설정 `agent_models`(에이전트 이름 → 이 하네스 모델 문법의 `Some(모델 지정)`, 또는 하네스가 전에 적용한 선택을 지우라는 `None`)를 하네스가 에이전트별 모델을 읽는 곳에 적용한다. `ach install`이 설정 러너에만 부른다. `models`에 적힌 에이전트만 건드리고 다른 설정은 그대로 두며, 한 일마다 한 줄을 돌려준다. 여러 번 돌려도 결과가 같아야 한다. omp 어댑터는 omp 전역 설정 `task.agentModelOverrides`에 이름을 합친다(`omp config get` 뒤 `omp config set`) |
@@ -83,7 +85,7 @@ git show bf05366:tests/backends.rs       # 그 어댑터들의 명령줄·설치
 - `install`이 파일을 쓰면 임시 홈 폴더로 테스트한다. 두 번째 실행은 아무것도 바꾸지 않고, 낡은 에이전트 파일은 지워져야 한다.
 - `apply_agent_models`를 구현하면 합치는 부분을 순수 함수로 두고, [tests/setup.rs](tests/setup.rs)의 `merge_overrides` 테스트처럼 하네스 CLI 없이 시험한다. 이름을 적은 에이전트는 정해지거나 지워지고, 나머지 항목은 그대로여야 한다.
 - 테스트는 실제 하네스를 띄우지 않고 네트워크에 닿지 않는다.
-- [tests/e2e.rs](tests/e2e.rs)는 실제 바이너리로 수명주기 하나 전체(추가, 게이트, 라우팅, 대역 러너로 띄운 headless 세션, 승인, 제출, 정리)를 임시 홈·git 설정·`ACH_HOME`에서 오프라인으로 돌린다. 이 경로를 건드리는 변경이면 이 테스트가 통과하게 두고, 종단 간 테스트를 따로 만들기보다 이 테스트를 늘린다.
+- [tests/e2e.rs](tests/e2e.rs)는 실제 바이너리로 수명주기 하나 전체(추가, 게이트, 라우팅, 대역 러너로 띄운 headless 세션, 승인, 의도·시작·접수 증빙으로 이어지는 제출 트랜잭션, 정리)를 임시 홈·git 설정·`ACH_HOME`에서 오프라인으로 돌린다. 이 경로를 건드리는 변경이면 이 테스트가 통과하게 두고, 종단 간 테스트를 따로 만들기보다 이 테스트를 늘린다. 테스트는 실제 공모전 사이트에 접속하거나 제출하거나 실제 세션을 닫지 않고, 규칙 원문 받기는 로컬 HTTP 픽스처로 한다.
 
 ### 5. pull request 점검표
 

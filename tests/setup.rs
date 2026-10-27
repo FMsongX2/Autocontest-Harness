@@ -61,6 +61,65 @@ fn config_set_validates_before_writing_and_unset_restores_the_default() {
 }
 
 #[test]
+fn delegation_requires_explicit_grant_and_can_be_scoped_and_revoked() {
+    let dir = scratch("delegation");
+    let file = dir.join("config.json");
+    assert!(config::set_at(&file, "delegation.enabled", json!(true)).is_err());
+    assert!(!file.exists(), "an invalid grant must not be written");
+    config::set_at(
+        &file,
+        "delegation",
+        json!({
+            "enabled": true,
+            "granted_at": "2026-10-20T00:00:00+09:00",
+            "note": "Explicit test delegation",
+            "contest_ids": ["contest-a"],
+            "allow_personalization": true
+        }),
+    )
+    .unwrap();
+    let cfg = config::load_at(&file).unwrap();
+    assert!(cfg.delegation.covers("contest-a"));
+    assert!(!cfg.delegation.covers("contest-b"));
+    config::set_at(&file, "delegation.enabled", json!(false)).unwrap();
+    assert!(!config::load_at(&file).unwrap().delegation.covers("contest-a"));
+    let before = std::fs::read(&file).unwrap();
+    assert!(
+        config::set_at(
+            &file,
+            "delegation",
+            json!({
+                "enabled": true, "granted_at": "yesterday", "note": "Invalid date"
+            })
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn contest_sessions_cannot_change_delegation() {
+    let dir = scratch("delegation-session");
+    std::fs::create_dir_all(dir.join("harness/prompts")).unwrap();
+    std::fs::write(dir.join("harness/prompts/launch.md"), "fixture").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_ach"))
+        .env("ACH_HOME", &dir)
+        .env("ACH_SESSION", "contest-a")
+        .args([
+            "config",
+            "set",
+            "delegation",
+            r#"{"enabled":true,"granted_at":"2026-10-20T00:00:00Z","note":"self grant"}"#,
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!dir.join("data/config.json").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn omp_overrides_change_only_the_named_agents() {
     let current = json!({"reviewer": "x/review", "ContestJudge": "x/old", "ReferenceScout": "x/ref"});
     let current = current.as_object().unwrap().clone();

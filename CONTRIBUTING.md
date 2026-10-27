@@ -6,7 +6,7 @@ Pull requests are welcome. Two kinds of extension have a fixed shape: a **runner
 
 ## Ground rules
 
-- Run `scripts/check.sh` before you open the pull request. It runs `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, and `cargo audit` (skipped with a note when `cargo-audit` is not installed). Pull requests and releases must pass it. There is no CI, so paste the output into the pull request.
+- Run `scripts/check.sh` before you open the pull request. It runs `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, the Python controller tests (`python3 -B -m unittest discover -s tests -p 'test_*.py'`, covering `controllers/`), and `cargo audit` (skipped with a note when `cargo-audit` is not installed). Pull requests and releases must pass it. There is no CI, so paste the output into the pull request.
 - Never commit personal data, operator-specific paths, or anything from `data/` other than the `*.example.*` files.
 - Agent prompts, the skill, playbooks, and templates are written in Korean in a report style. Code comments and this file are in English.
 - Only the CLI writes the registry. Agents and extensions call `ach`.
@@ -37,6 +37,8 @@ Create `src/runners/<name>.rs` with a unit struct and `impl Runner for <Struct>`
 | `orca_agent()` | `None` | The agent id Orca uses for this harness (`orca automations create --provider`). Needed for `schedule.scheduler = "orca"` |
 | `interactive(spec)` | none | A command for a session with a TTY that starts by reading the instructions |
 | `oneshot(spec)` | none | A command that runs the instructions once without a TTY and exits. The `headless` workspace and `ach autorun` use it |
+| `session_records(cwd)` | `None` | Saved sessions of this harness whose working directory is `cwd`, as ids `restore` accepts, newest first. `None` when the adapter cannot list them; `ach restart` and `ach resume` then need an explicit `--restore <UUID>` |
+| `restore(spec, id, message, interactive)` | refuses | A command that reopens saved session `id` (a UUID, checked with `runners::valid_session_id`) in `spec.cwd` with the spec's preset, model, system addition and `runner_args`, then sends `message` as the next turn. `interactive` is `false` for workspaces without a TTY. Refuse if the harness cannot restore; `ach restart`/`resume` never fall back to a fresh session silently. omp uses `--restore <id>`, Claude Code `--resume <id>` |
 | `install(root)` | none | Install the agents, the skill, and, where the harness has one, an extension package from the checkout at `root`. Idempotent. One human-readable line per action |
 | `installed(root)` | `None` | Whether the harness agents, skill, and extension are installed for the checkout at `root`: `Some(true)` or `Some(false)`, or `None` when the adapter cannot tell. `ach doctor` reports it. The omp adapter checks that `omp plugin list --json` has an enabled `contest-harness` package that resolves to `root` |
 | `apply_agent_models(models)` | refuses any `Some`; all `None` is a no-op | Apply `agent_models` from the config (agent name to `Some(selector)` in this harness's model syntax, or `None` to remove a choice the harness applied before) where the harness reads per-agent models. `ach install` calls it for the configured runner only. Touch only the agents named in `models`, leave every other setting alone, and return one human-readable line per action. Idempotent. The omp adapter merges the names into omp's global `task.agentModelOverrides` (`omp config get`, then `omp config set`) |
@@ -83,7 +85,7 @@ In `src/runners/mod.rs`, add `pub mod <name>;` and append `&<name>::<Struct>` to
 - If `install` writes files, test it against a scratch home directory: a second run changes nothing, and a stale agent file is removed.
 - If you implement `apply_agent_models`, keep the merge in a pure function and test it without the harness CLI, like `merge_overrides` in [tests/setup.rs](tests/setup.rs): named agents are set or removed, every other entry stays.
 - Tests never start the real harness and never touch the network.
-- [tests/e2e.rs](tests/e2e.rs) drives the real binary through one whole lifecycle offline (add, gate, route, a headless session on a stand-in runner, approval, submission, cleanup) with a temporary home, git config, and `ACH_HOME`. If your change touches that path, keep it passing and extend it rather than adding a second end-to-end test.
+- [tests/e2e.rs](tests/e2e.rs) drives the real binary through one whole lifecycle offline (add, gate, route, a headless session on a stand-in runner, approval, a submission transaction with intent, start, and receipt proof, cleanup) with a temporary home, git config, and `ACH_HOME`. If your change touches that path, keep it passing and extend it rather than adding a second end-to-end test. Tests never contact real contest sites, submit anything, or close real sessions; rule fetches use a local HTTP fixture.
 
 ### 5. Pull request checklist
 

@@ -63,6 +63,22 @@ pub fn candidate(entry: &Entry) -> bool {
     CLEANABLE.contains(&entry.state.as_str())
         && entry.folder.is_some()
         && !entry.extra.contains_key("folder_removed_at")
+        && followup_hold(entry).is_none()
+        && !crate::submission::unresolved(entry)
+}
+
+/// Why the folder must stay for a follow-up stage: the latest structured readiness record says
+/// `followup_required: true` (or does not say `false`). Not even `--force` overrides it; a contest
+/// without a readiness record (older entries, manual submissions) is not held.
+pub fn followup_hold(entry: &Entry) -> Option<String> {
+    let record = crate::readiness::latest(entry)?;
+    match record.get("followup_required").and_then(Value::as_bool) {
+        Some(false) => None,
+        Some(true) => {
+            Some("최근 제출 준비 기록이 후속 단계를 요구한다(followup_required: true). 정리하지 않는다".into())
+        }
+        None => Some("최근 제출 준비 기록에 followup_required(true/false)가 없어 정리하지 않는다".into()),
+    }
 }
 
 fn git(folder: &Path, args: &[&str]) -> Result<String> {
@@ -309,6 +325,17 @@ fn remove_folder(folder: &Path, target: Option<&Path>) -> Result<()> {
 pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Outcome> {
     let ledger = ledger::load_at(ledger_path)?;
     let mut outcome = Outcome { id: entry.id.clone(), problems: problems(entry, &ledger), ..Default::default() };
+    // Checked here, on the entry as it is under the registry lock, and never overridden by --force.
+    if let Some(hold) = followup_hold(entry) {
+        outcome.problems.push(hold);
+        return Ok(outcome);
+    }
+    if crate::submission::unresolved(entry) {
+        outcome.problems.push(
+            "끝나지 않은 제출 시도(intent/dispatching/unknown)가 있다. 확인 증빙이나 미제출 확인 전에는 정리하지 않는다".into(),
+        );
+        return Ok(outcome);
+    }
     if !outcome.problems.is_empty() && !opts.force {
         return Ok(outcome);
     }
@@ -357,15 +384,25 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     }
 
     let repo_url = git(&folder, &["remote", "get-url", "origin"]).ok().map(|u| u.trim().to_string());
-    if let (Some(ws), Some(h)) = (backend, handle)
-        && let Err(err) = ws.close(h)
+    // The folder goes only once its session is confirmed closed: a session (or an unrecorded agent
+    // in its workspace) may still be working in it. On failure everything stays, including the
+    // session record, and `ach session-close` or a later clean can retry.
+    if let Some(ws) = backend
+        && (handle.is_some() || workspace_id.is_some())
     {
-        outcome.actions.push(format!("경고: 세션을 닫지 못했다: {err}"));
-    }
-    if let (Some(ws), Some(id)) = (backend, workspace_id)
-        && let Err(err) = ws.remove_workspace(id)
-    {
-        outcome.actions.push(format!("경고: 작업 공간을 제거하지 못했다: {err}"));
+        let closed = workspaces::close_recorded(ws, handle, workspace_id, workspaces::CLOSE_WAIT).and_then(|()| {
+            // Removing a workspace stops every terminal in it: never while an unrecorded one is left.
+            match workspace_id {
+                Some(id) => {
+                    workspaces::ensure_no_other_terminals(ws, Some(id), handle).and_then(|()| ws.remove_workspace(id))
+                }
+                None => Ok(()),
+            }
+        });
+        if let Err(err) = closed {
+            outcome.problems.push(format!("세션을 닫지 못해 폴더를 그대로 두었다(세션 기록 유지): {err}"));
+            return Ok(outcome);
+        }
     }
 
     let at = now();

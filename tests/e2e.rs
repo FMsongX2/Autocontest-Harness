@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 const BIN: &str = env!("CARGO_BIN_EXE_ach");
 
@@ -126,8 +127,9 @@ fn a_contest_goes_from_listing_to_cleaned_up_submission() {
     w.git(&folder, &["remote", "add", "origin", remote.to_str().unwrap()]);
     w.git(&folder, &["push", "-q", "-u", "origin", "main"]);
 
-    // Launch a headless session on the stand-in runner; it runs as this contest's session.
-    let launched = w.ok(&["launch", &id]);
+    // The stand-in runner allocates no agent resources. Capacity refusal is covered separately;
+    // this lifecycle scenario must not depend on the host's current memory pressure.
+    let launched = w.ok(&["launch", &id, "--force"]);
     assert_eq!(launched["workspace"], "headless");
     let mut tail = String::new();
     for _ in 0..100 {
@@ -145,11 +147,27 @@ fn a_contest_goes_from_listing_to_cleaned_up_submission() {
     w.git(&folder, &["add", "-A"]);
     w.git(&folder, &["commit", "-q", "-m", "Add essay"]);
     w.git(&folder, &["push", "-q"]);
+    let essay_sha = format!("{:x}", Sha256::digest(std::fs::read(folder.join("essay.md")).unwrap()));
+    let request = json!({
+        "submission_ready": true,
+        "needs_user_input": false,
+        "blockers": [],
+        "followup_required": false,
+        "destination": "https://example.com/e2e/form",
+        "artifacts": [{"path": "essay.md", "sha256": essay_sha}]
+    });
+    let request_file = w.base.join("readiness.json");
+    std::fs::write(&request_file, request.to_string()).unwrap();
+    w.ok(&["readiness", &id, "--file", request_file.to_str().unwrap()]);
     w.ok(&["transition", &id, "awaiting_approval", "--note", "수기 완성"]);
 
     // Submission and personal details need the user's approval, which a contest session cannot give.
-    let refused = w.harness(&["submit", &id, "--method", "web", "--receipt", "R-1", "--files", "essay.md"]);
-    assert_eq!(refused.status.code(), Some(1));
+    let token = w.ok(&["approval-status", &id])["request_token"].as_str().expect("request token").to_string();
+    let intent = json!({"method": "form", "destination": "https://example.com/e2e/form", "expected_request": token});
+    let intent_file = w.base.join("intent.json");
+    std::fs::write(&intent_file, intent.to_string()).unwrap();
+    let refused = w.harness(&["submission", "intent", &id, "--file", intent_file.to_str().unwrap()]);
+    assert_eq!(refused.status.code(), Some(1), "no intent without an approval");
     std::fs::write(w.root.join("data/profile.md"), "## 참가 자격\n- 대학생\n\n## 제출용 개인정보\n- 이름: 시험\n")
         .unwrap();
     std::fs::set_permissions(w.root.join("data/profile.md"), std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -160,8 +178,34 @@ fn a_contest_goes_from_listing_to_cleaned_up_submission() {
     let profile = w.ok(&["profile", "show", "--for", &id]);
     assert!(profile.to_string().contains("이름: 시험"));
 
+    // The transaction: intent, start (persisted before the agent sends), then the factual receipt.
+    let made = w.ok(&["submission", "intent", &id, "--file", intent_file.to_str().unwrap()]);
+    let attempt = made["attempt"]["attempt_id"].as_str().expect("attempt id").to_string();
+    assert_eq!(made["created"], true, "{made}");
+    let started = w.ok(&["submission", "start", &id, "--attempt", &attempt]);
+    assert_eq!(started["status"], "dispatching", "{started}");
+    let again = w.harness(&["submission", "start", &id, "--attempt", &attempt]);
+    assert_eq!(again.status.code(), Some(1), "a second start never authorizes another send");
+    // The stand-in for the organizer's receipt page the agent saved after sending (no real site).
+    let private = folder.join(".private");
+    std::fs::create_dir_all(&private).unwrap();
+    std::fs::write(private.join("receipt.html"), "<p>접수 완료: R-1</p>\n").unwrap();
+    let receipt_sha = format!("{:x}", Sha256::digest(std::fs::read(private.join("receipt.html")).unwrap()));
+    let observed = w.ok(&["submission", "status", &id])["latest"]["started_at"].as_str().unwrap().to_string();
+    let proof = json!({"attempt_id": attempt, "receipt": "R-1", "source": "confirmation_page", "observed_at": observed,
+        "destination": "https://example.com/e2e/form", "submitted_sha256": [essay_sha],
+        "artifacts": [{"path": ".private/receipt.html", "sha256": receipt_sha}]});
+    let proof_file = w.base.join("proof.json");
+    std::fs::write(&proof_file, proof.to_string()).unwrap();
+
     // Submit, then the ledger blocks the same contest from coming back.
-    w.ok(&["submit", &id, "--method", "web", "--receipt", "R-1", "--files", "essay.md"]);
+    let confirmed = w.ok(&["submit", &id, "--attempt", &attempt, "--file", proof_file.to_str().unwrap()]);
+    assert_eq!(confirmed["workflow_state"], "submitted", "{confirmed}");
+    assert_eq!(confirmed["review_needed"], false, "{confirmed}");
+    assert!(!confirmed.to_string().contains("R-1"), "the CLI result carries no receipt text: {confirmed}");
+    let kept = folder.join(format!(".private/submissions/{attempt}/{receipt_sha}.html"));
+    assert!(kept.is_file(), "a read-only copy of the proof is kept");
+    assert_eq!(std::fs::metadata(&kept).unwrap().permissions().mode() & 0o777, 0o400);
     let ledger = w.ok(&["submitted"]);
     assert!(ledger.to_string().contains("E2E 수기 공모전"), "{ledger}");
     let again = w.harness(&["dedupe-check", "--id", &id]);

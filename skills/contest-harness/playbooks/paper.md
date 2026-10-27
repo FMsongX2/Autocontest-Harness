@@ -49,10 +49,11 @@ SPEC.md `FR-###`으로 옮길 것:
 
 ## 6. 리뷰 반복
 
-1. ContestJudge로 심사기준 채점(체크포인트: 초고는 stage `draft`, 서식 반영 뒤 제출 전은 stage `final`). 매번 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다.
+1. ContestJudge로 심사기준 채점(체크포인트: 초고는 stage `draft`, 서식 반영 뒤 제출 전은 stage `final`이고 제출 파일 목록을 넘겨 `artifacts`를 받는다). 매번 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다.
 2. 독립 리뷰 1회 이상: 방법론·인과 해석·통계 검정을 다른 에이전트가 읽기 전용으로 검토한다(연구 도구의 독립 검토 기능이나 과학적 비판 관점의 리뷰어).
 3. 문체·어투·문장은 ContestEditor가 평가표(`gate.json` `criteria`) 기준으로 점검하고 다듬는다(내용·수치는 바꾸지 않는다).
-4. 지적을 고치고 JUDGE.md에 기록한다. 목표 점수와 `ready`까지 반복한다.
+4. 한글 윤문: 초고 직후와, ContestEditor·리뷰 반영이 끝난 뒤 최종 채점 전에 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다. 리뷰어·ContestEditor·Judge는 기록을 확인만 한다.
+5. 지적을 고치고 JUDGE.md에 기록한다. 목표 점수와 `ready`까지 반복한다.
 
 ## 7. 서식과 PDF
 
@@ -62,4 +63,4 @@ SPEC.md `FR-###`으로 옮길 것:
 
 ## 8. 제출 준비
 
-SUBMISSION.md에 생성형 AI 활용 공개 문구, 유사도 검사 결과 파일, 저자 정보·서약서(항목 이름만. 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 그 서식에만 넣는다), 블라인드 분리본 여부를 적는다. 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 못 미친 채 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다.
+SUBMISSION.md에 생성형 AI 활용 공개 문구, 유사도 검사 결과 파일, 저자 정보·서약서(항목 이름만. 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 `.private/approved/`의 별도 최종 사본에만 넣고, 전 페이지 재검수 뒤 `ach readiness <id> --file .private/readiness.json --personalized`로 기록한다), 블라인드 분리본 여부를 적는다. 커밋·푸시하고 `ach check <id>` → `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json` → 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수가 필요하고, 못 미친 채 내야 하면 `--score-ok "<사유>"`). 그다음 `ach approval-status <id>`를 확인하고 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다.

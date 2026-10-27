@@ -47,9 +47,9 @@
 
 - [ ] T090 서식·형식 최종 반영 뒤 최종 파일 전 페이지를 렌더링해 비전으로 직접 검수(줄간격·배치·잘림·겹침 포함, 메타데이터·텍스트 검사만으로 완료 금지). 파일 해시·렌더 도구·전체/확인 쪽수·페이지별 근거 기록, 수정 뒤 전 페이지 재검수(HWP/HWPX 렌더·PDF 변환은 한컴독스 웹) ([경로])
 - [ ] T091 AI 활용 고지·사용한 오픈소스 고지(`research/oss.md`)·서약·동의서 확인 (SUBMISSION.md)
-- [ ] T092 ContestJudge 최종 채점(stage `final`) `ready`·목표 이상, `ach score <id> --stage final --file <경로>` (JUDGE.md)
-- [ ] T093 SUBMISSION.md 작성, 커밋·푸시, 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`
-- [ ] T094 (`ach approve`로 제출 승인이 기록된 뒤) 개인정보·서명을 채우거나 파일을 다시 저장·변환했다면 전 페이지 재렌더·비전 재검수 및 제출 파일 해시 대조 → 제출 → `ach submit` → 커밋·푸시 → `ach clean <id>`(남은 본선·발표가 있으면 정리하지 않는다)
+- [ ] T092 ContestJudge 개선 채점(stage `final`) `ready`·목표 이상, 이어서 익명 사본으로 독립 최종 평가(`ach evaluation prepare` → 패킷만 읽는 새 ContestJudge → `ach evaluation record`) 뒤 같은 값과 `evaluation_id`·`assessment_id`로 `ach score <id> --stage final --file <경로>` (JUDGE.md). `ach rules status <id>`에 검토 대기·무효 없음
+- [ ] T093 SUBMISSION.md 작성, `destination`이 든 `.private/readiness.json`으로 `ach readiness`, `ach checkpoint`(stage `submission`), 커밋·푸시, 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`
+- [ ] T094 (`ach approve`로 제출 승인이 기록된 뒤) 개인정보·서명을 채우거나 파일을 다시 저장·변환했다면 전 페이지 재렌더·비전 재검수 및 제출 파일 해시 대조 → `ach submission intent` → `ach submission start` → 승인된 제출처에 제출 → 접수 증빙으로 `ach submit <id> --attempt <A> --file .private/submission-proof.json`(결과 불명이면 다시 내지 않고 `ach submission unknown`) → 커밋·푸시 → `ach clean <id>`(남은 본선·발표가 있거나 풀리지 않은 시도가 있으면 정리하지 않는다)
 
 ## 대응 확인
 

@@ -48,9 +48,39 @@ pub fn remove_workspace_args(workspace_id: &str) -> Result<Vec<String>> {
     Ok(vec!["worktree".into(), "rm".into(), "--worktree".into(), format!("id:{workspace_id}")])
 }
 
+/// The terminals of `workspace_id` in an answer of `orca terminal list --json` (its `result`):
+/// `(handle, description)` per terminal. A truncated or malformed list is an error, so nobody
+/// decides on a partial view; terminals of other workspaces are skipped.
+pub fn live_terminals_in(result: &Value, workspace_id: &str) -> Result<Vec<(String, String)>> {
+    if result.get("truncated").and_then(Value::as_bool) != Some(false) {
+        crate::bail!("Orca 터미널 목록이 잘렸거나 truncated 값이 없다: 작업 공간 {workspace_id}");
+    }
+    let Some(terminals) = result.get("terminals").and_then(Value::as_array) else {
+        crate::bail!("Orca 터미널 목록에 terminals가 없다: 작업 공간 {workspace_id}")
+    };
+    let mut out = Vec::new();
+    for terminal in terminals {
+        // A disconnected terminal keeps its history in Orca but runs nothing.
+        if terminal.get("connected").and_then(Value::as_bool) == Some(false) {
+            continue;
+        }
+        if terminal.get("worktreeId").and_then(Value::as_str).is_some_and(|w| w != workspace_id) {
+            continue;
+        }
+        let Some(handle) = terminal.get("handle").and_then(Value::as_str) else {
+            crate::bail!("Orca 터미널 목록에 handle 없는 항목이 있다: {terminal}")
+        };
+        let agent = terminal.get("agentIdentity").and_then(Value::as_str).unwrap_or("셸/알 수 없음");
+        out.push((handle.to_string(), format!("{handle}({agent})")));
+    }
+    Ok(out)
+}
+
+/// Orca's error codes for a handle or workspace it no longer knows.
+const GONE: &[&str] = &["terminal_handle_stale", "terminal_not_found", "selector_not_found", "worktree_not_found"];
+
 /// Treat "already gone" answers (stale handle, unknown workspace) as success.
 fn ignore_gone(result: Result<()>) -> Result<()> {
-    const GONE: &[&str] = &["terminal_handle_stale", "terminal_not_found", "selector_not_found", "worktree_not_found"];
     match result {
         Err(e) if GONE.iter().any(|c| e.0.contains(c)) => Ok(()),
         other => other,
@@ -148,6 +178,32 @@ impl Workspace for Orca {
     /// Kills the terminal's process and drops its tab; a handle Orca no longer knows is already closed.
     fn close(&self, handle: &str) -> Result<()> {
         ignore_gone(orca_json(&["terminal", "close", "--terminal", handle]).map(drop))
+    }
+
+    /// `terminal show` keeps answering for a closed terminal (its history stays); only
+    /// `connected: true` means a process still runs. A stale or unknown handle means it is gone.
+    fn is_open(&self, handle: &str) -> Result<Option<bool>> {
+        match orca_json(&["terminal", "show", "--terminal", handle]) {
+            Ok(result) => {
+                let terminal = result.get("terminal").unwrap_or(&result);
+                Ok(terminal.get("connected").and_then(Value::as_bool))
+            }
+            Err(e) if GONE.iter().any(|c| e.0.contains(c)) => Ok(Some(false)),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `terminal list --worktree id:<workspace>`. Every listed terminal counts: Orca does not say
+    /// whether a plain shell is idle or runs a command started by hand (`agentIdentity` is only set
+    /// for agents it recognises), so none is ignored. An unknown workspace has none.
+    fn live_terminals(&self, workspace_id: &str) -> Result<Option<Vec<(String, String)>>> {
+        let selector = format!("id:{workspace_id}");
+        let result = match orca_json(&["terminal", "list", "--worktree", &selector]) {
+            Ok(result) => result,
+            Err(e) if GONE.iter().any(|c| e.0.contains(c)) => return Ok(Some(Vec::new())),
+            Err(e) => return Err(e),
+        };
+        live_terminals_in(&result, workspace_id).map(Some)
     }
 
     /// `worktree rm` on a folder-project workspace (`<repo>::<path>::workspace:<uuid>`) only stops

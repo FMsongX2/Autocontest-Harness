@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::paths;
+use crate::readiness;
 use crate::store;
 use crate::text::{self, now};
 
@@ -31,6 +32,7 @@ pub const STATES: &[&str] = &[
     "plan_review",
     "awaiting_approval",
     "submitted",
+    "followup_pending",
     "closed",
     "skipped",
     "duplicate",
@@ -46,10 +48,11 @@ pub fn allowed(from: &str) -> &'static [&'static str] {
         "rejected" => &["hold", "skipped"],
         "gate_pass" => &["routed", "hold", "rejected", "skipped", "duplicate"],
         "routed" => &["running", "skipped"],
-        "running" => &["plan_review", "awaiting_approval", "closed", "skipped"],
+        "running" => &["plan_review", "awaiting_approval", "followup_pending", "closed", "skipped"],
         "plan_review" => &["running", "skipped"],
         "awaiting_approval" => &["running", "submitted", "skipped"],
-        "submitted" => &["closed", "running"],
+        "submitted" => &["closed", "running", "followup_pending"],
+        "followup_pending" => &["running", "closed"],
         "skipped" | "duplicate" => &["discovered"],
         _ => &[],
     }
@@ -334,25 +337,66 @@ pub fn plan_approved(entry: &Entry) -> bool {
     entry.approvals.iter().any(|a| a.stage == "plan")
 }
 
+/// The current work revision: the history index of the latest move into `running` from another
+/// state (0 when the entry never ran). Final scores, readiness records and submission approvals
+/// are stamped with it; re-entering `running` (a revise cycle, a follow-up after submission)
+/// makes them stale. Same-state markers (approvals, restarts) never change it.
+pub fn revision(entry: &Entry) -> usize {
+    entry.history.iter().rposition(|h| h.to == "running" && h.from.as_deref() != Some("running")).unwrap_or(0)
+}
+
 /// The history marker `approve` adds for a submission approval (`extra.approval = "submit"`).
 fn is_submit_approval(h: &HistoryItem) -> bool {
     h.extra.get("approval").and_then(Value::as_str) == Some("submit")
 }
 
-/// The submission is approved: a `submit` approval was recorded after the latest move into
-/// `awaiting_approval` (a revise cycle `awaiting_approval → running → awaiting_approval` needs a
-/// new one). Only meaningful while the entry is `awaiting_approval`.
+/// Index of the latest real move into `awaiting_approval` (approval markers stay in that state).
+fn entered_awaiting(entry: &Entry) -> Option<usize> {
+    entry.history.iter().rposition(|h| h.to == "awaiting_approval" && h.from.as_deref() != Some("awaiting_approval"))
+}
+
+/// The move into the current `awaiting_approval` passed the score gate on a human `--score-ok`
+/// reason: the CLI marks that history item with `score_override: true` and
+/// `score_override_revision` (the work revision then). Only plain `approve` accepts it.
+pub fn score_override_recorded(entry: &Entry) -> bool {
+    if entry.state != "awaiting_approval" {
+        return false;
+    }
+    let Some(item) = entered_awaiting(entry).map(|i| &entry.history[i]) else { return false };
+    item.extra.get("score_override").and_then(Value::as_bool) == Some(true)
+        && item.extra.get("score_override_revision").and_then(Value::as_u64) == Some(revision(entry) as u64)
+}
+
+/// The submission is approved for the work as it is now: the latest `submit` approval recorded
+/// after the latest move into `awaiting_approval` is bound to the current work revision and the
+/// current request token (revision, readiness sequence, score count), and the readiness record,
+/// its files and the score it relied on still check out. Approvals without that binding (older
+/// formats) never count. Only `awaiting_approval` entries can be approved.
 pub fn submit_approved(entry: &Entry) -> bool {
-    // An entry without a recorded move into awaiting_approval (hand-edited, imported) counts every approval.
-    let entered = entry.history.iter().rposition(|h| h.to == "awaiting_approval" && !is_submit_approval(h));
-    entry.history.iter().skip(entered.map_or(0, |i| i + 1)).any(is_submit_approval)
+    if entry.state != "awaiting_approval" {
+        return false;
+    }
+    let start = entered_awaiting(entry).map_or(0, |i| i + 1);
+    let Some(marker) = entry.history.iter().skip(start).rev().find(|h| is_submit_approval(h)) else { return false };
+    let binding = &marker.extra;
+    let Some(token) = binding.get("request_token").and_then(Value::as_str) else { return false };
+    if binding.get("revision").and_then(Value::as_u64) != Some(revision(entry) as u64) {
+        return false;
+    }
+    let basis = binding.get("score_basis").and_then(Value::as_str).unwrap_or("");
+    if !readiness::SCORE_BASES.contains(&basis) {
+        return false;
+    }
+    let eval = readiness::evaluate(entry, basis == "video_exempt", basis == "override");
+    eval.reasons.is_empty() && eval.token.as_deref() == Some(token)
 }
 
 /// Refuse `ach submit` (or `transition … submitted`) without a current submission approval.
 pub fn check_submit_approved(entry: &Entry) -> Result<()> {
     if entry.state == "awaiting_approval" && !submit_approved(entry) {
         bail!(
-            "{}: 사용자 제출 승인이 없다(제출 승인 단계에 들어온 뒤 기록된 승인이 필요하다). 사용자가 직접 ach approve {} --note \"<승인 원문>\"로 기록한다",
+            "{}: 지금 작업 판에 묶인 사용자 제출 승인이 없다(승인 뒤 재작업·재채점·제출 준비 기록 변경·파일 변경이 있으면 승인이 무효가 된다). ach approval-status {}로 확인하고 사용자가 다시 ach approve {} --note \"<승인 원문>\"로 기록한다",
+            entry.id,
             entry.id,
             entry.id
         );
@@ -360,11 +404,7 @@ pub fn check_submit_approved(entry: &Entry) -> Result<()> {
     Ok(())
 }
 
-/// Record a human approval with the user's words. `session` is `ACH_SESSION` as the caller
-/// read it: set inside contest sessions, which may never approve their own work.
-/// `plan_review` → stage `plan` and the move to `running`; `awaiting_approval` → stage `submit`
-/// (state unchanged). Returns the stage.
-pub fn approve(entry: &mut Entry, note: &str, by: &str, session: Option<&str>) -> Result<&'static str> {
+fn check_approver(entry: &Entry, note: &str, session: Option<&str>) -> Result<()> {
     if let Some(session) = session.filter(|s| !s.is_empty()) {
         bail!(
             "{}: 공모전 세션 안(ACH_SESSION={session})에서는 승인할 수 없다. 승인은 사용자 터미널이나 메인 세션에서 기록한다",
@@ -374,31 +414,104 @@ pub fn approve(entry: &mut Entry, note: &str, by: &str, session: Option<&str>) -
     if note.trim().is_empty() {
         bail!("{}: 승인에는 --note(또는 --note-file)에 사용자 승인 원문과 시각을 적는다", entry.id);
     }
+    Ok(())
+}
+
+/// Record a submission approval bound to `eval` (the marker in history and the approval record).
+fn record_submit_approval(entry: &mut Entry, note: &str, by: &str, eval: &readiness::Evaluation, delegated: bool) {
     let at = now();
-    let stage = match entry.state.as_str() {
-        "plan_review" => {
-            move_to(entry, "running", by, note);
-            "plan"
-        }
-        "awaiting_approval" => {
-            let mut marker = HistoryItem::new(at.clone(), Some(entry.state.clone()), "awaiting_approval", by, note);
-            marker.extra.insert("approval".into(), Value::String("submit".into()));
-            entry.history.push(marker);
-            "submit"
-        }
-        other => bail!("{}: {other} 상태에서는 승인할 것이 없다(plan_review나 awaiting_approval에서만)", entry.id),
-    };
-    if let Some(last) = entry.history.last_mut().filter(|_| stage == "plan") {
-        last.extra.insert("approval".into(), Value::String("plan".into()));
+    let mut binding = eval.binding();
+    if delegated {
+        binding.insert("delegated".into(), Value::Bool(true));
     }
+    let mut marker = HistoryItem::new(at.clone(), Some(entry.state.clone()), "awaiting_approval", by, note);
+    marker.extra.insert("approval".into(), Value::String("submit".into()));
+    marker.extra.extend(binding.clone());
+    entry.history.push(marker);
     entry.approvals.push(Approval {
         at,
-        stage: stage.to_string(),
+        stage: "submit".into(),
         note: note.to_string(),
         by: by.to_string(),
-        extra: Map::new(),
+        extra: binding,
     });
-    Ok(stage)
+}
+
+/// Record a human approval with the user's words. `session` is `ACH_SESSION` as the caller
+/// read it: set inside contest sessions, which may never approve their own work.
+/// `plan_review` → stage `plan` and the move to `running`; `awaiting_approval` → stage `submit`
+/// (state unchanged), which needs the core submission conditions (`readiness::evaluate`): a
+/// current structured readiness record whose files still match, and from level 2 a current
+/// passing final score or a recorded human score-gate override. The approval is bound to the
+/// current request token. Returns the stage.
+pub fn approve(entry: &mut Entry, note: &str, by: &str, session: Option<&str>) -> Result<&'static str> {
+    check_approver(entry, note, session)?;
+    match entry.state.as_str() {
+        "plan_review" => {
+            move_to(entry, "running", by, note);
+            if let Some(last) = entry.history.last_mut() {
+                last.extra.insert("approval".into(), Value::String("plan".into()));
+            }
+            entry.approvals.push(Approval {
+                at: now(),
+                stage: "plan".into(),
+                note: note.to_string(),
+                by: by.to_string(),
+                extra: Map::new(),
+            });
+            Ok("plan")
+        }
+        "awaiting_approval" => {
+            let eval = readiness::evaluate(entry, false, true);
+            if !eval.reasons.is_empty() {
+                bail!(
+                    "{}: 제출 승인 조건이 맞지 않는다({}). ach approval-status {}로 확인한다",
+                    entry.id,
+                    eval.reasons.join("; "),
+                    entry.id
+                );
+            }
+            record_submit_approval(entry, note, by, &eval, false);
+            Ok("submit")
+        }
+        other => bail!("{}: {other} 상태에서는 승인할 것이 없다(plan_review나 awaiting_approval에서만)", entry.id),
+    }
+}
+
+/// A submission approval under the user's standing delegation (the CLI checks the delegation
+/// policy and persona first). Never a plan approval and never on a score-gate override: the core
+/// status must be eligible as is (`video_exempt` only when policy grants it) and its request token
+/// must equal `expected_token`, the one the delegate reviewed.
+pub fn approve_delegated(
+    entry: &mut Entry,
+    note: &str,
+    by: &str,
+    session: Option<&str>,
+    expected_token: &str,
+    video_exempt: bool,
+) -> Result<&'static str> {
+    check_approver(entry, note, session)?;
+    if entry.state != "awaiting_approval" {
+        bail!(
+            "{}: 위임 승인은 제출 승인(awaiting_approval)만 한다(지금 {}). 계획 승인은 사용자가 직접 한다",
+            entry.id,
+            entry.state
+        );
+    }
+    let eval = readiness::evaluate(entry, video_exempt, false);
+    if !eval.reasons.is_empty() {
+        bail!("{}: 위임 승인 조건이 맞지 않는다({})", entry.id, eval.reasons.join("; "));
+    }
+    if eval.token.as_deref() != Some(expected_token) {
+        bail!(
+            "{}: 요청 토큰이 바뀌었다(기대 {expected_token}, 지금 {}). ach approval-status {}로 다시 확인한다",
+            entry.id,
+            eval.token.as_deref().unwrap_or("-"),
+            entry.id
+        );
+    }
+    record_submit_approval(entry, note, by, &eval, true);
+    Ok("submit")
 }
 
 /// Who may read the personal profile section for `entry` (`ach profile show --for <id>`): a
@@ -440,6 +553,16 @@ pub fn transition(entry: &mut Entry, to: &str, by: &str, note: &str) -> Result<(
         sorted.sort_unstable();
         let list = if sorted.is_empty() { "없음".to_string() } else { sorted.join(", ") };
         bail!("{}: {current} → {to} 이동은 허용되지 않는다(가능: {list})", entry.id);
+    }
+    if to != "submitted" && crate::submission::in_flight(entry) {
+        bail!(
+            "{}: 외부 제출 결과가 확인되지 않은 시도가 있다. ach submission status {}로 확인하고 접수 확정 또는 미제출 증빙을 먼저 기록한다",
+            entry.id,
+            entry.id
+        );
+    }
+    if to == "followup_pending" && entry.submissions.is_empty() {
+        bail!("{}: 후속 일정 대기는 기존 제출 기록이 있는 공모전만 가능하다", entry.id);
     }
     if current == "plan_review" && to == "running" {
         bail!(
@@ -560,8 +683,14 @@ fn number(record: &Value, key: &str) -> Option<f64> {
     record.get(key).and_then(Value::as_f64).filter(|n| n.is_finite())
 }
 
-/// Validate a ContestJudge output (`total`, `target`, `verdict`, `scores[{name, weight, score}]`)
-/// and build the `scores` record: `{at, stage, total, target, verdict, criteria, note, file}`.
+/// Points of slack between `total` and the criterion sum normalised to 100 (Judges round).
+pub const TOTAL_TOLERANCE: f64 = 0.5;
+
+/// Validate a ContestJudge output (`total`, `target`, `verdict`, `scores[{name, round?, weight,
+/// score}]`) and build the `scores` record: `{at, stage, total, target, verdict, criteria, note,
+/// file}`. Weights are positive, each score lies in `0..=weight`, a criterion (round + name) appears
+/// once, and `total` is the criterion sum normalised to 100 (within [`TOTAL_TOLERANCE`]). Checks
+/// that need the entry (gate criteria, reviewed files, revision) are in [`record_score`].
 pub fn score_record(judge: &Value, stage: &str, file: &str, note: &str) -> Result<Value> {
     if !SCORE_STAGES.contains(&stage) {
         bail!("stage는 plan, draft, final 중 하나여야 한다: {stage}");
@@ -589,17 +718,51 @@ pub fn score_record(judge: &Value, stage: &str, file: &str, note: &str) -> Resul
     let Some(items) = judge.get("scores").and_then(Value::as_array).filter(|a| !a.is_empty()) else {
         bail!("scores는 기준별 점수 [{{name, weight, score}}] 배열이어야 한다")
     };
-    let mut criteria = Vec::with_capacity(items.len());
+    let mut criteria: Vec<Value> = Vec::with_capacity(items.len());
+    let mut seen: Vec<(Option<&str>, &str)> = Vec::with_capacity(items.len());
+    let (mut weights, mut points) = (0.0, 0.0);
     for (i, item) in items.iter().enumerate() {
         let name = item.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
         let Some(name) = name else { bail!("scores[{i}].name이 비어 있다") };
-        let Some(weight) = number(item, "weight").filter(|w| *w >= 0.0) else {
-            bail!("scores[{i}]({name}).weight는 0 이상의 숫자여야 한다")
+        let round = match item.get("round") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(r)) => Some(r.trim()).filter(|r| !r.is_empty()),
+            Some(_) => bail!("scores[{i}]({name}).round는 문자열이어야 한다"),
+        };
+        // Without a round, the same name elsewhere is the same criterion.
+        if seen.iter().any(|(r, n)| *n == name && (round.is_none() || r.is_none() || *r == round)) {
+            bail!("scores[{i}]({}{name}) 기준이 두 번 나온다", round.map(|r| format!("{r} ")).unwrap_or_default());
+        }
+        seen.push((round, name));
+        let Some(weight) = number(item, "weight").filter(|w| *w > 0.0) else {
+            bail!("scores[{i}]({name}).weight는 0보다 큰 숫자여야 한다")
         };
         let Some(score) = number(item, "score").filter(|s| *s >= 0.0 && *s <= weight + 1e-9) else {
             bail!("scores[{i}]({name}).score는 0 이상 weight({weight}) 이하의 숫자여야 한다")
         };
-        criteria.push(serde_json::json!({"name": name, "weight": weight, "score": score}));
+        weights += weight;
+        points += score;
+        let mut row = Map::new();
+        row.insert("name".into(), Value::String(name.to_string()));
+        if let Some(round) = round {
+            row.insert("round".into(), Value::String(round.to_string()));
+        }
+        row.insert("weight".into(), serde_json::json!(weight));
+        row.insert("score".into(), serde_json::json!(score));
+        criteria.push(Value::Object(row));
+    }
+    let expected = points / weights * 100.0;
+    if !weights.is_finite() || !points.is_finite() || !expected.is_finite() {
+        bail!("scores의 배점·점수 합이 유한한 숫자가 아니다");
+    }
+    if (total - expected).abs() > TOTAL_TOLERANCE + 1e-9 {
+        bail!(
+            "total({})이 기준별 점수 합을 100점으로 환산한 값({})과 맞지 않는다(점수 합 {}/배점 합 {})",
+            points_label(total),
+            points_label(expected),
+            points_label(points),
+            points_label(weights)
+        );
     }
     Ok(serde_json::json!({
         "at": now(),
@@ -611,6 +774,115 @@ pub fn score_record(judge: &Value, stage: &str, file: &str, note: &str) -> Resul
         "note": note,
         "file": file,
     }))
+}
+
+fn points_label(value: f64) -> String {
+    format!("{:.2}", value).trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+type GateCriterion = (Option<String>, String, Option<f64>);
+
+/// The criteria of `gate.json` as `(round, name, weight)`; `None` when the gate gives no usable
+/// list (then the Judge rows are not compared with it).
+fn gate_criteria(entry: &Entry) -> Option<Vec<GateCriterion>> {
+    let items = entry.gate.as_ref()?.get("criteria")?.as_array()?;
+    let parsed: Vec<_> = items
+        .iter()
+        .filter_map(|c| {
+            let name = c.get("name")?.as_str()?.trim();
+            let round = c.get("stage").and_then(Value::as_str).map(str::trim).filter(|r| !r.is_empty());
+            let weight = number(c, "weight").filter(|w| *w > 0.0);
+            (!name.is_empty()).then(|| (round.map(str::to_string), name.to_string(), weight))
+        })
+        .collect();
+    (!parsed.is_empty()).then_some(parsed)
+}
+
+/// One Judge row per gate criterion: every row names exactly one gate criterion (round + name; a
+/// row without a round must name a criterion that is unique by name), every gate criterion is
+/// scored, and a published gate weight is the row's weight.
+fn check_gate_criteria(entry: &Entry, criteria: &[Value]) -> Result<()> {
+    let Some(gate) = gate_criteria(entry) else { return Ok(()) };
+    let mut used = vec![false; gate.len()];
+    for row in criteria {
+        let name = row.get("name").and_then(Value::as_str).unwrap_or("");
+        let round = row.get("round").and_then(Value::as_str);
+        let matches: Vec<usize> = gate
+            .iter()
+            .enumerate()
+            .filter(|(_, (r, n, _))| n == name && (round.is_none() || r.is_none() || r.as_deref() == round))
+            .map(|(i, _)| i)
+            .collect();
+        let label = round.map(|r| format!("{r} {name}")).unwrap_or_else(|| name.to_string());
+        let i = match matches.as_slice() {
+            [i] => *i,
+            [] => bail!("{}: 채점 기준 {label}이(가) gate.json criteria에 없다", entry.id),
+            _ => bail!("{}: 채점 기준 {label}이(가) gate.json의 여러 심사 단계에 있다(round를 적는다)", entry.id),
+        };
+        if std::mem::replace(&mut used[i], true) {
+            bail!("{}: gate.json 기준 {label}을(를) 두 번 채점했다", entry.id);
+        }
+        if let (Some(expected), Some(weight)) = (gate[i].2, number(row, "weight"))
+            && (expected - weight).abs() > 1e-6
+        {
+            bail!(
+                "{}: 채점 기준 {label}의 배점({})이 gate.json 배점({})과 다르다",
+                entry.id,
+                points_label(weight),
+                points_label(expected)
+            );
+        }
+    }
+    let missing: Vec<String> = gate
+        .iter()
+        .zip(&used)
+        .filter(|(_, used)| !**used)
+        .map(|((r, n, _), _)| r.as_ref().map(|r| format!("{r} {n}")).unwrap_or_else(|| n.clone()))
+        .collect();
+    if !missing.is_empty() {
+        bail!("{}: gate.json 기준을 채점하지 않았다: {}", entry.id, missing.join(", "));
+    }
+    Ok(())
+}
+
+/// Validate a Judge output against the entry and append it to `entry.scores`; returns the record.
+/// On top of [`score_record`]: the rows match `gate.json` criteria when the gate lists them, the
+/// record carries the current work `revision`, and `artifacts` (`[{path, sha256}]`, the files the
+/// Judge reviewed) are checked against the contest folder as it is now and stored as
+/// folder-relative paths. `final` requires them; `plan` and `draft` store them when given.
+pub fn record_score(entry: &mut Entry, judge: &Value, stage: &str, file: &str, note: &str) -> Result<Value> {
+    let mut record = score_record(judge, stage, file, note)?;
+    if matches!(stage, "plan" | "final") {
+        let pending = crate::rules::stage_problems(entry, stage);
+        if pending.contains(&"rules_pending_review") || pending.contains(&"rules_state_invalid") {
+            bail!("{}: 공고 변경 검토가 끝나지 않아 채점을 기록하지 않는다({})", entry.id, pending.join(", "));
+        }
+    }
+    let independent = if stage == "final" { crate::evaluation::validate_final(entry, judge)? } else { None };
+    let criteria = record["criteria"].as_array().cloned().unwrap_or_default();
+    check_gate_criteria(entry, &criteria)?;
+    let artifacts = match judge.get("artifacts") {
+        None | Some(Value::Null) if stage != "final" => None,
+        None | Some(Value::Null) => {
+            bail!("{}: final 채점에는 검토한 제출 파일 artifacts [{{path, sha256}}]가 있어야 한다", entry.id)
+        }
+        Some(list) => Some(readiness::normalize_artifacts(entry, list)?),
+    };
+    let object = record.as_object_mut().expect("score_record builds an object");
+    object.insert("revision".into(), serde_json::json!(revision(entry)));
+    object.insert("rules_binding".into(), crate::rules::binding(entry));
+    if let Some(binding) = independent {
+        object.insert("independent_assessment".into(), binding);
+    }
+    if let Some(artifacts) = artifacts {
+        object.insert("artifacts".into(), Value::Array(artifacts));
+    }
+    entry.scores.push(record);
+    if let Err(error) = crate::rules::score_recorded(entry, stage) {
+        entry.scores.pop();
+        return Err(error);
+    }
+    Ok(entry.scores.last().expect("just recorded a score").clone())
 }
 
 /// The most recent score, of `stage` when given.
@@ -629,10 +901,77 @@ pub fn score_label(score: &Value) -> String {
     format!("{}/{}", get("total"), get("target"))
 }
 
-/// The score gate for levels 2-5. `→ awaiting_approval` needs a `plan` score and a latest `final`
-/// score with verdict `ready` and `total >= target`; `score_ok` (a reason) lets it through anyway and
-/// returns the history note to add. Level 5 `→ plan_review` needs a `plan` score.
+/// A reason the scores do not let a level 2-5 submission through: a stable `code` (what
+/// `ach approval-status` reports) and the message for the person at the terminal.
+pub struct ScoreProblem {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// Why the scores do not let a level 2-5 submission through: a `plan` score is required (any
+/// revision: the plan stays valid across revise cycles), and the latest `final` must be stamped
+/// with the current work revision, judged `ready` with `total >= target`, and its reviewed files
+/// must still hash as recorded. Older unstamped finals stay readable but never pass.
+pub fn score_problems(entry: &Entry) -> Vec<ScoreProblem> {
+    let mut problems = Vec::new();
+    let mut add = |code: &'static str, message: String| problems.push(ScoreProblem { code, message });
+    if latest_score(entry, Some("plan")).is_none() {
+        add("plan_score_missing", "plan 점수 없음".to_string());
+    }
+    if let Some(plan) = latest_score(entry, Some("plan"))
+        && !crate::rules::check_score(entry, plan, "plan")
+    {
+        add("plan_rules_stale", "규정 변경 뒤 계획 채점이 갱신되지 않았다".into());
+    }
+    let Some(score) = latest_score(entry, Some("final")) else {
+        add("final_score_missing", "final 점수 없음".to_string());
+        return problems;
+    };
+    if !crate::rules::check_score(entry, score, "final") {
+        add("final_rules_stale", "규정 변경 뒤 최종 채점이 갱신되지 않았다".into());
+    }
+    let verdict = score.get("verdict").and_then(Value::as_str).unwrap_or("-");
+    let total = number(score, "total").unwrap_or(0.0);
+    let target = number(score, "target").unwrap_or(DEFAULT_TARGET);
+    if verdict != "ready" {
+        add("final_not_ready", format!("최근 final 판정 {verdict}"));
+    }
+    if total < target {
+        add("final_below_target", format!("최근 final {} 목표 미달", score_label(score)));
+    }
+    let current = revision(entry) as u64;
+    match score.get("revision").and_then(Value::as_u64) {
+        None => add("final_unstamped", "최근 final에 작업 판 표시가 없다(이전 형식, 다시 채점한다)".to_string()),
+        Some(r) if r != current => {
+            add("final_stale_revision", format!("최근 final이 이전 작업 판({r}, 지금 {current})의 것이다"))
+        }
+        Some(_) => {}
+    }
+    match score.get("artifacts") {
+        None | Some(Value::Null) => {
+            add("final_artifacts_missing", "최근 final에 검토 파일(artifacts) 기록이 없다".to_string())
+        }
+        Some(list) => {
+            if let Err(err) = readiness::check_artifacts(entry, list) {
+                add("final_artifact_changed", format!("최근 final 검토 파일이 지금 파일과 다르다: {err}"));
+            }
+        }
+    }
+    problems
+}
+
+/// The score gate for levels 2-5. `→ awaiting_approval` needs [`score_problems`] to be empty;
+/// `score_ok` (a reason) lets it through anyway and returns the history note to add (the CLI then
+/// marks that history item `score_override`). Level 5 `→ plan_review` needs a `plan` score.
 pub fn score_gate(entry: &Entry, to: &str, score_ok: Option<&str>) -> Result<Option<String>> {
+    let rule_problems = match to {
+        "awaiting_approval" => crate::rules::approval_problems(entry),
+        "plan_review" => crate::rules::stage_problems(entry, "plan"),
+        _ => Vec::new(),
+    };
+    if !rule_problems.is_empty() {
+        bail!("{}: 공고 변경 검토가 필요하다({})", entry.id, rule_problems.join(", "));
+    }
     let level = entry.level.unwrap_or(0);
     if level < 2 {
         return Ok(None);
@@ -644,25 +983,8 @@ pub fn score_gate(entry: &Entry, to: &str, score_ok: Option<&str>) -> Result<Opt
     if to != "awaiting_approval" {
         return Ok(None);
     }
-    let mut problems = Vec::new();
-    if !has_plan {
-        problems.push("plan 점수 없음".to_string());
-    }
+    let problems: Vec<String> = score_problems(entry).into_iter().map(|p| p.message).collect();
     let last_final = latest_score(entry, Some("final"));
-    match last_final {
-        None => problems.push("final 점수 없음".to_string()),
-        Some(score) => {
-            let verdict = score.get("verdict").and_then(Value::as_str).unwrap_or("-");
-            let total = number(score, "total").unwrap_or(0.0);
-            let target = number(score, "target").unwrap_or(DEFAULT_TARGET);
-            if verdict != "ready" {
-                problems.push(format!("최근 final 판정 {verdict}"));
-            }
-            if total < target {
-                problems.push(format!("최근 final {} 목표 미달", score_label(score)));
-            }
-        }
-    }
     if problems.is_empty() {
         return Ok(None);
     }

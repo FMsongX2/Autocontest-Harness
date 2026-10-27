@@ -57,6 +57,13 @@ pub fn start_time(pid: i32) -> Option<String> {
     (out.status.success() && !words.is_empty()).then(|| words.join("_").replace(':', "."))
 }
 
+/// Whether `pid` has exited and only waits to be reaped (`ps` state `Z`).
+fn zombie(pid: i32) -> bool {
+    let pid = pid.to_string();
+    crate::process::output("ps", &["-o", "stat=", "-p", &pid], None, crate::process::LOCAL)
+        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim_start().starts_with('Z'))
+}
+
 impl Workspace for Headless {
     fn name(&self) -> &'static str {
         "headless"
@@ -131,6 +138,18 @@ impl Workspace for Headless {
             }
         }
         Ok(())
+    }
+
+    /// The session's process group still has members and its leader is the recorded process and
+    /// not merely an unreaped exit (a zombie left to the process that started it).
+    fn is_open(&self, handle: &str) -> Result<Option<bool>> {
+        let (pid, start) = parse(handle)?;
+        // SAFETY: signal 0 only probes whether the group exists.
+        if unsafe { kill(-pid, 0) } != 0 {
+            return Ok(Some(false));
+        }
+        let reused = matches!((start, start_time(pid)), (Some(start), Some(now)) if now != start);
+        Ok(Some(!reused && !zombie(pid)))
     }
 
     fn remove_workspace(&self, _workspace_id: &str) -> Result<()> {

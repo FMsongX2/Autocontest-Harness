@@ -7,5 +7,7 @@
 - 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표(`gate.json`의 `criteria`)가 있으면 최종 채점 전에 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
 - 웨이브 폭은 매번 `ach capacity --json`의 `recommended_workers`를 넘기지 않는다(`ram.budget_gb`로 묶인 값). 0이거나 `ram.pressure`가 warning 이상이면 순차로 직접 한다.
 - 템플릿은 `<harness>/harness/templates/`에 있다.
-- 관문: `awaiting_approval` 전이에는 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`.
-- 사람 관문: 창작물 콘셉트 선택, 제출 승인.
+- 한글 윤문: 한글 본문이면 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다(초안 직후, 그리고 ContestEditor·리뷰어 반영 뒤 최종 채점 전). ContestEditor·리뷰어·Judge는 기록을 확인만 한다.
+- 관문: `awaiting_approval` 전이에는 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수(Judge가 검토한 `artifacts` 포함)가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`. 전이 전에 `ach check`를 확인하고, 최종 채점 `artifacts` 안의 파일로 `ach readiness`를 기록한다.
+- 개선 채점과 독립 최종 평가: `plan`·`draft`와 개선 반복의 `final` 채점에는 작업 맥락(이전 점수, `JUDGE.md`)을 넘겨도 된다. 개선이 끝난 최종본은 `contest-harness` 스킬의 "독립 최종 평가"대로 블라인드 패킷(`ach evaluation prepare`)을 새 `ContestJudge` 실행이 패킷만 읽고 채점하게 한 뒤 `ach evaluation record`, 같은 값과 `evaluation_id`·`assessment_id`로 `ach score --stage final`을 기록한다(위임 승인에 필요, 영상 점수 면제 제외). 규칙 변경으로 단계가 무효가 되면(`ach rules status`) 그 단계를 다시 채점하거나 재검토를 남긴다. 웨이브·단계가 끝날 때마다 `ach checkpoint`를 남긴다.
+- 사람 관문: 창작물 콘셉트 선택, 제출 승인(사용자 승인 또는 사용자가 준 상시 위임 범위의 위임 승인).

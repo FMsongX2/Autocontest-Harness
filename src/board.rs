@@ -1,12 +1,18 @@
-//! `BOARD.md`: contests grouped by state.
+//! `BOARD.md`: contests grouped by state, with a user-attention section and, for active work, the
+//! runtime, next action, blocker codes and last evidence time from [`runtime::summary`]. The board
+//! only reads the registry (no backend, network or file probes) and shows codes, never notes,
+//! checkpoint text or readiness blocker prose.
 
 use std::path::PathBuf;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 
+use serde_json::Value;
+
 use crate::error::Result;
 use crate::paths;
 use crate::registry::{Entry, Registry, latest_score, score_label};
+use crate::runtime;
 use crate::text::{kst, now};
 
 const ORDER: &[(&str, &str)] = &[
@@ -18,11 +24,14 @@ const ORDER: &[(&str, &str)] = &[
     ("hold", "보류(확인 필요)"),
     ("discovered", "새로 발견(게이트 전)"),
     ("submitted", "제출 완료"),
+    ("followup_pending", "후속 일정 대기(제출 완료)"),
 ];
 const COUNT_ONLY: &[(&str, &str)] =
     &[("closed", "종료"), ("rejected", "게이트 탈락"), ("skipped", "하지 않기로 함"), ("duplicate", "중복")];
-/// States whose rows show the latest score next to type and level.
+/// States whose rows show the latest score next to type and level, and the runtime columns.
 const SCORED: &[&str] = &["running", "awaiting_approval", "plan_review"];
+/// States whose entries may need the user (the attention section).
+const ATTENTION_STATES: &[&str] = &["awaiting_approval", "plan_review", "running", "submitted", "followup_pending"];
 const DISCOVERED_LIMIT: usize = 40;
 
 /// The calendar date of an ISO deadline in its own offset (what Python's `fromisoformat(...).date()` gives).
@@ -77,6 +86,66 @@ fn row(e: &Entry, today: NaiveDate) -> String {
     format!("| {} | {link} | {kind} | {folder} | `{}` |", dday(e.deadline.as_deref(), today), e.id)
 }
 
+fn codes(summary: &Value, key: &str) -> Vec<String> {
+    summary[key].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect()
+}
+
+/// `unobserved(none|stale)` when no current observation backs the runtime state.
+fn runtime_cell(summary: &Value) -> String {
+    let state = summary["runtime_state"].as_str().unwrap_or("unknown");
+    if state == "unobserved" {
+        format!("unobserved({})", summary["observation"]["status"].as_str().unwrap_or("none"))
+    } else {
+        state.to_string()
+    }
+}
+
+fn next_cell(summary: &Value) -> String {
+    let action = summary["next_action"].as_str().unwrap_or("none");
+    match summary["next_action_at"].as_str() {
+        Some(at) => format!("{action} · {at}"),
+        None => action.to_string(),
+    }
+}
+
+fn blocker_cell(summary: &Value) -> String {
+    let mut all = codes(summary, "blockers");
+    all.extend(codes(summary, "gaps"));
+    if summary["needs_user_input"].as_bool() == Some(true) && !all.iter().any(|c| c == "needs_user_input") {
+        all.push("needs_user_input".into());
+    }
+    if all.is_empty() { "-".to_string() } else { all.join(", ") }
+}
+
+/// An active row: the plain columns, then runtime, next action (and due time), blocker and gap
+/// codes, and the latest evidence time.
+fn active_row(e: &Entry, summary: &Value, today: NaiveDate) -> String {
+    format!(
+        "{} {} | {} | {} | {} |",
+        row(e, today),
+        runtime_cell(summary),
+        next_cell(summary),
+        blocker_cell(summary),
+        summary["last_evidence_at"].as_str().unwrap_or("-")
+    )
+}
+
+/// One attention row: id, workflow state, codes, next action and its due time. No titles or notes.
+fn attention_row(e: &Entry, summary: &Value) -> String {
+    let mut reasons = codes(summary, "blockers");
+    if summary["needs_user_input"].as_bool() == Some(true) && !reasons.iter().any(|c| c == "needs_user_input") {
+        reasons.push("needs_user_input".into());
+    }
+    let reasons = if reasons.is_empty() { "-".to_string() } else { reasons.join(", ") };
+    format!(
+        "| `{}` | {} | {reasons} | {} | {} |",
+        e.id,
+        e.state,
+        summary["next_action"].as_str().unwrap_or("none"),
+        summary["next_action_at"].as_str().unwrap_or("-")
+    )
+}
+
 pub fn render(registry: &Registry) -> String {
     render_on(registry, chrono::Utc::now().with_timezone(&kst()).date_naive())
 }
@@ -91,6 +160,32 @@ pub fn render_on(registry: &Registry, today: NaiveDate) -> String {
         format!("갱신: {}. `ach board`가 레지스트리에서 만든다. 직접 고치지 않는다.", now()),
         String::new(),
     ];
+    // Pure stored summaries only: the board never probes a backend or the network.
+    let summaries: std::collections::HashMap<&str, Value> = entries
+        .iter()
+        .filter(|e| ATTENTION_STATES.contains(&e.state.as_str()))
+        .map(|e| (e.id.as_str(), runtime::summary(e)))
+        .collect();
+    let mut attention: Vec<&Entry> = entries
+        .iter()
+        .copied()
+        .filter(|e| summaries.get(e.id.as_str()).is_some_and(|s| s["user_attention"].as_bool() == Some(true)))
+        .collect();
+    attention.sort_by(|a, b| {
+        let da = a.deadline.as_deref().filter(|d| !d.is_empty()).unwrap_or("9999");
+        let db = b.deadline.as_deref().filter(|d| !d.is_empty()).unwrap_or("9999");
+        da.cmp(db).then(a.id.cmp(&b.id))
+    });
+    lines.push(format!("## 사용자 확인 필요 ({})", attention.len()));
+    lines.push(String::new());
+    if attention.is_empty() {
+        lines.push("(없음)".to_string());
+    } else {
+        lines.push("| id | 상태 | 이유 | 다음 조치 | 기한 |".to_string());
+        lines.push("|---|---|---|---|---|".to_string());
+        lines.extend(attention.iter().map(|e| attention_row(e, &summaries[e.id.as_str()])));
+    }
+    lines.push(String::new());
     for &(state, label) in ORDER {
         let mut rows: Vec<&Entry> = entries.iter().copied().filter(|e| e.state == state).collect();
         rows.sort_by(|a, b| {
@@ -108,9 +203,15 @@ pub fn render_on(registry: &Registry, today: NaiveDate) -> String {
             lines.push(String::new());
             continue;
         }
-        lines.push("| 마감 | 공모전 | 유형·레벨 | 폴더 | id |".to_string());
-        lines.push("|---|---|---|---|---|".to_string());
-        lines.extend(rows.iter().map(|e| row(e, today)));
+        if SCORED.contains(&state) {
+            lines.push("| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 런타임 | 다음 조치 | 막힘 | 근거 시각 |".to_string());
+            lines.push("|---|---|---|---|---|---|---|---|---|".to_string());
+            lines.extend(rows.iter().map(|e| active_row(e, &summaries[e.id.as_str()], today)));
+        } else {
+            lines.push("| 마감 | 공모전 | 유형·레벨 | 폴더 | id |".to_string());
+            lines.push("|---|---|---|---|---|".to_string());
+            lines.extend(rows.iter().map(|e| row(e, today)));
+        }
         lines.push(String::new());
     }
     let counts: Vec<String> = COUNT_ONLY.iter().map(|&(s, label)| format!("{label} {}", count(s))).collect();

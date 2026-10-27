@@ -54,11 +54,11 @@
 - 공고가 요구하는 AI 사용 고지는 원문 문구 그대로 영상·설명란·서류에 넣는다. 요구가 없어도 `ai_policy`가 "표기 조건부 허용"이면 고지한다.
 - AI 활용 설명서: 단계별 사용 도구, 사람이 한 일, 프롬프트 예시, 소재 라이선스 표(폰트·효과음·음악 포함).
 - 서식(hwp/hwpx): 스크립트로 채우고(`idea-proposal.md` 7절), 한컴독스 웹(작업 환경이 orca면 Orca 내장 브라우저)에서 열어 정렬을 눈으로 확인한다. PDF는 한컴독스 웹으로만 만들고, 변환 뒤 모든 쪽을 렌더해 확인한다.
-- 개인정보·서명은 제출 승인이 `ach approve`로 기록된 뒤 제출 단계에서만 `ach profile show --for <id> --json`에서 꺼내 그 서류에만 넣는다. 저장소 파일·커밋 메시지·로그·메모에 값을 남기지 않고, 승인한 제출처 밖으로 보내지 않는다.
+- 개인정보·서명은 제출 승인이 기록된 뒤 제출 단계에서만 `ach profile show --for <id> --json`에서 꺼내, 원본 서류는 그대로 두고 `.private/approved/`의 별도 최종 사본에만 넣는다. 사본은 전 페이지를 다시 검수하고 `ach readiness <id> --file .private/readiness.json --personalized`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인" 4번). 기존 서명만 쓰고 새 서명을 만들지 않는다. 저장소 파일·커밋 메시지·로그·메모에 값을 남기지 않고, 승인한 제출처 밖으로 보내지 않는다.
 
 ## 7. 심사와 제출 준비
 
-1. ContestJudge를 부른다(레벨 1은 1회, 레벨 2 이상은 초안에서 stage `draft`, 제출 직전 stage `final`). 레벨 2 이상은 결과를 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. `reject`·`revise`면 배점이 큰 기준의 감점부터 고치고 다시 부른다.
+1. ContestJudge를 부른다(레벨 1은 1회, 레벨 2 이상은 초안에서 stage `draft`, 제출 직전 stage `final`). `final`에는 제출할 파일 목록을 넘기고 Judge 출력의 `artifacts`를 확인한다. 레벨 2 이상은 결과를 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. `reject`·`revise`면 배점이 큰 기준의 감점부터 고치고 다시 부른다.
 2. `SUBMISSION.md`를 채운다: 제출처, 업로드 제목·설명·해시태그·공개 설정, 메일 제목·본문, 첨부 목록, 폼 응답값(개인 값은 승인 뒤에 채운다).
-3. 커밋·푸시 후 결과물·점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 있어야 한다(마감 때문에 목표 미달로 내야 하면 `--score-ok "<사유>"`).
-4. 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다). 유튜브 업로드, 메일 발송, 폼 제출은 승인이 기록된 뒤에만 한다.
+3. 커밋·푸시하고 `ach check <id>`를 확인한 뒤, 제출 파일의 경로·SHA-256과 막는 것을 `.private/readiness.json`에 써서 `ach readiness <id> --file .private/readiness.json`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인"). 결과물·점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수가 있어야 하고 제출 준비 기록의 파일은 그 `final` 점수 `artifacts` 안에 있어야 한다(마감 때문에 목표 미달로 내야 하면 `--score-ok "<사유>"`).
+4. `ach approval-status <id>`로 `eligible`·`reasons`를 확인하고, 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다. 사용자가 상시 위임했으면 메인 세션이 위임 범위 안에서 기록한다). 유튜브 업로드, 메일 발송, 폼 제출은 승인이 기록된 뒤에만 한다.

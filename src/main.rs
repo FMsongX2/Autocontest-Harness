@@ -13,8 +13,8 @@ use harness::error::{Error, Result};
 use harness::ledger;
 use harness::registry::{self, Entry, NewEntry, STATES};
 use harness::{
-    board, budget, clean, collect, config, dedupe, guard, install, launch, profile, route, runners, schedule, sources,
-    text,
+    board, budget, clean, collect, config, dedupe, evaluation, guard, install, launch, lifecycle, profile, readiness,
+    route, rules, runners, runtime, schedule, sources, submission, text,
 };
 
 const EXIT_DUPLICATE: u8 = 3;
@@ -34,6 +34,50 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Machine-readable CLI/controller contract.
+    Contract,
+    /// Run a managed controller or its brief/preset maintenance command.
+    Controller {
+        #[arg(value_parser = ["approve", "queue", "briefs", "preset"])]
+        mode: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Record verified completed work and the next safe action.
+    Checkpoint {
+        id: String,
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Observe workflow/runtime differences; --apply stores observations, never starts work.
+    Reconcile {
+        id: Option<String>,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Recover confirmed missing existing work from a verified checkpoint.
+    Recover {
+        id: String,
+        #[arg(long)]
+        expected_observation: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Capture official source evidence and review semantic rule changes.
+    Rules {
+        #[command(subcommand)]
+        action: RulesAction,
+    },
+    /// Independent evaluation packets, measurements, comparisons and observed outcomes.
+    Evaluation {
+        #[command(subcommand)]
+        action: EvaluationAction,
+    },
+    /// Durable submission intent and uncertainty, before and after external actions.
+    Submission {
+        #[command(subcommand)]
+        action: SubmissionAction,
+    },
     /// Collect new contests from the listing sites.
     Collect {
         /// A source name or `all`.
@@ -117,6 +161,36 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Restart an existing contest session without changing its work revision.
+    Restart {
+        id: String,
+        #[arg(long)]
+        preset: Option<String>,
+        #[arg(long)]
+        restore: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Resume submitted or follow-up work, checking capacity and restoring a real session.
+    Resume {
+        id: String,
+        #[arg(long)]
+        preset: Option<String>,
+        #[arg(long)]
+        restore: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Close an idle session only if the observed state and history still match.
+    SessionClose {
+        id: String,
+        #[arg(long, value_parser = STATES.to_vec())]
+        expected_state: String,
+        #[arg(long)]
+        expected_history: usize,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Show the tail of a contest session's screen or log.
     Peek {
         id: String,
@@ -125,6 +199,17 @@ enum Command {
     },
     /// Scan a contest folder and its commit messages for persona traces (exit 4 if any).
     Check { id: String },
+    /// Record structured submission readiness, or show the current record.
+    Readiness {
+        id: String,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Bind reviewed personalized copies while retaining the approved original artifacts.
+        #[arg(long, requires = "file")]
+        personalized: bool,
+    },
+    /// Current approval validity and eligibility under the active delegation.
+    ApprovalStatus { id: String },
     /// Move an entry to another state.
     Transition {
         id: String,
@@ -158,6 +243,12 @@ enum Command {
         note_file: Option<PathBuf>,
         #[arg(long, default_value = "user")]
         by: String,
+        /// Use the user's active scoped submission delegation (never plan approval).
+        #[arg(long, requires = "expected_request")]
+        delegated: bool,
+        /// Compare-and-set token returned by approval-status.
+        #[arg(long, requires = "delegated")]
+        expected_request: Option<String>,
     },
     /// Record a ContestJudge score (with --stage and --file) or show the score history.
     Score {
@@ -173,27 +264,13 @@ enum Command {
         #[arg(long)]
         note_file: Option<PathBuf>,
     },
-    /// Record a submission. Re-running it on an already submitted entry with the same method and
-    /// receipt changes nothing but restores a missing ledger record.
+    /// Confirm an already dispatched submission against verified receipt evidence.
     Submit {
         id: String,
         #[arg(long)]
-        method: String,
-        #[arg(long, required_unless_present = "receipt_file", conflicts_with = "receipt_file")]
-        receipt: Option<String>,
-        /// Read the receipt from this file (verbatim).
+        attempt: String,
         #[arg(long)]
-        receipt_file: Option<PathBuf>,
-        #[arg(long, num_args = 0..)]
-        files: Vec<String>,
-        /// Approval evidence and other notes.
-        #[arg(long, conflicts_with = "note_file")]
-        note: Option<String>,
-        /// Read the note from this file (verbatim).
-        #[arg(long)]
-        note_file: Option<PathBuf>,
-        #[arg(long, default_value = "agent")]
-        by: String,
+        file: PathBuf,
     },
     /// List contests already submitted (data/submissions.json), or add/import them.
     Submitted {
@@ -269,6 +346,84 @@ enum Command {
     Schedule {
         #[command(subcommand)]
         action: ScheduleAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum RulesAction {
+    Capture {
+        id: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Review {
+        id: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Acknowledge {
+        id: String,
+        #[arg(long, value_parser = ["gate", "plan", "final"])]
+        stage: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Status {
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum EvaluationAction {
+    Prepare {
+        id: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Record {
+        id: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Report {
+        id: String,
+    },
+    Outcome {
+        id: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Calibration,
+}
+
+#[derive(Subcommand)]
+enum SubmissionAction {
+    Intent {
+        id: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Start {
+        id: String,
+        #[arg(long)]
+        attempt: String,
+    },
+    Unknown {
+        id: String,
+        #[arg(long)]
+        attempt: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Resolve {
+        id: String,
+        #[arg(long)]
+        attempt: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    Status {
+        id: String,
     },
 }
 
@@ -422,7 +577,122 @@ fn note_value(note: &Option<String>, file: &Option<PathBuf>) -> Result<Option<St
 
 fn run(cli: &Cli) -> Result<u8> {
     let json_mode = cli.json;
+    if matches!(
+        &cli.command,
+        Command::Collect { .. }
+            | Command::Add { .. }
+            | Command::Gate { .. }
+            | Command::Route { .. }
+            | Command::Launch { dry_run: false, .. }
+    ) && config::load()?.new_work_frozen
+    {
+        return Err(Error(
+            "신규 공모전 작업이 동결됐다(new_work_frozen). 사용자가 해제하기 전에는 시작하지 않는다".into(),
+        ));
+    }
     match &cli.command {
+        Command::Contract => {
+            emit(
+                json_mode,
+                &json!({
+                    "protocol": harness::CONTROL_PROTOCOL,
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "capabilities": ["readiness", "reconcile", "checkpoint", "recover", "rules", "evaluation",
+                        "submission_transactions", "managed_controllers", "new_work_freeze"]
+                }),
+                None,
+            )?;
+            Ok(0)
+        }
+        Command::Controller { mode, args } => {
+            let status = std::process::Command::new("python3")
+                .args(["-B", "-u", "-m", "controllers", mode])
+                .args(args)
+                .current_dir(harness::paths::root())
+                .env("ACH_HOME", harness::paths::root())
+                .env("ACH_BIN", std::env::current_exe()?)
+                .status()?;
+            Ok(status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1))
+        }
+        Command::Checkpoint { id, file } => {
+            if file.is_some()
+                && std::env::var(launch::SESSION_ENV).is_ok_and(|session| !session.is_empty() && session != *id)
+            {
+                return Err(Error(format!("{id}: 다른 공모전 세션은 이 checkpoint를 기록할 수 없다")));
+            }
+            let result = match file {
+                Some(file) => mutate_json(id, file, runtime::checkpoint)?,
+                None => registry::read(|reg| Ok(runtime::summary(reg.get(id)?)))?,
+            };
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
+        Command::Reconcile { id, apply } => {
+            emit(json_mode, &runtime::reconcile(id.as_deref(), *apply)?, None)?;
+            Ok(0)
+        }
+        Command::Recover { id, expected_observation, dry_run } => {
+            emit(json_mode, &runtime::recover(id, expected_observation, &config::load()?, *dry_run)?, None)?;
+            Ok(0)
+        }
+        Command::Rules { action } => {
+            let result = match action {
+                RulesAction::Capture { id, file } => {
+                    let raw: Value = serde_json::from_str(&read_file(file)?)?;
+                    let base = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
+                    let mut work = base.clone();
+                    let result = rules::capture(&mut work, &raw)?;
+                    registry::write(|reg| {
+                        let current = reg.get_mut(id)?;
+                        if current.extra.get("rules") != base.extra.get("rules") {
+                            return Err(Error("공고 근거가 수집 중 바뀌었다. 최신 상태를 확인한다".into()));
+                        }
+                        registry::merge_work(current, &base, work)
+                    })?;
+                    result
+                }
+                RulesAction::Review { id, file } => mutate_json(id, file, rules::review)?,
+                RulesAction::Acknowledge { id, stage, file } => {
+                    mutate_json(id, file, |entry, raw| rules::acknowledge(entry, stage, raw))?
+                }
+                RulesAction::Status { id } => registry::read(|reg| Ok(rules::status(reg.get(id)?)))?,
+            };
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
+        Command::Evaluation { action } => {
+            let result = match action {
+                EvaluationAction::Prepare { id, file } => mutate_json(id, file, evaluation::prepare)?,
+                EvaluationAction::Record { id, file } => mutate_json(id, file, evaluation::record)?,
+                EvaluationAction::Report { id } => registry::read(|reg| Ok(evaluation::report(reg.get(id)?)))?,
+                EvaluationAction::Outcome { id, file } => mutate_json(id, file, evaluation::outcome)?,
+                EvaluationAction::Calibration => registry::read(|reg| Ok(evaluation::calibration(reg)))?,
+            };
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
+        Command::Submission { action } => {
+            let result = match action {
+                SubmissionAction::Intent { id, file } => mutate_json(id, file, |entry, raw| {
+                    check_submission_policy(&config::load()?, entry)?;
+                    submission::intent(entry, raw)
+                })?,
+                SubmissionAction::Start { id, attempt } => registry::write(|reg| {
+                    let entry = reg.get_mut(id)?;
+                    check_submission_policy(&config::load()?, entry)?;
+                    submission::start(entry, attempt)
+                })?,
+                SubmissionAction::Unknown { id, attempt, file } => {
+                    mutate_json(id, file, |entry, raw| submission::unknown(entry, attempt, raw))?
+                }
+                SubmissionAction::Resolve { id, attempt, file } => {
+                    mutate_json(id, file, |entry, raw| submission::resolve(entry, attempt, raw))?
+                }
+                SubmissionAction::Status { id } => registry::read(|reg| Ok(submission::status(reg.get(id)?)))?,
+            };
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
         Command::Collect { source, pages } => {
             let cfg = config::load()?;
             if source != "all" && sources::find(source).is_none() {
@@ -624,6 +894,21 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(json_mode, &result, Some(text))?;
             Ok(0)
         }
+        Command::Restart { id, preset, restore, dry_run } => {
+            let result = lifecycle::restart(id, &config::load()?, preset.as_deref(), restore.as_deref(), *dry_run)?;
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
+        Command::Resume { id, preset, restore, dry_run } => {
+            let result = lifecycle::resume(id, &config::load()?, preset.as_deref(), restore.as_deref(), *dry_run)?;
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
+        Command::SessionClose { id, expected_state, expected_history, dry_run } => {
+            let result = lifecycle::close_idle(id, expected_state, *expected_history, *dry_run)?;
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
         Command::Peek { id, lines } => {
             let entry = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
             let tail = launch::peek(&entry, *lines)?;
@@ -645,8 +930,41 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(json_mode, &json!({"id": id, "terms": terms, "findings": findings}), Some(text))?;
             Ok(if findings.is_empty() { 0 } else { EXIT_PERSONA })
         }
+        Command::Readiness { id, file, personalized } => {
+            let result = if let Some(file) = file {
+                let raw: Value = serde_json::from_str(&read_file(file)?)?;
+                registry::write(|reg| {
+                    let entry = reg.get_mut(id)?;
+                    if *personalized {
+                        let cfg = config::load()?;
+                        if delegated_approval(entry)
+                            && (!cfg.delegation.covers(id) || !cfg.delegation.allow_personalization)
+                        {
+                            return Err(Error(
+                                "개인정보·기존 서명 입력은 해당 제출의 명시적 허용 범위가 필요하다".into(),
+                            ));
+                        }
+                        readiness::personalize(entry, &raw)
+                    } else {
+                        readiness::record(entry, &raw)
+                    }
+                })?
+            } else {
+                registry::read(|reg| {
+                    Ok(reg.get(id)?.extra.get("submission_readiness").cloned().unwrap_or(Value::Null))
+                })?
+            };
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
+        Command::ApprovalStatus { id } => {
+            let result = registry::read(|reg| approval_status(&config::load()?, reg.get(id)?))?;
+            emit(json_mode, &result, None)?;
+            Ok(0)
+        }
         Command::Transition { id, state, note, note_file, by, persona_ok, score_ok } => {
             let mut note = note_value(note, note_file)?.unwrap_or_default();
+            let _launch_guard = if state == "running" { Some(registry::launch_guard()?) } else { None };
             if state == "awaiting_approval" {
                 let cfg = config::load()?;
                 let current = registry::read(|reg| Ok(reg.get(id)?.clone()))?;
@@ -663,74 +981,87 @@ fn run(cli: &Cli) -> Result<u8> {
                 }
             }
             let entry = registry::write(|reg| {
+                let current = reg.get(id)?;
+                if state == "running" {
+                    if matches!(current.state.as_str(), "submitted" | "followup_pending") {
+                        return Err(Error(format!(
+                            "{id}: 후속 작업은 ach resume으로 용량 확인과 세션 복원을 함께 수행한다"
+                        )));
+                    }
+                    if !registry::IN_PROGRESS.contains(&current.state.as_str()) {
+                        ensure_capacity(&config::load()?, &reg.running_by_level(), current)?;
+                    }
+                }
+                if state == "submitted" {
+                    return Err(Error(format!("{id}: 제출 기록은 ach submit으로 남긴다")));
+                }
                 let entry = reg.get_mut(id)?;
                 // The score gate runs only for allowed moves, so an illegal move keeps its own error.
                 let mut note = note;
+                let mut score_override = false;
                 if registry::allowed(&entry.state).contains(&state.as_str())
                     && let Some(exception) = registry::score_gate(entry, state, score_ok.as_deref())?
                 {
+                    score_override = true;
                     note = if note.is_empty() { exception } else { format!("{note} / {exception}") };
                 }
-                if state == "submitted" {
-                    registry::check_submit_approved(entry)?;
-                }
                 registry::transition(entry, state, by, &note)?;
+                if score_override {
+                    let revision = registry::revision(entry);
+                    if let Some(last) = entry.history.last_mut() {
+                        last.extra.insert("score_override".into(), json!(true));
+                        last.extra.insert("score_override_revision".into(), json!(revision));
+                    }
+                }
                 Ok(entry.clone())
             })?;
             emit(json_mode, &entry, Some(format!("상태 변경: {}", line(&entry))))?;
             Ok(0)
         }
-        Command::Approve { id, note, note_file, by } => {
+        Command::Approve { id, note, note_file, by, delegated, expected_request } => {
             let note = note_value(note, note_file)?.unwrap_or_default();
             let session = std::env::var(launch::SESSION_ENV).ok();
+            if by == "controller-delegated" && !delegated {
+                return Err(Error("컨트롤러 승인은 --delegated와 --expected-request로 기록한다".into()));
+            }
             let (entry, stage) = registry::write(|reg| {
                 let entry = reg.get_mut(id)?;
-                let stage = registry::approve(entry, &note, by, session.as_deref())?;
+                let cfg = config::load()?;
+                let approval_note = if *delegated {
+                    if !cfg.delegation.covers(id) {
+                        return Err(Error(format!("{id}: 현재 유효한 사용자 제출 위임이 없다")));
+                    }
+                    if !persona_findings(&cfg, entry)?.is_empty() {
+                        return Err(Error(format!("{id}: 페르소나 검사에 실패하여 자동 승인하지 않는다")));
+                    }
+                    if let Some(reason) = delegated_evidence_problem(&cfg, entry) {
+                        return Err(Error(format!("{id}: 위임 승인에 필요한 근거가 없다({reason})")));
+                    }
+                    format!("{}\n위임 시각: {}\n위임 원문: {}", note, cfg.delegation.granted_at, cfg.delegation.note)
+                } else {
+                    note.clone()
+                };
+                let stage = if *delegated {
+                    registry::approve_delegated(
+                        entry,
+                        &approval_note,
+                        "controller-delegated",
+                        session.as_deref(),
+                        expected_request.as_deref().unwrap_or(""),
+                        cfg.delegation.video_score_exempt,
+                    )?
+                } else {
+                    registry::approve(entry, &approval_note, by, session.as_deref())?
+                };
                 Ok((entry.clone(), stage))
             })?;
             let what = if stage == "plan" { "계획 승인(running으로)" } else { "제출 승인" };
             emit(json_mode, &entry, Some(format!("{what}: {}", line(&entry))))?;
             Ok(0)
         }
-        Command::Submit { id, method, receipt, receipt_file, files, note, note_file, by } => {
-            let receipt = match receipt_file {
-                Some(path) => read_file(path)?,
-                None => receipt.clone().unwrap_or_default(),
-            };
-            let note = note_value(note, note_file)?.unwrap_or_default();
-            let ledger_path = ledger::path();
-            // Registry and ledger change together: the ledger is written inside the registry write
-            // (lock order registry → ledger, as in clean), so a ledger failure leaves the registry as
-            // it was and the same command can simply be run again.
-            let (entry, repeated) = registry::write(|reg| {
-                let entry = reg.get_mut(id)?;
-                let last = entry.submissions.last();
-                let repeated = entry.state == "submitted"
-                    && last.is_some_and(|s| s["method"] == json!(method) && s["receipt"] == json!(receipt));
-                let at = if repeated {
-                    last.and_then(|s| s["at"].as_str()).map(str::to_string).unwrap_or_else(text::now)
-                } else {
-                    let joined: Vec<&str> =
-                        [receipt.as_str(), note.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
-                    registry::check_submit_approved(entry)?;
-                    registry::transition(entry, "submitted", by, &joined.join(" / "))?;
-                    let at = text::now();
-                    entry.submissions.push(json!({"at": at, "method": method, "receipt": receipt, "files": files}));
-                    at
-                };
-                let mut item = ledger::from_submit(entry, method, &receipt, files, &note);
-                item.submitted_at = at;
-                ledger::write_at(&ledger_path, |l| {
-                    // A repeat keeps a record that is already there; it only restores a missing one.
-                    if !(repeated && l.get(&item.key).is_some()) {
-                        l.upsert(item);
-                    }
-                    Ok(())
-                })?;
-                Ok((entry.clone(), repeated))
-            })?;
-            let verb = if repeated { "이미 제출 기록됨(제출 원장 확인)" } else { "제출 기록" };
-            emit(json_mode, &entry, Some(format!("{verb}: {}", line(&entry))))?;
+        Command::Submit { id, attempt, file } => {
+            let raw: Value = serde_json::from_str(&read_file(file)?)?;
+            emit(json_mode, &submission::confirm(id, attempt, &raw)?, None)?;
             Ok(0)
         }
         Command::Score { id, stage, file, note, note_file } => {
@@ -748,11 +1079,14 @@ fn run(cli: &Cli) -> Result<u8> {
             let raw = read_file(file)?;
             let judge: Value = serde_json::from_str(&raw).map_err(|err| Error(format!("{}: {err}", file.display())))?;
             let shown = file.canonicalize().unwrap_or_else(|_| file.clone());
-            let record =
-                registry::score_record(&judge, stage, &shown.to_string_lossy(), note.as_deref().unwrap_or(""))?;
-            registry::write(|reg| {
-                reg.get_mut(id)?.scores.push(record.clone());
-                Ok(())
+            let record = registry::write(|reg| {
+                registry::record_score(
+                    reg.get_mut(id)?,
+                    &judge,
+                    stage,
+                    &shown.to_string_lossy(),
+                    note.as_deref().unwrap_or(""),
+                )
             })?;
             emit(json_mode, &record, Some(format!("점수 기록: {id} {}", score_line(&record))))?;
             Ok(0)
@@ -864,16 +1198,26 @@ fn run(cli: &Cli) -> Result<u8> {
                     (value, text)
                 }
                 ConfigAction::Set { key, value } => {
+                    check_delegation_writer(key)?;
                     let parsed = serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone()));
                     let shown = serde_json::to_string(&parsed)?;
-                    config::set_at(&path, key, parsed)?;
+                    if key == "delegation" || key.starts_with("delegation.") {
+                        registry::write(|_| config::set_at(&path, key, parsed))?;
+                    } else {
+                        config::set_at(&path, key, parsed)?;
+                    }
                     (
                         json!({"path": path, "key": key, "value": config::get_at(&path, Some(key))?}),
                         format!("{key} = {shown}"),
                     )
                 }
                 ConfigAction::Unset { key } => {
-                    config::unset_at(&path, key)?;
+                    check_delegation_writer(key)?;
+                    if key == "delegation" || key.starts_with("delegation.") {
+                        registry::write(|_| config::unset_at(&path, key))?;
+                    } else {
+                        config::unset_at(&path, key)?;
+                    }
                     let value = config::get_at(&path, Some(key)).unwrap_or(Value::Null);
                     let text = format!("{key}: 기본값으로 돌아감({})", serde_json::to_string(&value)?);
                     (json!({"path": path, "key": key, "value": value}), text)
@@ -933,6 +1277,100 @@ fn run(cli: &Cli) -> Result<u8> {
             Ok(0)
         }
     }
+}
+
+fn mutate_json(
+    id: &str,
+    path: &std::path::Path,
+    change: impl FnOnce(&mut Entry, &Value) -> Result<Value>,
+) -> Result<Value> {
+    let raw: Value = serde_json::from_str(&read_file(path)?)?;
+    registry::write(|reg| change(reg.get_mut(id)?, &raw))
+}
+
+fn delegated_approval(entry: &Entry) -> bool {
+    entry
+        .approvals
+        .iter()
+        .rev()
+        .find(|approval| approval.stage == "submit")
+        .is_some_and(|approval| approval.extra.get("delegated") == Some(&Value::Bool(true)))
+}
+
+fn check_submission_policy(cfg: &config::Config, entry: &Entry) -> Result<()> {
+    if delegated_approval(entry) && !cfg.delegation.covers(&entry.id) {
+        return Err(Error(format!("{}: 제출 위임이 철회됐거나 이 공모전은 위임 범위 밖이다", entry.id)));
+    }
+    Ok(())
+}
+
+fn check_delegation_writer(key: &str) -> Result<()> {
+    if (key == "delegation" || key.starts_with("delegation.") || key == "new_work_frozen")
+        && std::env::var(launch::SESSION_ENV).is_ok_and(|id| !id.is_empty())
+    {
+        return Err(Error("공모전 세션은 사용자 위임 설정을 변경할 수 없다".into()));
+    }
+    Ok(())
+}
+
+fn approval_status(cfg: &config::Config, entry: &Entry) -> Result<Value> {
+    let covered = cfg.delegation.covers(&entry.id);
+    let mut status = readiness::status(entry, covered && cfg.delegation.video_score_exempt)?;
+    let mut reasons = status["reasons"].as_array().cloned().unwrap_or_default();
+    if !covered {
+        reasons.push(json!("delegation_not_granted"));
+        if delegated_approval(entry) {
+            status["submit_approval_valid"] = json!(false);
+        }
+    }
+    if !persona_findings(cfg, entry)?.is_empty() {
+        reasons.push(json!("persona_findings"));
+    }
+    if covered && let Some(reason) = delegated_evidence_problem(cfg, entry) {
+        reasons.push(json!(reason));
+    }
+    for reason in submission_reasons(entry) {
+        reasons.push(json!(reason));
+    }
+    status["eligible"] = json!(status["eligible"] == true && reasons.is_empty());
+    status["reasons"] = json!(reasons);
+    status["allow_personalization"] = json!(
+        (covered && cfg.delegation.allow_personalization)
+            || (status["submit_approval_valid"] == true && !delegated_approval(entry))
+    );
+    Ok(status)
+}
+
+/// Evidence only delegated (automatic) approval needs; explicit human approvals keep the
+/// historical path but still fail on known pending or invalidating rule changes.
+fn delegated_evidence_problem(cfg: &config::Config, entry: &Entry) -> Option<&'static str> {
+    if rules::status(entry)["tracked"] != true {
+        return Some("rules_untracked");
+    }
+    let video_exempt = cfg.delegation.video_score_exempt && entry.kind.as_deref() == Some("video");
+    if entry.level.unwrap_or(0) >= 2 && !video_exempt {
+        return evaluation::final_problem(entry);
+    }
+    None
+}
+
+fn submission_reasons(entry: &Entry) -> Vec<String> {
+    submission::status(entry)["blockers"]
+        .as_array()
+        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+fn ensure_capacity(cfg: &config::Config, running: &std::collections::BTreeMap<u8, usize>, entry: &Entry) -> Result<()> {
+    let cap = budget::capacity(cfg, running);
+    let free = entry.level.and_then(|level| cap["slots_by_level"][level.to_string()].as_u64()).unwrap_or(0);
+    if free == 0 {
+        return Err(Error(format!(
+            "{}: 지금은 실행 용량이 없다(레벨 {:?}, 여유 {})",
+            entry.id, entry.level, cap["slots"]
+        )));
+    }
+    Ok(())
 }
 
 fn persona_findings(cfg: &config::Config, entry: &Entry) -> Result<Vec<guard::Finding>> {
@@ -1039,7 +1477,18 @@ fn profile_command(json_mode: bool, action: &ProfileAction) -> Result<u8> {
         }
         ProfileAction::Show { for_id } => {
             let session = std::env::var(launch::SESSION_ENV).ok();
-            registry::read(|reg| registry::check_personal_access(reg.get(for_id)?, session.as_deref()))?;
+            registry::read(|reg| {
+                let entry = reg.get(for_id)?;
+                registry::check_personal_access(entry, session.as_deref())?;
+                if entry.state != "submitted" {
+                    let cfg = config::load()?;
+                    check_submission_policy(&cfg, entry)?;
+                    if delegated_approval(entry) && !cfg.delegation.allow_personalization {
+                        return Err(Error("위임된 제출의 개인정보 사용 범위가 허용되지 않았다".into()));
+                    }
+                }
+                Ok(())
+            })?;
             let text = profile::read_at(&path)?;
             warn_profile(&path, &text);
             emit(json_mode, &json!({"path": path, "text": text}), Some(text.clone()))?;
@@ -1227,6 +1676,11 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
     let cfg = config::load()?;
     let mut report =
         json!({"collect": null, "scout": false, "needs_gate": [], "launched": [], "waiting": [], "errors": []});
+    if cfg.new_work_frozen {
+        report["new_work_frozen"] = json!(true);
+        emit(json_mode, &report, Some("신규 작업 동결: 수집·게이트·실행을 건너뛴다".into()))?;
+        return Ok(0);
+    }
     if !no_collect {
         let result = collect::collect(&cfg, "all", cfg.collect_pages)?;
         report["collect"] = serde_json::to_value(&result)?;

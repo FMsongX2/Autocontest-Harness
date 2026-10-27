@@ -22,6 +22,7 @@ const MERGED_KEYS: &[&str] = &[
     "persona",
     "schedule",
     "agent_models",
+    "delegation",
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -52,6 +53,26 @@ pub struct Schedule {
     pub scout_hours: String,
 }
 
+/// A revocable, explicitly granted submission delegation. Plan approval is never delegated.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Delegation {
+    pub enabled: bool,
+    pub granted_at: String,
+    pub note: String,
+    /// Empty means all contests; otherwise only these exact registry ids.
+    pub contest_ids: Vec<String>,
+    pub allow_personalization: bool,
+    pub video_score_exempt: bool,
+    pub concept_selection: bool,
+}
+
+impl Delegation {
+    pub fn covers(&self, id: &str) -> bool {
+        self.enabled && (self.contest_ids.is_empty() || self.contest_ids.iter().any(|candidate| candidate == id))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -73,9 +94,12 @@ pub struct Config {
     pub collect_pages: u32,
     pub collect_skip: Vec<String>,
     pub auto_launch: bool,
+    /// Explicit operator freeze: no new collection, gating, routing or launches.
+    pub new_work_frozen: bool,
     pub gate_batch: usize,
     pub persona: Persona,
     pub schedule: Schedule,
+    pub delegation: Delegation,
     /// Model per harness agent (`agents/<Name>.md`), in the runner's selector syntax (omp:
     /// `provider/model:effort` or `@role`). `ach install` applies it; `null` removes a choice
     /// the harness applied before, so the agent's own default role applies again.
@@ -102,9 +126,14 @@ pub fn defaults() -> Value {
         "collect_pages": 3,
         "collect_skip": [],
         "auto_launch": false,
+        "new_work_frozen": false,
         "gate_batch": 16,
         "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []},
         "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"},
+        "delegation": {
+            "enabled": false, "granted_at": "", "note": "", "contest_ids": [],
+            "allow_personalization": false, "video_score_exempt": false, "concept_selection": false
+        },
         "agent_models": {}
     })
 }
@@ -241,6 +270,19 @@ pub fn validate(config: &Config) -> Result<()> {
     if !config.schedule.scout_hours.trim().is_empty() {
         schedule::parse_field(&config.schedule.scout_hours, 0, 23)
             .map_err(|err| Error(format!("schedule.scout_hours: {err}")))?;
+    }
+    let grant = &config.delegation;
+    if grant.enabled {
+        if grant.note.trim().is_empty() || chrono::DateTime::parse_from_rfc3339(&grant.granted_at).is_err() {
+            bail!("delegation을 켜려면 사용자 위임 원문(note)과 RFC3339 시각(granted_at)이 필요하다");
+        }
+        if grant
+            .contest_ids
+            .iter()
+            .any(|id| id.is_empty() || !id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'))
+        {
+            bail!("delegation.contest_ids에는 유효한 하네스 id만 쓴다");
+        }
     }
     let levels = [
         ("preset_by_level", config.preset_by_level.keys().copied().collect::<Vec<_>>()),

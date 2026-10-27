@@ -18,5 +18,14 @@
   "gate_batch": 16,
   "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []},
   "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"},
+  "delegation": {
+    "enabled": false,
+    "granted_at": "",
+    "note": "",
+    "contest_ids": [],
+    "allow_personalization": false,
+    "video_score_exempt": false,
+    "concept_selection": false
+  },
   "agent_models": {}
 }

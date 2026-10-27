@@ -8,5 +8,7 @@
 - 워커: 짧은 작업은 러너의 서브에이전트(task·agent 도구) 워커. 긴 작업은 작업 환경이 orca일 때만(`ach show <id> --json`의 `session.workspace`) Orca orchestration 워커(`orchestration` 스킬을 먼저 읽고 `orca orchestration run-create`, `worker-start`, `check`로 감독), 그 밖에는 서브에이전트 워커나 서버 대기열 스크립트와 주기 점검으로 돌린다.
 - 웨이브 폭은 매번 `ach capacity --json`의 `recommended_workers`와 `ram.budget_gb`로 정하고, 별도 세션을 띄울 때는 `slots_by_level`의 레벨 4 여유도 본다.
 - 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표가 있으면 최종 채점 전에 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
-- 관문: `awaiting_approval` 전이에는 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`.
-- 사람 관문: 리더보드 제출을 포함한 모든 제출 승인.
+- 한글 윤문: 결과서·보고서 등 한글 본문이면 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다(최종 문장 수정 뒤 최종 채점 전).
+- 관문: `awaiting_approval` 전이에는 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수(Judge가 검토한 `artifacts` 포함)가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`. 전이 전에 `ach check`를 확인하고, 최종 채점 `artifacts` 안의 파일로 `ach readiness`를 기록한다.
+- 개선 채점과 독립 최종 평가: `plan`·`draft`와 개선 반복의 `final` 채점에는 작업 맥락(이전 점수, `JUDGE.md`)을 넘겨도 된다. 개선이 끝난 최종본(결과서·코드 패키지)은 `contest-harness` 스킬의 "독립 최종 평가"대로 블라인드 패킷(`ach evaluation prepare`)을 새 `ContestJudge` 실행이 패킷만 읽고 채점하게 한 뒤 `ach evaluation record`, 같은 값과 `evaluation_id`·`assessment_id`로 `ach score --stage final`을 기록한다(위임 승인에 필요). 리더보드 점수는 플랫폼에서 읽은 값만 `LEDGER.md`에 쓰고 내부 평가와 섞지 않는다. 규칙 변경으로 단계가 무효가 되면(`ach rules status`) 그 단계를 다시 채점하거나 재검토를 남긴다. 긴 실험의 단계마다 `ach checkpoint`를 남긴다.
+- 사람 관문: 리더보드 제출을 포함한 모든 제출 승인(사용자 승인 또는 사용자가 준 상시 위임 범위의 위임 승인).

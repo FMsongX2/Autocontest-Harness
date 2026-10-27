@@ -26,11 +26,17 @@ Autocontest-Harness는 접수 중인 공모전을 찾고 참가 자격을 확인
 - 에이전트가 해 주는 설정. 셸을 쓰는 코딩 에이전트에게 [INIT.md](INIT.md)를 따르게 하면(omp에서는 `/contest-init`) `ach init`으로 로컬 파일을 만들고, 설정을 한 번에 묶어 묻고, 바꾸는 값을 모두 검사한 뒤에 쓰는 `ach config set`으로 적용한다. `agent_models`로 하네스 에이전트마다 모델을 고르고, `ach install`이 그 선택을 러너에 적용한다.
 - 모든 공모전을 보고 지휘하는 메인 인터페이스 세션(`ach chat`). 선택 사항인 페르소나를 붙일 수 있고, 페르소나는 공모전 세션에 들어가지 않는다.
 - 페르소나 차단 검사. 공모전 폴더나 커밋 메시지에 페르소나 흔적이 있으면 제출 승인 단계로 넘어가지 않는다.
-- 사람이 판단하는 관문: 창작 콘셉트, 레벨 5 계획, 최종 제출. 계획 승인과 제출 승인은 `ach approve`로 기록하며, 공모전 세션은 이 명령을 실행할 수 없다.
-- 레벨 2 이상의 점수 루프. 공모전 평가기준을 점수표로 바꾸고, 만들기 전에 기획을, 만든 뒤에 결과물을 `ContestJudge`가 채점해 `ach score`로 남긴다. 최종 점수가 목표에 닿아야 제출 승인 단계로 넘어간다.
+- 사람이 판단하는 관문: 창작 콘셉트, 레벨 5 계획, 최종 제출. 세션은 제출 승인을 요청하기 전에 낼 파일과 그 SHA-256을 적은 구조화된 제출 준비 기록(`ach readiness`)을 남긴다. 계획 승인과 제출 승인은 `ach approve`로 기록하며, 공모전 세션은 이 명령을 실행할 수 없다. 제출 승인은 승인받은 그 파일·점수·제출 준비 기록에만 유효하다.
+- 선택 사항인 제출 승인 상시 위임(설정 `delegation`). 기본은 꺼져 있다. 사용자가 명시해 켜고 범위를 정하며 언제든 철회할 수 있다. 그 범위 안에서 메인 세션은 구조화된 검사를 모두 통과한 제출을 승인할 수 있다. 참가비, 새 계정, 새 동의, 새 서명, 레벨 5 계획 승인은 위임되지 않는다.
+- 레벨 2 이상의 점수 루프. 공모전 평가기준을 점수표로 바꾸고, 만들기 전에 기획을, 만든 뒤에 결과물을 `ContestJudge`가 채점해 `ach score`로 남긴다. 최종 점수에는 Judge가 검토한 파일과 해시가 함께 남고, 지금 작업 판의 최종 점수가 목표에 닿아야 제출 승인 단계로 넘어간다.
 - 제출 기록부(`ach submitted`). 하네스 밖에서 낸 것까지 이미 제출한 공모전을 모두 기억해, 같은 공모전을 다시 게이트·라우팅·제출하지 않는다.
 - 로컬 사용자 정보(`data/profile.md`, `ach profile`로 읽는다). 참가 자격과 제출 양식에 들어갈 개인 정보를 둔다. 사용자가 직접 쓰거나, 설정할 때 에이전트에게 대화로 알려 준다. 게이트는 참가 자격 절만 보고, 개인정보는 승인된 제출 단계에서만 읽는다.
-- 모든 공모전을 상태별로 보여 주는 보드(`BOARD.md`).
+- 할 일 중심 보드(`BOARD.md`). 맨 위에 사용자가 확인할 공모전을 안정된 코드로 모으고, 진행 중 행마다 관측된 런타임 상태, 다음 조치, 막힘, 근거 시각을 보인다. 관측하지 못한 세션은 `unobserved`로 보이며 정상으로 치지 않는다.
+- 런타임 체크포인트·재조정·복구. 세션은 단계마다 `ach checkpoint`로 끝낸 파일 해시와 다음 할 일을 남긴다. `ach reconcile`은 세션이 실제로 살아 있는지 읽기 전용으로 관측하고, `ach recover`는 관측 토큰과 모든 안전 조건(유효한 체크포인트, 풀리지 않은 제출 없음, 저장된 대화가 하나)이 맞을 때만 같은 대화를 다시 연다.
+- 공식 규칙 증거. `ach rules capture`가 공식 공고·첨부의 실제 바이트를 불변 파일로 보관하고, 원문이 바뀌면 검토 대기가 된다. `ach rules review`로 구조화한 규칙의 값이 실제로 바뀐 범주만 게이트·기획·최종·제출 승인 근거를 무효로 만든다.
+- 독립 최종 평가와 결과 기록. 위임 승인에 쓰는 최종 점수는 이전 점수·이력·작성자 정보가 빠진 블라인드 패킷(`ach evaluation prepare`)을 본 독립 평가와 일치해야 한다. 공식 결과는 `ach evaluation outcome`으로 남기고, 내부 점수와 결과는 관측 표본 수와 함께 비교할 뿐 수상 확률을 만들지 않는다.
+- 제출 트랜잭션. 의도(`ach submission intent`) → 외부 행동 전에 저장하는 시작(`submission start`) → 실제 제출 → 접수 증빙 확인(`ach submit --attempt`). 결과를 모르는 제출은 실패가 아니며 자동으로 다시 내지 않는다.
+- 관리 컨트롤러(`controllers/`, `ach controller approve|queue|briefs|preset`). 계약 버전 확인, 수명 동안의 잠금, 새 작업 동결(`new_work_frozen`), 재시작 뒤에도 되풀이하지 않는 알림.
 
 ## 동작 방식
 
@@ -38,7 +44,7 @@ Autocontest-Harness는 접수 중인 공모전을 찾고 참가 자격을 확인
 
 <p>그림 1. 공고에서 제출까지, 단계마다 누가 하는지</p>
 
-레지스트리 상태 순서: `discovered → gate_pass | rejected | hold → routed → running → (plan_review →) running → awaiting_approval → submitted → closed`. 대부분의 상태에서 `skipped`나 `duplicate`로도 옮길 수 있다. 전체 전이표는 [docs/CONTRACT.md](docs/CONTRACT.md) 4절에 있다. 레지스트리는 CLI만 쓴다. 에이전트는 `ach`를 불러 상태를 바꾼다.
+레지스트리 상태 순서: `discovered → gate_pass | rejected | hold → routed → running → (plan_review →) running → awaiting_approval → submitted → (followup_pending →) closed`. 제출한 뒤 본선·발표 같은 미래 일정만 남은 공모전은 `followup_pending`에서 기다리고, 실제 후속 작업을 시작할 때 `ach resume`으로 `running`에 돌아간다. 대부분의 상태에서 `skipped`나 `duplicate`로도 옮길 수 있다. 전체 전이표는 [docs/CONTRACT.md](docs/CONTRACT.md) 4절에 있다. 레지스트리는 CLI만 쓴다. 에이전트는 `ach`를 불러 상태를 바꾼다.
 
 ### 구조
 
@@ -219,34 +225,56 @@ ach config set agent_models.ContestJudge null                # 다음 ach instal
 1. **점수표**(`RUBRIC.md`, 템플릿 [harness/templates/RUBRIC.md](harness/templates/RUBRIC.md)). `.harness/gate.json`의 criteria(단계·이름·배점)를 기준별로 풀어 쓴다: 만점 조건, 감점 요인, 필요한 근거, 입상작이라면 있었을 것, 공고 원문 위치. 배점이 공개되지 않았으면 균등 배분하고 가정으로 표시한다. 목표 총점은 SPEC의 값(기본 90/100)이다.
 2. **기획 채점**(stage `plan`). 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 `ContestJudge`가 "이대로 완성하면 몇 점"으로 예측 채점한다. 가장 높은 후보를 고르고, 기준별 부족분을 기획에 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 반복한 뒤에 만든다.
 3. **중간 채점**(stage `draft`). 결과물 초안이 나오면 채점하고, 배점이 큰 기준의 감점부터 고친다.
-4. **최종 채점**(stage `final`). 제출 직전에 한다. 레벨 2는 평가표가 있으면 `ContestEditor` 다듬기 뒤에 채점한다.
+4. **최종 채점**(stage `final`). 제출 직전에 한다. 레벨 2는 평가표가 있으면 `ContestEditor` 다듬기 뒤에 채점한다. 한글 본문(보고서·제안서·논문·에세이 등)은 그 전에 외부 공용 스킬 `humanize-korean`으로 윤문한다. 호출 세션이 `.private/humanize/`에서 실행하고, 검사를 모두 통과한 윤문본만 채택하며, 실행마다 `JUDGE.md`의 "한글 윤문 기록" 표에 남긴다. `ContestEditor`와 `ContestJudge`는 이 기록을 확인만 한다. 기록이 없거나 해시가 파일과 맞지 않으면 HIGH 발견 사항이고 판정은 최소 `revise`다.
 5. 점수는 매번 `ach score`로 남긴다. 기준별 점수와 총점 추이가 남아야 무엇이 점수를 올렸는지 안다.
 
 레벨 1은 점수 루프를 강제하지 않는다. 제출 전 `ContestJudge` 1회는 그대로다.
 
-`ContestJudge` 출력은 공모전 폴더의 `.harness/judge/<stage>-<n>.json`에 저장한다. `ach score <id> --stage plan|draft|final --file <judge.json> [--note N]`이 이것을 검증해(필드 `total`, `target`, `verdict`, `scores[{name, weight, score, ...}]`, `target`이 없으면 90) 레지스트리 항목의 `scores` 배열에 `{at, stage, total, target, verdict, criteria, note, file}`로 더한다. `total`은 100점 환산이다. `--stage` 없이 `ach score <id>`를 실행하면 점수 이력(시각, 단계, 총점/목표, 판정, 가장 많이 깎인 기준 셋)을 보여 준다. `ach show --json`에도 `scores`가 그대로 나온다.
+`ContestJudge` 출력은 공모전 폴더의 `.harness/judge/<stage>-<n>.json`에 저장한다. `ach score <id> --stage plan|draft|final --file <judge.json> [--note N]`이 이것을 검증해(필드 `total`, `target`, `verdict`, `scores[{name, weight, score, ...}]`, `target`이 없으면 90) 레지스트리 항목의 `scores` 배열에 `{at, stage, total, target, verdict, criteria, note, file, revision}`로 더한다. `total`은 100점 환산이다. 기준은 `gate.json`의 기준과 정확히 같아야 하고(심사 단계, 이름, 공개 배점), 배점은 0보다 커야 하며, 같은 심사 단계와 이름이 두 번 나올 수 없다. `total`은 기준 점수를 환산한 합과 0.5 넘게 달라서는 안 된다. `final` 점수에는 `artifacts: [{path, sha256}]`도 있어야 한다. Judge가 실제로 검토하고 직접 해시를 계산한 제출 파일이며 경로는 공모전 폴더 기준이다. 해시가 지금 파일과 하나라도 다르면 `ach score`가 거절한다. `--stage` 없이 `ach score <id>`를 실행하면 점수 이력(시각, 단계, 총점/목표, 판정, 가장 많이 깎인 기준 셋)을 보여 준다. `ach show --json`에도 `scores`가 그대로 나온다.
 
 전이 관문(레벨 2 이상):
 
-- **`→ awaiting_approval`**: `plan` 점수가 하나 이상 있어야 하고, 가장 최근 `final` 점수가 `verdict` `ready`이면서 `total >= target`이어야 한다. 아니면 CLI가 거절한다. 마감 등으로 목표에 못 미친 채 내야 하면 `--score-ok "<사유>"`를 붙인다. 사유와 점수가 history note에 남는다.
+- **`→ awaiting_approval`**: `plan` 점수가 하나 이상 있어야 하고, 지금 작업 판의 가장 최근 `final` 점수가 `verdict` `ready`이면서 `total >= target`이어야 한다. 아니면 CLI가 거절한다. 마감 등으로 목표에 못 미친 채 내야 하면 `--score-ok "<사유>"`를 붙인다. 사유와 점수가 history note에 남고, 그 이력 항목에 타입이 있는 점수 미달 표시가 붙는다. 이 표시만, 그리고 사용자 승인에서만 인정된다. 위임 승인은 받아들이지 않고, 노트 문구로는 이 표시를 대신할 수 없다.
 - **레벨 5 `→ plan_review`**: `plan` 점수가 있어야 한다. 검수 요청에 예측 점수가 함께 간다.
 
 보드는 진행 중·승인 대기 행의 유형·레벨 칸에 최근 점수를 `총점/목표`로 보인다. 예: `idea / L2 · 88/90`.
 
 ## 사람이 판단하는 관문
 
-- **콘셉트 카드.** 창작물(영상·이미지·음악)은 에이전트가 콘셉트 카드 2~3장을 보이고, 제작 전에 사용자가 하나를 고른다.
-- **레벨 5 계획 검수.** 레퍼런스 조사와 SPEC·PLAN이 끝나면 세션이 `ach transition <id> plan_review --note "<검수 요청 요약>"`을 실행하고 멈춘다. 사용자가 `ach approve <id> --note "<사용자의 말>"`로 승인해야 다음 단계로 간다. 이 명령은 `plan` 승인을 기록하고 `running`으로 옮긴다. `plan_review`에서 `ach transition <id> running`은 거절하며, `plan` 승인 기록이 없으면 레벨 5 공모전을 `awaiting_approval`로 옮기지 않는다.
-- **제출 승인.** 모든 공모전은 페르소나 검사와 (레벨 2 이상이면) 점수 관문을 통과한 뒤 `awaiting_approval`에서 멈춘다. 사용자가 `ach approve <id> --note "<사용자의 말>"`로 승인하면 `submit` 승인이 기록되고 상태는 그대로다. `ach submit`(과 `ach transition <id> submitted`)은 마지막으로 `awaiting_approval`에 들어온 뒤 기록한 `submit` 승인이 있어야 하므로, 고쳐서 다시 올리면 새로 승인받아야 한다. 개인정보(이름·연락처·서명·재학증명서)는 그 승인 뒤에만 `ach profile show --for <id>`로 꺼내 쓴다. 승인 근거는 `SUBMISSION.md`와 `ach submit --note`에도 남긴다.
+- **콘셉트 카드.** 창작물(영상·이미지·음악)은 에이전트가 콘셉트 카드 2~3장을 보이고, 제작 전에 사용자가 하나를 고른다. 사용자가 콘셉트 선택을 위임했으면(`delegation.concept_selection`) 세션이 추천 1순위로 진행하고 선택 근거를 남긴다.
+- **레벨 5 계획 검수.** 레퍼런스 조사와 SPEC·PLAN이 끝나면 세션이 `ach transition <id> plan_review --note "<검수 요청 요약>"`을 실행하고 멈춘다. 사용자가 `ach approve <id> --note "<사용자의 말>"`로 승인해야 다음 단계로 간다. 이 명령은 `plan` 승인을 기록하고 `running`으로 옮긴다. `plan_review`에서 `ach transition <id> running`은 거절하며, `plan` 승인 기록이 없으면 레벨 5 공모전을 `awaiting_approval`로 옮기지 않는다. 계획 승인은 위임할 수 없다.
+- **제출 승인.** 모든 공모전은 페르소나 검사와 (레벨 2 이상이면) 점수 관문을 통과한 뒤 `awaiting_approval`에서 멈춘다. 세션은 승인을 요청하기 전에 `ach readiness`로 제출할 파일과 제출처(`destination`)가 든 제출 준비 기록을 남긴다([CLI가 강제하는 승인](#cli가-강제하는-승인) 참고). 사용자가 `ach approve <id> --note-file <파일>`로 승인하거나, 사용자가 준 상시 위임의 범위 안에서 메인 세션이 승인한다. 어느 쪽이든 지금 작업 판·제출 준비 기록·점수·규칙 기준에 묶인 `submit` 승인이 기록되고 상태는 그대로다. 제출은 트랜잭션으로 한다: `ach submission intent`(승인이 아직 유효하고 파일이 해시와 같을 때만) → `ach submission start`(보내기 전에 저장) → 승인된 제출처에 실제 제출 → 접수 증빙으로 `ach submit <id> --attempt <A> --file <증빙>`. `submitted`로 가는 길은 이것뿐이다. 그래서 고쳐서 다시 올리면 새로 승인받아야 한다. 개인정보(이름·연락처·서명·재학증명서)는 그 승인 뒤에만 `ach profile show --for <id>`로 꺼내 별도 최종 사본에 넣는다. 승인 근거는 `SUBMISSION.md`에도 남긴다.
 - **게이트 질문.** 게이트는 공모전마다 질문을 최대 3개까지 남기고, 사용자가 한 번에 답할 수 있게 모아서 묻는다.
 
 메인 세션이 이 승인과 질문을 모아 묻고, 사용자의 답을 공모전 세션에 인용으로 전한다.
 
 ### CLI가 강제하는 승인
 
-`ach approve <id> (--note "<사용자의 말>" | --note-file <경로>) [--by 누가]`가 사용자의 승인을 기록한다. 메인 세션에 승인한다고 말하면 메인 세션이 사용자의 말로 이 명령을 실행한다. 클론의 터미널에서 `bin/ach approve`를 직접 실행해도 된다. 승인은 항목에 `approvals: [{at, stage, note, by}]`로 남고, `stage`는 `plan` 또는 `submit`이다. `plan_review`와 `awaiting_approval`이 아닌 상태에서 `approve`는 오류다.
+`ach approve <id> (--note "<사용자의 말>" | --note-file <경로>) [--by 누가]`가 사용자의 승인을 기록한다. 메인 세션에 승인한다고 말하면 메인 세션이 사용자의 말로 이 명령을 실행한다. 클론의 터미널에서 `bin/ach approve`를 직접 실행해도 된다. 승인은 항목에 `approvals: [{at, stage, note, by, ...}]`로 남고, `stage`는 `plan` 또는 `submit`이다. `submit` 승인에는 무엇에 묶였는지도 함께 남는다. `plan_review`와 `awaiting_approval`이 아닌 상태에서 `approve`는 오류다.
 
-공모전 세션은 스스로 승인할 수 없다. `ach launch`는 모든 공모전 세션을 `env ACH_SESSION=<id> PATH=<클론>/bin:… <명령>`으로 띄우고, `approve`는 `ACH_SESSION`이 있으면 거절한다. `ach chat`과 `ach autorun`은 이 변수를 두지 않는다. 공모전 세션은 승인을 요청하고 기다린다. `ach profile show --for <id>`는 유효한 제출 승인이 있는 `awaiting_approval` 항목이나 이미 `submitted`인 항목에만 쓰고, 공모전 세션 안에서는 그 세션의 id에만 쓴다. `ach profile eligibility`는 제한 없이 쓴다.
+**작업 판.** 항목이 `running`에 들어갈 때마다(처음 실행, `awaiting_approval`에서 수정 요청으로 돌아갈 때, `ach resume`) 새 작업 판이 시작된다. `final` 점수, 제출 준비 기록, 제출 승인은 기록된 작업 판에 속하고 새 작업 판으로 이어지지 않는다. 세션만 다시 여는 `ach restart`는 작업 판을 바꾸지 않는다.
+
+**제출 준비 기록.** 세션은 최종 채점(레벨 2 이상)과 `ach check` 뒤, `→ awaiting_approval` 전에 `ach readiness <id> --file <json>`을 실행한다. 파일에는 다음 다섯 필드와 `destination`이 타입에 맞게 모두 있어야 한다.
+
+```json
+{"submission_ready": true, "needs_user_input": false, "blockers": [], "artifacts": [{"path": "submission/proposal.pdf", "sha256": "<64자리 소문자 16진수>"}], "followup_required": false, "destination": "https://contest.example.org/apply"}
+```
+
+`needs_user_input`은 제출에 사용자의 답이나 조치(확인 질문, 실물 서명, 본인 인증, 새 계정, 결제)가 더 필요하면 `true`다. `artifacts`는 실제로 낼 파일로, 공모전 폴더 안의 일반 파일과 지금 내용의 SHA-256이다. 레벨 2 이상은 최근 `final` 점수의 파일 안에 있어야 한다. `followup_required`는 접수 뒤 같은 폴더로 할 본선·발표·추가 제출이 남는지를 뜻하고, 제출 뒤 정리 방식을 정한다. `destination`은 승인받을 공식 제출 URL이나 메일 주소이고 0.8.0부터 새 제출에 필요하다. CLI는 경로와 해시만 지금 작업 판에 묶어 남긴다. `running`·`awaiting_approval`에서만 기록되고, 새로 기록하면 이전 기록에 대한 승인은 효력을 잃는다. 승인 판단은 노트 문구를 해석하지 않고 이 기록만 쓴다. `--file` 없이 `ach readiness <id>`를 실행하면 지금 기록을 보여 준다.
+
+**승인 판단 상태.** `ach approval-status <id>`는 `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final}`와 페르소나·위임 정책 검사를 낸다. `eligible`은 `awaiting_approval`이고, 제출 준비 기록이 제출 가능·사용자 조치 없음·막는 것 없음이며, 기록된 해시가 지금 파일과 같고, 점수 조건이 맞고, 규칙 검토 대기·무효와 풀리지 않은 제출 시도가 없을 때만 `true`다. 아니면 `reasons`에 안정된 코드로 이유가 있다. `request_token`은 작업 판, 제출 준비 기록, 점수 이력, 공식 규칙의 제출 단계 기준 중 하나라도 바뀌면 달라진다.
+
+**제출 승인 규칙.** `submit` 승인은 승인할 때의 작업 판·제출 준비 기록·점수·공식 규칙의 제출 단계 기준에 묶인다. 승인 뒤 이 가운데 하나라도 바뀌었거나(아래 승인된 개인 항목 채우기는 예외) 기록된 파일이 해시와 다르면 `ach submission intent`·`start`가 거절한다. 의도는 승인된 제출 준비 기록의 `artifacts`(개인 항목을 채웠으면 그 사본)를 그대로 묶고, 의도의 `destination`은 승인된 기록의 `destination`과 정확히 같아야 한다. `destination`이 없는 예전 기록으로 받은 승인은 새 제출을 허가하지 않는다. 승인 뒤 새 `final` 점수를 기록하거나 규칙 변경으로 무효가 생기면 그 승인은 효력을 잃는다. `ach transition <id> submitted`는 거절하고, `ach submit --attempt`만 `submitted`로 옮긴다. 결과를 모르는 제출(시간 초과, 응답 끊김, 세션 중단)은 `ach submission unknown`으로 남기고 다시 내지 않는다. 접수 목록·주최 측 답장·메일함 검색으로 접수를 찾으면 그 증빙으로 확인하고, 접수되지 않았다는 긍정 증거가 있을 때만 `ach submission resolve`로 새 시도를 연다([참고 문서](docs/reference_ko.md#제출-트랜잭션)).
+
+**위임 승인.** 설정 `delegation`의 기본값은 `{"enabled": false, "granted_at": "", "note": "", "contest_ids": [], "allow_personalization": false, "video_score_exempt": false, "concept_selection": false}`이다. 켜려면 `granted_at`과 `note`(언제 무엇을 위임했는지)가 있어야 하고, `contest_ids`가 비면 모든 공모전이다. `ach config set delegation.enabled false`로 바로 철회한다. 철회하면 아직 쓰지 않은 위임 승인으로는 제출 의도·시작과 `ach profile show`를 할 수 없고, 이미 시작했거나 제출한 공모전의 기록은 그대로 남는다. 공모전 세션은 이 설정을 바꿀 수 없다. 그 범위 안에서 메인 세션은 `approval-status`의 토큰으로 `ach approve <id> --delegated --expected-request <request_token> --note-file <파일>`을 실행한다. CLI는 레지스트리 잠금 안에서 자격, 페르소나 검사, 위임 범위, 토큰을 다시 확인하고 하나라도 어긋나면 기록하지 않는다. 위임 승인은 사용자 승인보다 두 가지가 더 필요하다: 공식 규칙이 추적 중이어야 하고(`rules_untracked`가 아님), 레벨 2 이상에서 영상 점수 면제가 아니면 지금 `final` 점수가 검증된 독립 평가에 묶여 있어야 한다(`independent_final_missing`·`independent_final_stale`가 아님). 위임 승인은 `awaiting_approval`의 `submit` 승인만 된다. `--score-ok` 점수 미달은 받아들이지 않고(영상 공모전은 `video_score_exempt`를 켰을 때만 면제), 참가비·결제, 새 계정, 새 동의, 새 서명, 레벨 5 계획 승인은 어떤 경우에도 위임되지 않는다.
+
+**승인 뒤 개인 항목 채우기.** 유효한 제출 승인이 있고 막는 것과 남은 사용자 조치가 없으면, 세션은 프로필에 이미 있는 개인 항목과 이미 있는 서명을 별도 최종 사본(예: `.private/approved/`)에 넣는다. 원본은 덮어쓰지 않는다. 사본의 전 페이지를 다시 렌더링해 검수한 뒤 `ach readiness <id> --file <json> --personalized`를 실행한다. 파일에는 `personalization_of`(승인된 `request_token`)를 더한다. `artifacts`의 개인 항목 사본마다 `source`(그 사본이 채운 승인된 원본의 상대 경로)를 적고, 바뀌지 않은 원본은 `source` 없이 자기 경로와 해시로 적어도 된다. 이렇게 해서 승인된 원본 하나하나가 정확히 한 번씩 대응해야 한다. `followup_required`는 승인된 기록과 같아야 하고, 바꾸려면 일반 `ach readiness`를 다시 기록하고 새로 승인받는다. 이 기록은 승인을 이어받는다. 사용자 승인에는 이 명시 기록으로 되고, 위임 승인에는 `delegation.allow_personalization`도 켜져 있어야 한다. 내용 수정은 이 경로로 할 수 없고 수정 요청으로 `running`에 돌아가야 한다.
+
+공모전 세션은 스스로 승인할 수 없다. `ach launch`, `ach restart`, `ach resume`은 모든 공모전 세션을 `env ACH_SESSION=<id> PATH=<클론>/bin:… <명령>`으로 띄우고, `ACH_SESSION`이 있으면 `approve`(사용자·위임 모두), `delegation` 설정 변경, `ach session-close`를 거절한다. `ach chat`과 `ach autorun`은 이 변수를 두지 않는다. 공모전 세션은 승인을 요청하고 기다린다. `ach profile show --for <id>`는 유효한 제출 승인이 있는 `awaiting_approval` 항목이나 이미 `submitted`인 항목에만 쓰고, 공모전 세션 안에서는 그 세션의 id에만 쓴다. `ach profile eligibility`는 제한 없이 쓴다.
+
+**0.7.0으로 올릴 때.** 이 버전은 승인 방식을 바꾼다. 0.7.0 이전에 기록한 승인·점수·제출 준비 노트는 읽을 수 있게 남지만 파일과 작업 판에 묶여 있지 않으므로 새 제출을 허가하지 않는다. 진행 중인 공모전은 지금 파일로 `final` 채점과 제출 준비 기록을 다시 남기고 새로 승인받는다. 일괄 승격은 하지 않는다.
+
+**0.8.0으로 올릴 때.** 기존 승인·점수·제출 기록은 그대로 읽힌다. 0.8.0은 예전 노트에서 공식 규칙 증거, 독립 평가, 접수 확인, 체크포인트를 만들어 넣지 않는다. 그래서 진행 중인 공모전은 (1) 새 제출 전에 `destination`이 든 제출 준비 기록을 다시 남기고 새로 승인받아야 하고, (2) 위임 승인으로 내려면 공식 원문을 `ach rules capture`·`review`로 보관하고 독립 최종 평가를 받아야 한다. 증거가 없으면 자동화가 멈출 뿐 일괄 이전은 하지 않는다. `data/` 아래의 예전 실행 스크립트는 `controllers/` 패키지로 옮겼으므로 상시 서비스는 `ach controller approve`·`ach controller queue`로 다시 띄운다(실행 중인 서비스의 재시작은 사용자가 정한다).
 
 이것은 안전장치이지 샌드박스가 아니다. 환경 변수를 지운 에이전트는 이 검사를 넘을 수 있다. 위협 모델은 [SECURITY_ko.md](SECURITY_ko.md)에 있다.
 
@@ -256,7 +284,7 @@ ach config set agent_models.ContestJudge null                # 다음 ach instal
 
 - `data/`는 권한 0700으로 만든다. `data/registry.json`과 `data/submissions.json`은 0600 임시 파일에 쓰고 이름을 바꾼 뒤 폴더를 동기화한다. 쓰다가 멈춘 프로세스가 남긴 임시 파일은 지운다. `BOARD.md`도 원자적으로 쓴다.
 - 두 파일에는 `"version": 1`이 있다. 더 새 버전의 파일은 하네스를 업그레이드하라는 메시지와 함께 거절한다. 하네스가 모르는 필드는 그대로 둔다.
-- 웹 페이지, 공고 목록, 이메일, 레지스트리의 글은 지시가 아니라 데이터다. 지시문과 에이전트는 그 안에서 찾은 지시를 따르지 않고 사용자에게 알린다. 가져온 글은 셸 명령줄에 넣지 않는다. 에이전트는 그 글을 파일로 써서 `add --from-file`, `--note-file`, `--receipt-file`로 넘기므로 명령줄에는 id만 나온다.
+- 웹 페이지, 공고 목록, 이메일, 레지스트리의 글은 지시가 아니라 데이터다. 지시문과 에이전트는 그 안에서 찾은 지시를 따르지 않고 사용자에게 알린다. 가져온 글은 셸 명령줄에 넣지 않는다. 에이전트는 그 글을 파일로 써서 `add --from-file`, `--note-file`, `rules capture --file`, `submission ... --file`, `submit --file`로 넘기므로 명령줄에는 id와 CLI가 낸 토큰만 나온다. 공식 원문 스냅숏과 접수 증빙 원본은 공모전 폴더 `.private/`에만 두고, 레지스트리·보드·컨트롤러 기록에는 해시와 안정된 코드만 남긴다.
 - 승인은 CLI가 강제하며, 그 한계는 [CLI가 강제하는 승인](#cli가-강제하는-승인)에 적었다.
 
 위협 모델과 비공개 취약점 신고 방법은 [SECURITY_ko.md](SECURITY_ko.md)에 있다.
@@ -271,7 +299,12 @@ ach config set agent_models.ContestJudge null                # 다음 ach instal
 - **외부 에이전트.** `ArticleResearcher`를 언급하지만 이 저장소에는 들어 있지 않다.
 - **macOS와 Linux만 지원한다.** Windows는 지원하지 않는다. `launchd` 스케줄러는 macOS 전용이고, Linux에서는 `orca`나 `cron`을 쓴다.
 - **미리 빌드한 바이너리는 네 대상뿐이다.** `scripts/install.sh`가 macOS(Apple silicon, Intel)와 Linux(x86_64, aarch64, musl)용을 내려받고, 그 밖에서는 소스에서 빌드한다. `ACH_HOME`을 지정하지 않으면 바이너리는 자기가 속한 클론의 파일을 읽는다.
-- **승인은 안전장치이지 샌드박스가 아니다.** `ACH_SESSION`을 지운 에이전트는 `ach approve`를 실행할 수 있다. [SECURITY_ko.md](SECURITY_ko.md) 참고.
+- **승인은 안전장치이지 샌드박스가 아니다.** `ACH_SESSION`을 지운 에이전트는 `ach approve`를 실행하거나 `delegation`을 바꿀 수 있다. [SECURITY_ko.md](SECURITY_ko.md) 참고.
+- **위임 승인은 품질이 아니라 기록을 본다.** 제출 준비 기록, 점수, 독립 평가 묶음, 규칙 상태, 파일 해시, 페르소나 검사로 판단하고 결과물 자체를 읽지 않는다. 이 검사만으로 내도 되는 공모전에만 위임한다.
+- **블라인드 패킷은 메타데이터만 가린다.** CLI는 파일 이름·이력·점수를 패킷에서 빼지만 문서 안의 이름·학교 같은 신원 정보는 지우지 않는다. 지운 사본은 호출 세션이 만들고 확인서로 남긴다.
+- **제출 결과는 기계가 판정하지 않는다.** CLI는 접수 증빙 파일이 있고 해시가 맞는지만 확인하고, PDF·이미지 접수증의 뜻을 읽지 않는다. 결과를 모르는 제출은 사람이 공식 경로로 확인할 때까지 불명으로 남는다.
+- **보정은 기술 통계다.** `ach evaluation calibration`은 관측 표본 수와 비교만 보이고, 표본이 적으면 `inadequate_data`로 표시한다. 수상 확률이나 예측 모형은 없다.
+- **0.7.0 이전 승인은 이어지지 않는다.** 진행 중인 공모전은 지금 파일로 최종 점수, 제출 준비 기록, 승인을 다시 받아야 한다.
 - **수집기는 깨질 수 있다.** 수집기는 실제 사이트 구조와 내부 API를 읽는다. 사이트가 바뀌면 그 수집기가 0건을 돌려주고, 이것은 오류로 보고되며 다른 출처는 계속 수집된다.
 - **마감은 근사값일 수 있다.** 날짜만 있는 마감은 23:59 KST로 두고, 상세 페이지가 막힌 Devpost 항목에는 시간대 미확인 표시가 붙는다. 게이트가 공식 공고에서 마감을 다시 확인한다.
 - **중복 판정은 휴리스틱이다.** 제목·URL·주최·마감으로 판정한다. 폴더 README의 제목이 공모전 이름이 아니라 작품 제목이면 놓칠 수 있다.

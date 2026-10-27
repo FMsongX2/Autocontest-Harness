@@ -45,7 +45,7 @@
 
 ## 6. 채점 반복
 
-초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. 목표 점수와 `ready`가 나올 때까지 배점이 큰 기준의 감점과 CRITICAL·HIGH부터 고친다. 레벨 2는 초안 완성 뒤 ContestEditor(평가표가 있을 때) → 최종 채점 순서로 마무리한다.
+초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. 목표 점수와 `ready`가 나올 때까지 배점이 큰 기준의 감점과 CRITICAL·HIGH부터 고친다. 한글 원고는 초안 직후와, ContestEditor·리뷰어 반영 뒤 최종 채점 전에 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다. 레벨 2는 초안 완성 뒤 ContestEditor(평가표가 있을 때) → 한글 윤문 → 서식 반영·전 페이지 검수 → 최종 채점 순서로 마무리한다.
 
 ## 7. HWP 서식 마무리
 
@@ -56,5 +56,5 @@
 
 ## 8. 제출 준비
 
-- 생성형 AI 활용 공개 요구, 표절·유사도 검사 요구, 서약서·개인정보 동의서를 확인해 SUBMISSION.md에 적는다. 개인 값은 제출 승인이 `ach approve`로 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 그 서식에만 넣고, 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.
-- 커밋·푸시 후 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 `ready`·목표 이상인 최근 `final` 점수가 필요하다(목표 미달로 내야 하면 `--score-ok "<사유>"`). 그다음 사용자에게 메인 세션이나 `ach approve <id>`로 승인해 달라고 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다).
+- 생성형 AI 활용 공개 요구, 표절·유사도 검사 요구, 서약서·개인정보 동의서를 확인해 SUBMISSION.md에 적는다. 개인 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 `.private/approved/`의 별도 최종 사본 서식에만 넣고(전 페이지 재검수 뒤 `ach readiness <id> --file .private/readiness.json --personalized`), 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.
+- 커밋·푸시하고 `ach check <id>`를 확인한 뒤 `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인"). 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수가 필요하다(목표 미달로 내야 하면 `--score-ok "<사유>"`). 그다음 `ach approval-status <id>`를 확인하고 사용자에게 메인 세션이나 `ach approve <id>`로 승인해 달라고 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다).

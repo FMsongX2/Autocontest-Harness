@@ -64,7 +64,7 @@ pub fn check_version(path: &Path, text: &str, supported: u32) -> Result<()> {
         && version > u64::from(supported)
     {
         bail!(
-            "{}: 파일 형식 버전 {version}은 이 하네스가 아는 버전({supported})보다 새롭다. 하네스를 업그레이드한다(git pull && cargo install --path . --root ~/.local --force)",
+            "{}: 파일 형식 버전 {version}은 이 하네스가 아는 버전({supported})보다 새롭다. 하네스를 업그레이드한다(git pull && scripts/install.sh --from-source)",
             path.display()
         );
     }

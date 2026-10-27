@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use harness::config;
 use harness::ledger::{self, Ledger, Manual};
 use harness::registry::{self, Entry, NewEntry, Registry, apply_gate, new_entry, transition};
-use harness::{paths, text};
+use harness::{paths, readiness, text};
 use serde_json::{Value, json};
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -105,6 +105,100 @@ fn put(home: &Path, entries: Vec<Entry>) {
         Ok(())
     })
     .unwrap();
+}
+
+/// Where the fixture contests are submitted (the approved readiness `destination`).
+const DESTINATION: &str = "https://example.com/submit";
+
+/// The structured readiness request for `submission.md` in `folder` as it is now.
+fn readiness_request(folder: &Path) -> Value {
+    let sha = readiness::sha256_file(&folder.join("submission.md")).unwrap();
+    json!({"submission_ready": true, "needs_user_input": false, "blockers": [], "followup_required": false,
+        "destination": DESTINATION, "artifacts": [{"path": "submission.md", "sha256": sha}]})
+}
+
+/// A level 1 entry in `awaiting_approval` with a folder under `home`, one submission file and a
+/// current readiness record (recorded while running), so a human approval can bind to it.
+fn ready_at(home: &Path, id: &str) -> Entry {
+    let folder = home.join("contests").join(id);
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("submission.md"), format!("{id} 제출 원고\n")).unwrap();
+    let mut e = at_state(id, "running");
+    e.folder = Some(folder.to_string_lossy().into_owned());
+    readiness::record(&mut e, &readiness_request(&folder)).unwrap();
+    transition(&mut e, "awaiting_approval", "t", "").unwrap();
+    e
+}
+
+fn submission_file(home: &Path, id: &str) -> String {
+    home.join("contests").join(id).join("submission.md").to_string_lossy().into_owned()
+}
+
+/// Record a fresh readiness request through the CLI (`ach readiness <id> --file`).
+fn record_readiness(home: &Path, id: &str) -> Output {
+    let request = home.join(format!("{id}-readiness.json"));
+    fs::write(&request, readiness_request(&home.join("contests").join(id)).to_string()).unwrap();
+    harness(home, &["readiness", id, "--file", request.to_str().unwrap()])
+}
+
+/// The current approval request token (`ach approval-status`).
+fn request_token(home: &Path, id: &str) -> String {
+    let status = json_out(&harness(home, &["--json", "approval-status", id]));
+    status["request_token"].as_str().unwrap_or("").to_string()
+}
+
+/// `ach submission intent <id>` for the approved destination and the current request token.
+fn submission_intent(home: &Path, id: &str) -> Output {
+    let file = home.join(format!("{id}-intent.json"));
+    let intent = json!({"method": "form", "destination": DESTINATION, "expected_request": request_token(home, id)});
+    fs::write(&file, intent.to_string()).unwrap();
+    harness(home, &["--json", "submission", "intent", id, "--file", file.to_str().unwrap()])
+}
+
+/// Intent and start through the CLI; returns the dispatched attempt id.
+fn dispatched(home: &Path, id: &str) -> String {
+    let out = submission_intent(home, id);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let attempt = json_out(&out)["attempt"]["attempt_id"].as_str().unwrap().to_string();
+    let out = harness(home, &["submission", "start", id, "--attempt", &attempt]);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    attempt
+}
+
+/// When the stored attempt started (a proof must not be older).
+fn started_at(home: &Path, id: &str, attempt: &str) -> String {
+    let e = stored(home, id);
+    let attempts = e.extra["submission_txn"]["attempts"].as_array().unwrap().clone();
+    let found = attempts.iter().find(|a| a["attempt_id"] == attempt).unwrap();
+    found["started_at"].as_str().unwrap().to_string()
+}
+
+/// A receipt proof file for `attempt`: the saved receipt page lives in `.private/` (a fixture, no
+/// real site). `edit` may change the proof before it is written.
+fn proof(home: &Path, id: &str, attempt: &str, receipt: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
+    let folder = home.join("contests").join(id);
+    fs::create_dir_all(folder.join(".private")).unwrap();
+    let page = folder.join(".private").join(format!("receipt-{attempt}.html"));
+    fs::write(&page, format!("<p>접수 완료 {attempt}</p>\n")).unwrap();
+    let mut value = json!({
+        "attempt_id": attempt,
+        "receipt": receipt,
+        "source": "confirmation_page",
+        "observed_at": started_at(home, id, attempt),
+        "destination": DESTINATION,
+        "submitted_sha256": [readiness::sha256_file(&folder.join("submission.md")).unwrap()],
+        "artifacts": [{"path": format!(".private/receipt-{attempt}.html"), "sha256": readiness::sha256_file(&page).unwrap()}],
+    });
+    edit(&mut value);
+    let file = home.join(format!("{id}-{attempt}-proof-{}.json", COUNTER_PROOF.fetch_add(1, Ordering::Relaxed)));
+    fs::write(&file, value.to_string()).unwrap();
+    file
+}
+
+static COUNTER_PROOF: AtomicUsize = AtomicUsize::new(0);
+
+fn submit(home: &Path, id: &str, attempt: &str, proof: &Path) -> Output {
+    harness(home, &["submit", id, "--attempt", attempt, "--file", proof.to_str().unwrap()])
 }
 
 // ---- 1. checkout root ----
@@ -325,12 +419,14 @@ fn titles_are_one_line_and_gate_values_are_checked() {
 #[test]
 fn submit_needs_a_current_approval_and_keeps_registry_and_ledger_together() {
     let home = home("submit");
-    put(&home, vec![at_state("c-1", "awaiting_approval")]);
+    put(&home, vec![ready_at(&home, "c-1")]);
     let ledger_path = home.join("data/submissions.json");
+    let attempt_status = |id: &str| json_out(&harness(&home, &["--json", "submission", "status", id]))["state"].clone();
 
-    let out = harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R1"]);
+    let out = submission_intent(&home, "c-1");
     assert_eq!(code(&out), 1, "no approval yet");
-    assert!(stderr(&out).contains("ach approve"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("approval-status"), "{}", stderr(&out));
+    assert!(stored(&home, "c-1").extra.get("submission_txn").is_none(), "a refused intent records nothing");
 
     let out = harness_cmd(&home, &["approve", "c-1", "--note", "제출해 10/15 10:00"])
         .env("ACH_SESSION", "c-1")
@@ -338,42 +434,119 @@ fn submit_needs_a_current_approval_and_keeps_registry_and_ledger_together() {
         .unwrap();
     assert_eq!(code(&out), 1, "a contest session cannot approve");
     assert!(stored(&home, "c-1").approvals.is_empty());
-    assert_eq!(code(&harness(&home, &["approve", "c-1", "--note", "제출해 10/15 10:00"])), 0);
+    let out = harness(&home, &["approve", "c-1", "--note", "제출해 10/15 10:00"]);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let status = json_out(&harness(&home, &["--json", "approval-status", "c-1"]));
+    assert_eq!(status["submit_approval_valid"], true, "{status}");
 
-    // A corrupt ledger fails the submit before the registry changes.
+    // An intent alone is never a submission: `ach submit` refuses an attempt that did not start.
+    let out = submission_intent(&home, "c-1");
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let attempt = json_out(&out)["attempt"]["attempt_id"].as_str().unwrap().to_string();
+    let early = home.join("early-proof.json");
+    let sha = readiness::sha256_file(Path::new(&submission_file(&home, "c-1"))).unwrap();
+    let page = home.join("contests/c-1/.private/early.html");
+    fs::create_dir_all(page.parent().unwrap()).unwrap();
+    fs::write(&page, "<p>접수 완료</p>\n").unwrap();
+    let early_proof = json!({"attempt_id": attempt, "receipt": "R1", "source": "confirmation_page",
+        "observed_at": text::now(), "destination": DESTINATION, "submitted_sha256": [sha],
+        "artifacts": [{"path": ".private/early.html", "sha256": readiness::sha256_file(&page).unwrap()}]});
+    fs::write(&early, early_proof.to_string()).unwrap();
+    let out = submit(&home, "c-1", &attempt, &early);
+    assert_eq!(code(&out), 1, "intent only");
+    assert!(stderr(&out).contains("submission start"), "{}", stderr(&out));
+    let out = harness(&home, &["submission", "start", "c-1", "--attempt", &attempt]);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(attempt_status("c-1"), "dispatching");
+
+    // A corrupt ledger fails the confirmation before the registry changes.
+    let good = proof(&home, "c-1", &attempt, "R1", |_| {});
     fs::write(&ledger_path, "garbage").unwrap();
-    let out = harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R1"]);
-    assert_eq!(code(&out), 1);
+    assert_eq!(code(&submit(&home, "c-1", &attempt, &good)), 1);
     assert_eq!(stored(&home, "c-1").state, "awaiting_approval");
+    assert_eq!(attempt_status("c-1"), "dispatching");
     fs::remove_file(&ledger_path).unwrap();
 
-    let out = harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R1"]);
+    // The proof must be bound to the approved files and destination and kept in `.private/`.
+    let outside = home.join("contests/c-1/receipt.txt");
+    fs::write(&outside, "접수 완료\n").unwrap();
+    // A copy of the submitted file inside `.private/` is still not a receipt.
+    let copy = home.join("contests/c-1/.private/copy.md");
+    fs::copy(submission_file(&home, "c-1"), &copy).unwrap();
+    type ProofMutation = Box<dyn FnOnce(&mut Value)>;
+    let cases: Vec<(&str, ProofMutation)> = vec![
+        ("blank receipt", Box::new(|p: &mut Value| p["receipt"] = json!("  "))),
+        ("other destination", Box::new(|p: &mut Value| p["destination"] = json!("https://evil.example/form"))),
+        ("other files", Box::new(|p: &mut Value| p["submitted_sha256"] = json!(["0".repeat(64)]))),
+        ("no proof files", Box::new(|p: &mut Value| p["artifacts"] = json!([]))),
+        (
+            "proof outside .private",
+            Box::new(move |p: &mut Value| {
+                p["artifacts"] = json!([{"path": "receipt.txt", "sha256": readiness::sha256_file(&outside).unwrap()}])
+            }),
+        ),
+        (
+            "the submitted file as its own receipt",
+            Box::new(move |p: &mut Value| {
+                p["artifacts"] = json!([{"path": ".private/copy.md", "sha256": readiness::sha256_file(&copy).unwrap()}])
+            }),
+        ),
+        ("wrong attempt", Box::new(|p: &mut Value| p["attempt_id"] = json!("a99"))),
+        ("observed before the start", Box::new(|p: &mut Value| p["observed_at"] = json!("2020-01-01T10:00+09:00"))),
+    ];
+    for (what, edit) in cases {
+        let bad = proof(&home, "c-1", &attempt, "R1", edit);
+        assert_eq!(code(&submit(&home, "c-1", &attempt, &bad)), 1, "{what}");
+    }
+    assert_eq!(stored(&home, "c-1").state, "awaiting_approval");
+    assert!(stored(&home, "c-1").submissions.is_empty());
+
+    let out = submit(&home, "c-1", &attempt, &good);
     assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(stored(&home, "c-1").state, "submitted");
     let first = ledger::load_at(&ledger_path).unwrap().get("c-1").cloned().unwrap();
-    // Same submit again: no change, exit 0.
-    let out = harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R1"]);
+    assert_eq!(first.extra["attempt_id"], attempt.as_str());
+    let registry_before = fs::read(reg_path(&home)).unwrap();
+    // The same proof again: no change, exit 0.
+    let out = submit(&home, "c-1", &attempt, &proof(&home, "c-1", &attempt, "R1", |_| {}));
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     assert_eq!(stored(&home, "c-1").submissions.len(), 1);
+    assert_eq!(fs::read(reg_path(&home)).unwrap(), registry_before, "a repeat changes nothing");
     assert_eq!(ledger::load_at(&ledger_path).unwrap().get("c-1"), Some(&first));
-    // A lost ledger record is restored by the same command.
+    // A lost ledger record comes back with the original time.
     fs::remove_file(&ledger_path).unwrap();
-    assert_eq!(code(&harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R1"])), 0);
+    assert_eq!(code(&submit(&home, "c-1", &attempt, &good)), 0);
     let restored = ledger::load_at(&ledger_path).unwrap().get("c-1").cloned().unwrap();
     assert_eq!(restored.submitted_at, first.submitted_at);
-    // A different receipt is a real second submission and goes through the state rules.
-    assert_eq!(code(&harness(&home, &["submit", "c-1", "--method", "web", "--receipt", "R2"])), 1);
+    // A different receipt for the same attempt is refused; a new attempt needs a new approval.
+    assert_eq!(code(&submit(&home, "c-1", &attempt, &proof(&home, "c-1", &attempt, "R2", |_| {}))), 1);
+    assert_eq!(code(&submission_intent(&home, "c-1")), 1, "a submitted entry has nothing to start");
+    assert_eq!(stored(&home, "c-1").submissions.len(), 1);
 
-    // A revise cycle needs a fresh approval; transition cannot bypass it either.
-    put(&home, vec![at_state("c-2", "awaiting_approval")]);
+    // A revise cycle needs a fresh readiness record and approval; transition cannot bypass it.
+    put(&home, vec![ready_at(&home, "c-2")]);
+    let file = submission_file(&home, "c-2");
     assert_eq!(code(&harness(&home, &["approve", "c-2", "--note", "ok"])), 0);
-    assert_eq!(code(&harness(&home, &["transition", "c-2", "running", "--note", "수정"])), 0);
+    // This test covers revision invalidation, not live host capacity (covered by lifecycle tests).
+    registry::write_at(&reg_path(&home), |reg| transition(reg.get_mut("c-2")?, "running", "t", "수정")).unwrap();
+    fs::write(&file, "c-2 고친 원고\n").unwrap();
     assert_eq!(code(&harness(&home, &["transition", "c-2", "awaiting_approval"])), 0);
-    assert_eq!(code(&harness(&home, &["submit", "c-2", "--method", "web", "--receipt", "R"])), 1);
-    assert_eq!(code(&harness(&home, &["transition", "c-2", "submitted"])), 1);
+    assert_eq!(code(&submission_intent(&home, "c-2")), 1);
+    assert_eq!(code(&harness(&home, &["transition", "c-2", "submitted"])), 1, "only ach submit records a submission");
+    assert_eq!(code(&harness(&home, &["approve", "c-2", "--note", "다시 ok"])), 1, "the readiness record is stale");
+    let out = record_readiness(&home, "c-2");
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
     assert_eq!(code(&harness(&home, &["approve", "c-2", "--note", "다시 ok"])), 0);
-    let receipt = home.join("receipt.txt");
-    fs::write(&receipt, "접수번호 $(id)").unwrap();
-    let out = harness(&home, &["submit", "c-2", "--method", "web", "--receipt-file", receipt.to_str().unwrap()]);
+    // A new readiness record or a changed file after the approval voids it.
+    assert_eq!(code(&record_readiness(&home, "c-2")), 0);
+    assert_eq!(code(&submission_intent(&home, "c-2")), 1, "readiness re-recorded after approval");
+    assert_eq!(code(&harness(&home, &["approve", "c-2", "--note", "다시 ok 2"])), 0);
+    fs::write(&file, "c-2 몰래 바꾼 원고\n").unwrap();
+    assert_eq!(code(&submission_intent(&home, "c-2")), 1, "file changed after approval");
+    fs::write(&file, "c-2 고친 원고\n").unwrap();
+    let attempt = dispatched(&home, "c-2");
+    // Imported text stays data: the receipt reference is stored verbatim, never run.
+    let out = submit(&home, "c-2", &attempt, &proof(&home, "c-2", &attempt, "접수번호 $(id)", |_| {}));
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     assert_eq!(stored(&home, "c-2").submissions[0]["receipt"], "접수번호 $(id)");
     // approve has nothing to approve outside plan_review/awaiting_approval.
@@ -382,22 +555,82 @@ fn submit_needs_a_current_approval_and_keeps_registry_and_ledger_together() {
 }
 
 #[test]
+fn followup_wait_releases_slot_without_losing_submission_or_allowing_resubmission() {
+    let home = home("followup");
+    put(&home, vec![ready_at(&home, "c-1"), at_state("c-2", "running")]);
+    assert_eq!(code(&harness(&home, &["transition", "c-2", "followup_pending"])), 1);
+    assert_eq!(stored(&home, "c-2").state, "running");
+    assert_eq!(code(&harness(&home, &["approve", "c-1", "--note", "ok"])), 0);
+    let attempt = dispatched(&home, "c-1");
+    let out = submit(&home, "c-1", &attempt, &proof(&home, "c-1", &attempt, "R1", |_| {}));
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let original = stored(&home, "c-1").submissions;
+    let ledger_path = home.join("data/submissions.json");
+    let original_ledger = ledger::load_at(&ledger_path).unwrap().get("c-1").cloned().unwrap();
+    let count = || registry::read_at(&reg_path(&home), |reg| Ok(reg.running_by_level()[&1])).unwrap();
+    assert_eq!(count(), 1);
+
+    // Follow-up work restarts only through `ach resume` (capacity check and session restore).
+    let out = harness(&home, &["transition", "c-1", "running"]);
+    assert_eq!(code(&out), 1);
+    assert!(stderr(&out).contains("ach resume"), "{}", stderr(&out));
+    assert_eq!(stored(&home, "c-1").state, "submitted");
+    assert_eq!(code(&harness(&home, &["transition", "c-1", "followup_pending"])), 0);
+    assert_eq!(count(), 1);
+    assert_eq!(stored(&home, "c-1").submissions, original);
+    assert_eq!(ledger::load_at(&ledger_path).unwrap().get("c-1"), Some(&original_ledger));
+    assert_eq!(code(&submit(&home, "c-1", &attempt, &proof(&home, "c-1", &attempt, "R2", |_| {}))), 1);
+    assert_eq!(code(&submission_intent(&home, "c-1")), 1, "no new attempt without new work and approval");
+    let clean = harness(&home, &["clean", "c-1", "--dry-run", "--json"]);
+    assert!(String::from_utf8_lossy(&clean.stdout).contains("followup_pending"));
+    assert_eq!(stored(&home, "c-1").state, "followup_pending");
+
+    assert_eq!(code(&harness(&home, &["transition", "c-1", "running"])), 1, "ach resume only");
+    assert_eq!(stored(&home, "c-1").state, "followup_pending");
+    assert_eq!(count(), 1);
+    assert_eq!(stored(&home, "c-1").submissions, original);
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
 fn plan_review_ends_only_through_approve() {
+    let dir = temp_dir("planreview");
+    fs::write(dir.join("submission.md"), "제품 설명\n").unwrap();
     let mut e = entry("x-5", "프로덕션 해커톤", "https://e.com/5");
     apply_gate(&mut e, gate(5), "t").unwrap();
-    for step in ["routed", "running", "plan_review"] {
+    e.folder = Some(dir.to_string_lossy().into_owned());
+    for step in ["routed", "running"] {
         transition(&mut e, step, "t", "검수").unwrap();
     }
+    let judge = |stage: &str, with_files: bool| {
+        let mut j = json!({"stage": stage, "total": 95, "verdict": "ready",
+            "scores": [{"name": "완성도", "weight": 100, "score": 95}]});
+        if with_files {
+            j["artifacts"] = readiness_request(&dir)["artifacts"].clone();
+        }
+        j
+    };
+    registry::record_score(&mut e, &judge("plan", false), "plan", "plan.json", "").unwrap();
+    transition(&mut e, "plan_review", "t", "검수").unwrap();
     assert!(transition(&mut e, "running", "t", "승인 원문").is_err());
     assert!(registry::approve(&mut e, "진행해", "user", Some("x-5")).is_err(), "not from a contest session");
     assert_eq!(registry::approve(&mut e, "진행해 10/16 09:00", "user", None).unwrap(), "plan");
     assert_eq!(e.state, "running");
     assert_eq!(e.history.last().unwrap().note, "진행해 10/16 09:00");
     assert!(registry::plan_approved(&e));
+    registry::record_score(&mut e, &judge("final", true), "final", "final.json", "").unwrap();
+    assert_eq!(
+        registry::score_gate(&e, "awaiting_approval", None).unwrap(),
+        None,
+        "the plan score survives the plan approval"
+    );
     transition(&mut e, "awaiting_approval", "t", "").unwrap();
     assert!(!registry::submit_approved(&e));
+    assert!(registry::approve(&mut e, "제출해", "user", None).is_err(), "no readiness record yet");
+    readiness::record(&mut e, &readiness_request(&dir)).unwrap();
     registry::approve(&mut e, "제출해", "user", None).unwrap();
     assert!(registry::submit_approved(&e));
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -406,7 +639,7 @@ fn profile_show_needs_an_approved_submission_for_that_contest() {
     let profile = home.join("data/profile.md");
     fs::write(&profile, "## 참가 자격\n- 학생 여부: 예\n\n## 제출용 개인정보\n- 이름: 홍길동\n").unwrap();
     fs::set_permissions(&profile, fs::Permissions::from_mode(0o600)).unwrap();
-    put(&home, vec![at_state("p-1", "awaiting_approval")]);
+    put(&home, vec![ready_at(&home, "p-1")]);
     assert_eq!(code(&harness(&home, &["profile", "show"])), 2, "--for is required");
     assert_eq!(code(&harness(&home, &["profile", "show", "--for", "p-1"])), 1, "not approved yet");
     assert_eq!(code(&harness(&home, &["profile", "eligibility"])), 0, "eligibility stays open");
@@ -418,6 +651,12 @@ fn profile_show_needs_an_approved_submission_for_that_contest() {
     assert_eq!(code(&other), 1, "another contest's session");
     let own = harness_cmd(&home, &["profile", "show", "--for", "p-1"]).env("ACH_SESSION", "p-1").output().unwrap();
     assert_eq!(code(&own), 0, "{}", stderr(&own));
+    // A changed submission file voids the approval and with it the access; restoring it brings both back.
+    let file = submission_file(&home, "p-1");
+    fs::write(&file, "바뀐 원고\n").unwrap();
+    assert_eq!(code(&harness(&home, &["profile", "show", "--for", "p-1"])), 1, "approval no longer current");
+    fs::write(&file, "p-1 제출 원고\n").unwrap();
+    assert_eq!(code(&harness(&home, &["profile", "show", "--for", "p-1"])), 0);
 
     // Warnings: readable by others, placeholders left in.
     fs::write(&profile, "## 참가 자격\n- 학생 여부: 예/아니오\n").unwrap();

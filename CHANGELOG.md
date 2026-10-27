@@ -4,11 +4,48 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
-## Unreleased
+## 0.8.0 - 2026-10-27
+
+### Added
+- Runtime checkpoints with verified artifacts, observational `ach reconcile [--apply]`, and conservative `ach recover` from the latest checkpoint. Unknown runtime is never treated as missing, ambiguous terminals are never adopted, and routed work is never started by recovery.
+- Official source snapshots (`ach rules capture|review|acknowledge|status`) with semantic, category-based invalidation of gate, plan, final and submission evidence; byte-only changes stay pending until reviewed.
+- Blinded independent evaluation packets and measured reporting (`ach evaluation prepare|record|report|outcome|calibration`), kept separate from improvement scoring, with no invented probabilities.
+- Durable submission transactions (`ach submission intent|start|unknown|resolve|status`) bound to the approved destination and artifacts, plus receipt confirmation through `ach submit <id> --attempt A --file proof.json`. An unknown external result blocks retries until proven.
+- Managed controllers under `controllers/` (`ach controller approve|queue|briefs|preset`) with contract checks, lifetime locks, durable alert deduplication, and the `new_work_frozen` setting.
+- Board columns for runtime, next action, blockers, evidence time, and a user-attention section, built from stored data without probing backends.
 
 ### Changed
+- Delegated approval additionally requires tracked official rules and, for scored non-video work, a verified independent final assessment. Known pending or invalidating rule changes block every approval path, including `--score-ok`.
+- `ach submit` no longer accepts direct receipt flags; `ach transition … submitted` remains refused. Transitions are blocked while a dispatched submission is unresolved.
+
+### Fixed
+- Restore managed controller preset-name validation so queued launches and explicit preset switches do not fail with a missing validator.
+- Resolve alerts for removed contests even when they were raised earlier in the current cycle.
+- Orca sessions are judged by `terminal show` `connected`, so a closed terminal (whose history Orca keeps) no longer blocks `restart`/`session-close`; disconnected terminals are not counted as live.
+- omp restores no longer pass a prompt (`omp --restore` refuses one) and name the preset's default model explicitly, so a restored session switches to the new preset. `restart` reports that the message was not delivered; `recover` also writes the checkpoint turn to `.harness/recovery-<seq>.md`.
+- `.gitignore` now keeps everything under `data/` local except the committed examples (controller state, rule snapshots and briefs included).
+- Update `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.11 (RUSTSEC-2026-0382, RUSTSEC-2026-0381: distrusted intermediates could be accepted).
+
+### Migration
+- Build from source with `scripts/install.sh --from-source`. Old controller scripts under `data/` moved to `controllers/` (`ach controller …`); restart the local controller on the new CLI.
+- Existing contests gain no rules evidence, independent evaluations or submission transactions automatically; delegated approvals stay blocked until those records exist.
+
+## 0.7.0 - 2026-10-25
+
+### Changed
+- Submission readiness is now structured (`ach readiness`): explicit blockers, questions, follow-up work and verified artifact SHA-256 values. `ach approval-status` is the single approval-validity/eligibility API used by the local controller; prose is never treated as readiness.
+- Final scores and submission approvals are bound to the current work revision and artifact manifest. Revisions, new scores (including reject), changed files and new readiness requests invalidate old approvals. Score totals, positive weights, duplicate criteria and published gate criteria are validated.
+- Scoped, revocable submission delegation is explicit configuration and defaults off. `approve --delegated --expected-request` rechecks the request under the registry lock; contest sessions cannot grant delegation or approve their own work. Personalization uses separately reviewed final copies linked to preserved originals.
+- `ach restart` retains the runner environment, arguments and saved conversation; `ach resume` checks capacity and opens a session before marking follow-up work running. `ach session-close` compares state/history under lock and retains failed closes for retry. Direct transitions to `submitted`, and from submitted/follow-up to `running`, are refused.
+- Stale Orca handles are not proof that a workspace is empty: restart and cleanup inspect its complete current terminal inventory and refuse to replace or remove unowned live terminals, including shells whose activity cannot be verified.
+- Korean prose polishing is performed by the calling session. Editor and Judge consume the recorded preservation checks and hashes; missing polishing evidence is a HIGH/revise finding, not a contradictory failed hard gate. Brief refresh replaces only managed sections, detects manual edits and preserves explicitly adopted legacy sections in a backup.
 - Paginated report, proposal, paper, and application deliverables require direct visual inspection of every rendered page. Metadata, style values, extracted text, OCR, and successful image generation do not replace page-by-page inspection.
 - Authoring playbooks, launch/HQ instructions, ContestEditor, ContestJudge, and submission templates require file hashes and page-specific evidence; edits, signing, saving, or conversion invalidate the previous visual review. ContestJudge rejects incomplete final-page inspection. This is an agent-review requirement, not image analysis performed by `ach`.
+- Submitted contests waiting for a future round can use `followup_pending`: release the session slot without deleting the folder or changing submission receipts. Unsubmitted entries cannot enter it; actual follow-up work resumes through `ach resume`.
+
+### Migration
+- Build/install from this checkout with `scripts/install.sh --from-source`. Historical scores, receipts and approvals remain readable, but old unbound approvals/final scores cannot authorize new submissions. Re-review current artifacts, record a current final and structured readiness, then obtain a new approval; never bulk-promote legacy notes to ready.
+- Record the user's existing delegation through `ach config` only after confirming its scope. Restart the local controller on the new CLI, and refresh existing controller briefs with a dry run before explicitly adopting legacy sections. No migration command submits contests or closes their sessions.
 
 ## 0.6.0 - 2026-10-16
 

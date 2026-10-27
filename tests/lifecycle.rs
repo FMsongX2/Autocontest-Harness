@@ -348,6 +348,40 @@ fn clean_all_saves_what_succeeded_when_other_entries_fail() {
 }
 
 #[test]
+fn clean_never_removes_a_folder_whose_readiness_requires_a_follow_up() {
+    stubs();
+    let root = temp_dir("followup");
+    let reg_path = root.join("data/registry.json");
+    let ledger_path = root.join("data/submissions.json");
+    let mut held = finished(&root, "manual-held", &ledger_path);
+    held.extra.insert("submission_readiness".into(), json!({"seq": 1, "followup_required": true}));
+    let mut unclear = finished(&root, "manual-unclear", &ledger_path);
+    unclear.extra.insert("submission_readiness".into(), json!({"seq": 1}));
+    let mut done = finished(&root, "manual-done", &ledger_path);
+    done.extra.insert("submission_readiness".into(), json!({"seq": 1, "followup_required": false}));
+    assert!(!clean::candidate(&held) && !clean::candidate(&unclear) && clean::candidate(&done));
+    registry::write_at(&reg_path, |reg| {
+        for e in [&held, &unclear, &done] {
+            reg.contests.insert(e.id.clone(), e.clone());
+        }
+        Ok(())
+    })
+    .unwrap();
+
+    // Even named explicitly and forced, a follow-up hold keeps the folder.
+    let opts = Options { force: true, trash_dir: Some(root.join("trash")), ..Options::default() };
+    for id in ["manual-held", "manual-unclear"] {
+        let outcome = clean::run(&reg_path, &ledger_path, Some(id), &opts).unwrap().remove(0);
+        assert!(!outcome.ok && outcome.problems.iter().any(|p| p.contains("followup_required")), "{outcome:?}");
+        assert!(root.join(id).is_dir());
+    }
+    let outcome = clean::run(&reg_path, &ledger_path, Some("manual-done"), &opts).unwrap().remove(0);
+    assert!(outcome.ok, "{outcome:?}");
+    assert!(!root.join("manual-done").exists());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn archive_never_copies_anything_outside_the_folder() {
     stubs();
     let root = temp_dir("traversal");

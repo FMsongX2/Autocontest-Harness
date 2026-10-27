@@ -7,6 +7,8 @@
 - 중간·최종 채점: 초안이 나오면 stage `draft`로 채점하고 배점이 큰 기준의 감점부터 고친다. 제출 직전 stage `final`로 채점한다.
 - 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 남긴다. `RUBRIC.md`의 총점 추이 표에도 적는다.
 - 조사 결과는 `research/research.md`와 `research/sources.json`에 남기고, 문서 안 수치마다 [가정]/[문헌]/[계산]과 출처를 단다.
-- 다듬기: `.harness/gate.json`의 `criteria`(평가표)가 비어 있지 않으면 최종 채점 전에 `ContestEditor`(agent: ContestEditor)에게 결과물 경로를 넘겨 평가표 항목별로 문체·어투·문장을 점검하고 다듬게 한다. 평가표가 없으면 건너뛴다. ContestEditor가 `content_issues`로 넘긴 내용 문제는 이 세션이 고친다.
-- 관문: `awaiting_approval` 전이에는 `plan` 점수가 하나 이상, 가장 최근 `final` 점수가 `ready`이고 목표 이상이어야 한다. 마감 때문에 목표에 못 미친 채 내야 하면 사용자에게 알리고 `--score-ok "<사유>"`를 붙인다.
-- 사람 관문: 제출 승인.
+- 다듬기: `.harness/gate.json`의 `criteria`(평가표)가 비어 있지 않으면 최종 채점 전에 `ContestEditor`(agent: ContestEditor)에게 결과물 경로와 한글 윤문 기록 위치를 넘겨 평가표 항목별로 문체·어투·문장을 점검하고 다듬게 한다. 평가표가 없으면 건너뛴다. ContestEditor가 `content_issues`로 넘긴 내용 문제는 이 세션이 고친다.
+- 한글 윤문: 한글 본문이면 초안 직후와, ContestEditor·리뷰어 반영이 끝난 뒤 최종 채점 전에 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행하고 `JUDGE.md`에 기록한다. ContestEditor가 `rerun_required: true`를 내면 다시 돌린다.
+- 관문: `awaiting_approval` 전이에는 `plan` 점수가 하나 이상, 지금 작업 판의 가장 최근 `final` 점수(Judge가 검토한 `artifacts` 포함)가 `ready`이고 목표 이상이어야 한다. 마감 때문에 목표에 못 미친 채 내야 하면 사용자에게 알리고 `--score-ok "<사유>"`를 붙인다. 전이 전에 `ach check`를 확인하고, 최종 채점 `artifacts` 안의 파일로 `ach readiness`를 기록한다.
+- 개선 채점과 독립 최종 평가: `plan`·`draft`와 개선 반복의 `final` 채점에는 작업 맥락(이전 점수, `JUDGE.md`)을 넘겨도 된다. 개선이 끝난 최종본은 `contest-harness` 스킬의 "독립 최종 평가"대로 블라인드 패킷(`ach evaluation prepare`)을 새 `ContestJudge` 실행이 패킷만 읽고 채점하게 한 뒤 `ach evaluation record`, 같은 값과 `evaluation_id`·`assessment_id`로 `ach score --stage final`을 기록한다(위임 승인에 필요). 규칙 변경으로 단계가 무효가 되면(`ach rules status`) 그 단계를 다시 채점하거나 재검토를 남긴다.
+- 사람 관문: 제출 승인(사용자 승인 또는 사용자가 준 상시 위임 범위의 위임 승인).
