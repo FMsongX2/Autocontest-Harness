@@ -4,6 +4,12 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.8.3 - 2026-11-03
+
+### Fixed
+- `ach clean` run from inside the contest's own session (`ACH_SESSION` equal to its id) closed that session first, which stopped the command before the folder was moved and the registry was updated. It now archives, trashes the folder, and saves the ledger and registry first, and closes its own session (and workspace) as the very last step. Another unrecorded live terminal in the workspace still blocks the clean.
+- A clean rerun after an interrupted one failed on files already archived (read-only rule snapshots). Archived files with the same bytes are now skipped; different bytes are never overwritten and block the clean.
+
 ## 0.8.2 - 2026-10-27
 
 ### Changed

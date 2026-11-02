@@ -1094,7 +1094,13 @@ fn run(cli: &Cli) -> Result<u8> {
         Command::Submitted { action } => submitted(json_mode, action.as_ref()),
         Command::Profile { action } => profile_command(json_mode, action),
         Command::Clean { id, all: _, dry_run, purge, force } => {
-            let opts = clean::Options { dry_run: *dry_run, purge: *purge, force: *force, ..clean::Options::default() };
+            let opts = clean::Options {
+                dry_run: *dry_run,
+                purge: *purge,
+                force: *force,
+                own_session: std::env::var(launch::SESSION_ENV).ok().filter(|s| !s.is_empty()),
+                ..clean::Options::default()
+            };
             let outcomes = clean::run(&harness::paths::registry(), &ledger::path(), id.as_deref(), &opts)?;
             let lines: Vec<String> = outcomes
                 .iter()

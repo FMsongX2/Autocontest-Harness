@@ -42,6 +42,18 @@ pub struct Outcome {
     pub trash: Option<String>,
     /// Where untracked submission files and private notes were kept.
     pub archive: Option<String>,
+    /// The caller's own session, closed by [`run`] only after the registry is saved.
+    #[serde(skip)]
+    deferred_close: Option<DeferredClose>,
+}
+
+/// The recorded session of a contest cleaned from inside that session (`ACH_SESSION` = its id).
+/// Closing it stops the calling process, so it must be the very last step.
+#[derive(Debug)]
+struct DeferredClose {
+    workspace: String,
+    handle: Option<String>,
+    workspace_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -56,6 +68,10 @@ pub struct Options {
     pub trash_dir: Option<PathBuf>,
     /// Where kept files go (default `data/archive`); each contest gets `<dir>/<id>/`.
     pub archive_dir: Option<PathBuf>,
+    /// `ACH_SESSION` of the caller. When it is the cleaned contest's id, its own session is closed
+    /// last, after the folder, ledger and registry are done; closing it first would stop the
+    /// command halfway.
+    pub own_session: Option<String>,
 }
 
 /// Entries `ach clean --all` looks at: finished, with a folder that has not been cleaned yet.
@@ -243,7 +259,16 @@ fn copy_into(folder: &Path, files: &[String], target: &Path) -> Result<()> {
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::copy(folder.join(file), &to).map_err(|err| Error(format!("보관하지 못했다({file}): {err}")))?;
+        let from = folder.join(file);
+        // A rerun after an interrupted clean finds files already kept (rule snapshots are
+        // read-only): the same bytes are fine, different bytes are never overwritten.
+        if to.exists() {
+            if fs::read(&from)? == fs::read(&to)? {
+                continue;
+            }
+            crate::bail!("보관 위치에 내용이 다른 같은 이름의 파일이 이미 있다({file}): {}", to.display());
+        }
+        fs::copy(&from, &to).map_err(|err| Error(format!("보관하지 못했다({file}): {err}")))?;
     }
     Ok(())
 }
@@ -350,11 +375,15 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     let handle = session["handle"].as_str().filter(|h| !h.is_empty());
     let workspace_id = session["workspace_id"].as_str().filter(|w| !w.is_empty());
     let target = (!opts.purge).then(|| trash_target(&folder, opts.trash_dir.as_deref()));
+    // Cleaned from inside its own session: closing that session stops this command, so it happens
+    // last ([`run`]), after the folder, ledger and registry are done.
+    let own = opts.own_session.as_deref() == Some(entry.id.as_str());
+    let when = if own { "(정리 기록을 저장한 뒤 마지막에)" } else { "" };
     if let (Some(ws), Some(h)) = (backend, handle) {
-        outcome.actions.push(format!("세션 닫기: {} {h}", ws.name()));
+        outcome.actions.push(format!("세션 닫기{when}: {} {h}", ws.name()));
     }
     if let (Some(ws), Some(id)) = (backend, workspace_id) {
-        outcome.actions.push(format!("작업 공간 제거: {} {id}", ws.name()));
+        outcome.actions.push(format!("작업 공간 제거{when}: {} {id}", ws.name()));
     }
     let plan = archive_plan(entry, &folder)?;
     let archive = (!plan.keep.is_empty()).then(|| archive_target(entry, opts.archive_dir.as_deref()));
@@ -390,15 +419,25 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     if let Some(ws) = backend
         && (handle.is_some() || workspace_id.is_some())
     {
-        let closed = workspaces::close_recorded(ws, handle, workspace_id, workspaces::CLOSE_WAIT).and_then(|()| {
-            // Removing a workspace stops every terminal in it: never while an unrecorded one is left.
-            match workspace_id {
-                Some(id) => {
-                    workspaces::ensure_no_other_terminals(ws, Some(id), handle).and_then(|()| ws.remove_workspace(id))
+        let closed = if own {
+            // Only this session may be left in its workspace; it is stopped in `run`.
+            workspaces::ensure_no_other_terminals(ws, workspace_id, handle).map(|()| {
+                outcome.deferred_close = Some(DeferredClose {
+                    workspace: ws.name().to_string(),
+                    handle: handle.map(str::to_string),
+                    workspace_id: workspace_id.map(str::to_string),
+                });
+            })
+        } else {
+            workspaces::close_recorded(ws, handle, workspace_id, workspaces::CLOSE_WAIT).and_then(|()| {
+                // Removing a workspace stops every terminal in it: never while an unrecorded one is left.
+                match workspace_id {
+                    Some(id) => workspaces::ensure_no_other_terminals(ws, Some(id), handle)
+                        .and_then(|()| ws.remove_workspace(id)),
+                    None => Ok(()),
                 }
-                None => Ok(()),
-            }
-        });
+            })
+        };
         if let Err(err) = closed {
             outcome.problems.push(format!("세션을 닫지 못해 폴더를 그대로 두었다(세션 기록 유지): {err}"));
             return Ok(outcome);
@@ -473,7 +512,7 @@ pub fn run(registry_path: &Path, ledger_path: &Path, id: Option<&str>, opts: &Op
     let entries = registry::read_at(registry_path, pick)?;
     let fetch_errors: Vec<(String, String)> =
         entries.iter().filter_map(|e| fetch(e).map(|err| (e.id.clone(), err))).collect();
-    registry::write_at(registry_path, |reg| {
+    let mut outcomes = registry::write_at(registry_path, |reg| {
         let mut outcomes = Vec::new();
         for entry in &entries {
             let mut outcome = match reg.get_mut(&entry.id) {
@@ -492,5 +531,26 @@ pub fn run(registry_path: &Path, ledger_path: &Path, id: Option<&str>, opts: &Op
             outcomes.push(outcome);
         }
         Ok(outcomes)
-    })
+    })?;
+    // The caller's own session goes last, with everything above already saved: stopping it ends
+    // this process, and a failure is reported but changes no record.
+    for outcome in &mut outcomes {
+        if let Some(close) = outcome.deferred_close.take()
+            && let Err(err) = close_deferred(&close)
+        {
+            outcome.problems.push(format!("정리는 끝났지만 이 세션을 닫지 못했다: {err}"));
+        }
+    }
+    Ok(outcomes)
+}
+
+fn close_deferred(close: &DeferredClose) -> Result<()> {
+    let ws = workspaces::get(&close.workspace)?;
+    match (close.workspace_id.as_deref(), close.handle.as_deref()) {
+        (Some(id), handle) => {
+            workspaces::ensure_no_other_terminals(ws, Some(id), handle).and_then(|()| ws.remove_workspace(id))
+        }
+        (None, Some(handle)) => workspaces::close_recorded(ws, Some(handle), None, workspaces::CLOSE_WAIT),
+        (None, None) => Ok(()),
+    }
 }

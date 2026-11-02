@@ -382,6 +382,81 @@ fn clean_never_removes_a_folder_whose_readiness_requires_a_follow_up() {
 }
 
 #[test]
+fn clean_from_inside_its_own_session_finishes_before_stopping_it_and_resumes_a_partial_archive() {
+    use std::os::unix::fs::PermissionsExt;
+    stubs();
+    let root = temp_dir("own");
+    let reg_path = root.join("data/registry.json");
+    let ledger_path = root.join("data/submissions.json");
+    let mut entry = finished(&root, "manual-own", &ledger_path);
+    let folder = root.join("manual-own");
+    fs::write(folder.join(".gitignore"), ".private/\n").unwrap();
+    git(&folder, &["add", "-A"]);
+    git(&folder, &["commit", "-q", "-m", "ignore"]);
+    git(&folder, &["push", "-q"]);
+    fs::create_dir_all(folder.join(".private/rules")).unwrap();
+    let snapshot = folder.join(".private/rules/abc");
+    fs::write(&snapshot, "rule bytes").unwrap();
+    fs::set_permissions(&snapshot, fs::Permissions::from_mode(0o400)).unwrap();
+    // An earlier clean was stopped after archiving: the read-only snapshot is already kept.
+    let archive = root.join("archive");
+    fs::create_dir_all(archive.join("manual-own/.private/rules")).unwrap();
+    fs::copy(&snapshot, archive.join("manual-own/.private/rules/abc")).unwrap();
+
+    let mut child = Command::new("sleep").arg("30").process_group(0).spawn().unwrap();
+    let pid = child.id() as i32;
+    let start = harness::workspaces::headless::start_time(pid).unwrap();
+    entry.session =
+        Some(json!({"workspace": "headless", "runner": "omp", "handle": format!("pid:{pid}/{start}:/tmp/x.log")}));
+    registry::write_at(&reg_path, |reg| {
+        reg.contests.insert(entry.id.clone(), entry.clone());
+        Ok(())
+    })
+    .unwrap();
+
+    let opts = Options {
+        trash_dir: Some(root.join("trash")),
+        archive_dir: Some(archive.clone()),
+        own_session: Some("manual-own".into()),
+        ..Options::default()
+    };
+    let outcome = clean::run(&reg_path, &ledger_path, Some("manual-own"), &opts).unwrap().remove(0);
+    assert!(outcome.ok, "{outcome:?}");
+    assert!(!folder.exists(), "the folder went to the trash");
+    let saved = registry::read_at(&reg_path, |reg| Ok(reg.contests["manual-own"].clone())).unwrap();
+    assert!(saved.session.is_none() && saved.extra.contains_key("folder_removed_at"), "{saved:?}");
+    // Its own session is stopped only after all of that was saved.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the session was not stopped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    // Kept bytes are never overwritten with different ones: the folder stays.
+    let other = finished(&root, "manual-other", &ledger_path);
+    let other_folder = root.join("manual-other");
+    fs::write(other_folder.join(".gitignore"), ".private/\n").unwrap();
+    git(&other_folder, &["add", "-A"]);
+    git(&other_folder, &["commit", "-q", "-m", "ignore"]);
+    git(&other_folder, &["push", "-q"]);
+    fs::create_dir_all(other_folder.join(".private")).unwrap();
+    fs::write(other_folder.join(".private/x"), "new").unwrap();
+    fs::create_dir_all(archive.join("manual-other/.private")).unwrap();
+    fs::write(archive.join("manual-other/.private/x"), "old").unwrap();
+    registry::write_at(&reg_path, |reg| {
+        reg.contests.insert(other.id.clone(), other.clone());
+        Ok(())
+    })
+    .unwrap();
+    let opts = Options { own_session: None, ..opts };
+    let outcome = clean::run(&reg_path, &ledger_path, Some("manual-other"), &opts).unwrap().remove(0);
+    assert!(!outcome.ok && outcome.problems.iter().any(|p| p.contains("내용이 다른")), "{outcome:?}");
+    assert!(other_folder.join(".private/x").exists());
+    assert_eq!(fs::read_to_string(archive.join("manual-other/.private/x")).unwrap(), "old");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn archive_never_copies_anything_outside_the_folder() {
     stubs();
     let root = temp_dir("traversal");
