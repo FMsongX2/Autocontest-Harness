@@ -4,8 +4,8 @@
 
 ## 레벨별 흐름
 
-- 레벨 2: 메인 세션 하나가 이 플레이북 순서대로 직접 쓴다. 지휘(HQ) 절차와 워커 웨이브는 쓰지 않는다. 조사는 조사 에이전트 하나에 맡긴다(DomainResearcher, 기술·논문 근거가 중심이면 ArticleResearcher). 점수 루프(점수표 → 기획 채점 반복 → 쓰기 → 중간·최종 채점 → `ach score` 기록)를 따른다(3절·6절). 원고가 서면 평가표(`gate.json` `criteria`)가 있을 때 최종 채점 전에 ContestEditor에게 결과물 경로를 넘겨 평가표 항목별로 문체·어투·문장을 점검하고 다듬게 한다. ContestEditor가 넘긴 내용 문제(`content_issues`)는 이 세션이 고친다. 평가표가 없으면 건너뛰고 최종 채점한다.
-- 레벨 3: ContestHQ가 이 순서로 SPEC·PLAN·TASKS를 만들고 워커 웨이브로 나눠 쓴다. 체크포인트마다 ContestJudge, 글 마무리는 ContestEditor, PoC 코드는 러너의 기본 `reviewer`.
+- 레벨 2: 메인 세션 하나가 이 플레이북 순서대로 직접 쓴다. 지휘(HQ) 절차와 워커 웨이브는 쓰지 않는다. 조사는 조사 에이전트 하나에 맡긴다(DomainResearcher, 기술·논문 근거가 중심이면 ArticleResearcher). 점수 루프(점수표 → 기획 채점 반복 → 쓰기 → 중간·개선 채점 → 제출 직전 다듬기 → 최종 채점 → `ach score` 기록)를 따른다(3절·6절). 평가표(`gate.json` `criteria`)가 있으면 개선이 끝난 제출 후보에 제출 직전 한 번만 ContestEditor에게 결과물 경로를 넘겨 평가표 항목별로 문체·어투·문장을 점검하고 다듬게 한다. ContestEditor가 넘긴 내용 문제(`content_issues`)는 이 세션이 고친다. 평가표가 없으면 건너뛴다.
+- 레벨 3: ContestHQ가 이 순서로 SPEC·PLAN·TASKS를 만들고 워커 웨이브로 나눠 쓴다. 체크포인트마다 ContestJudge, 제출 직전 다듬기에 한 번 ContestEditor, PoC 코드는 러너의 기본 `reviewer`.
 
 ## 0. 첫 단계
 
@@ -45,7 +45,7 @@
 
 ## 6. 채점 반복
 
-초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. 목표 점수와 `ready`가 나올 때까지 배점이 큰 기준의 감점과 CRITICAL·HIGH부터 고친다. 한글 원고는 초안 직후와, ContestEditor·리뷰어 반영 뒤 최종 채점 전에 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다. 레벨 2는 초안 완성 뒤 ContestEditor(평가표가 있을 때) → 한글 윤문 → 서식 반영·전 페이지 검수 → 최종 채점 순서로 마무리한다.
+초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. 목표 점수와 `ready`가 나올 때까지 배점이 큰 기준의 감점과 CRITICAL·HIGH부터 고친다. ContestEditor 다듬기와 한글 윤문은 개선이 끝나 내용이 확정된 제출 후보에 제출 직전 한 번만 한다(초안 직후나 개선 반복 중에는 하지 않는다). 마무리 순서: 개선 채점 종료 → ContestEditor(평가표가 있을 때) → 한글 윤문 단계(`JUDGE.md` 기록) → 서식 반영·전 페이지 검수 → 최종 채점.
 
 ## 7. HWP 서식 마무리
 

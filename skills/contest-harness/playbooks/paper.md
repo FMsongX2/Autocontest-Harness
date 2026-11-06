@@ -51,8 +51,8 @@ SPEC.md `FR-###`으로 옮길 것:
 
 1. ContestJudge로 심사기준 채점(체크포인트: 초고는 stage `draft`, 서식 반영 뒤 제출 전은 stage `final`이고 제출 파일 목록을 넘겨 `artifacts`를 받는다). 매번 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. 배점이 큰 기준의 감점부터 고친다.
 2. 독립 리뷰 1회 이상: 방법론·인과 해석·통계 검정을 다른 에이전트가 읽기 전용으로 검토한다(연구 도구의 독립 검토 기능이나 과학적 비판 관점의 리뷰어).
-3. 문체·어투·문장은 ContestEditor가 평가표(`gate.json` `criteria`) 기준으로 점검하고 다듬는다(내용·수치는 바꾸지 않는다).
-4. 한글 윤문: 초고 직후와, ContestEditor·리뷰 반영이 끝난 뒤 최종 채점 전에 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다. 리뷰어·ContestEditor·Judge는 기록을 확인만 한다.
+3. 제출 직전 다듬기(한 번): 리뷰 반복이 끝나 내용이 확정되면 ContestEditor가 평가표(`gate.json` `criteria`) 기준으로 문체·어투·문장을 다듬고(내용·수치는 바꾸지 않는다), 이어서 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다. 초고 직후나 리뷰 반복 중에는 돌리지 않는다. 리뷰어·ContestEditor·Judge는 윤문 기록을 확인만 한다.
+4. 다듬은 파일로 서식 반영·전 페이지 검수 뒤 최종 채점(stage `final`)을 받는다.
 5. 지적을 고치고 JUDGE.md에 기록한다. 목표 점수와 `ready`까지 반복한다.
 
 ## 7. 서식과 PDF

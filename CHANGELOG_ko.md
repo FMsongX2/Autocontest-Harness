@@ -4,6 +4,12 @@
 
 주요 변경 기록이다. 버전은 [Semantic Versioning](https://semver.org/)을 따른다. 1.0 전에는 마이너 버전이 CLI나 파일 형식을 바꿀 수 있고, 그때는 항목에 무엇을 어떻게 옮기는지 적는다.
 
+## 0.8.4 - 2026-11-07
+
+- **바뀜**:
+  - ContestEditor 다듬기와 한글 윤문(`humanize-korean`)은 제출 직전에 한 번만 한다. 개선 채점이 끝나 내용이 확정된 제출 후보에 ContestEditor → 윤문 → 전 페이지 검수 → 최종 채점 순서로 돌리고, 초안 직후나 개선 반복 중에는 돌리지 않는다(스킬 점수 루프 3~5단계, 레벨 지시문, ContestHQ, ContestEditor, 플레이북, CONTRACT).
+  - ContestJudge는 호출자가 다듬기를 마친 제출 후보라고 밝힌 `final`에서만 윤문 기록을 본다. `draft`와 개선 반복 중의 `final`은 기록이 없어도 HIGH 발견 사항을 내지 않는다.
+
 ## 0.8.3 - 2026-11-03
 
 - **수정**:

@@ -216,7 +216,7 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `ach capacity` | 지금 띄울 수 있는 세션 수를 보여 준다. JSON 필드: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `ach board` | 저장된 기록만으로(네트워크·백엔드 호출 없음) 할 일 중심 `BOARD.md`를 쓴다([보드](#보드) 참고) |
 | `ach tick [--no-collect] [--auto-launch]` | 제어 루프를 한 번 돈다: 수집하고, 게이트 대기 목록을 내고, 선택하면 용량 안에서 라우팅·실행하고, `BOARD.md`를 갱신한다. `new_work_frozen`이면 수집도 실행도 하지 않는다. 정기 실행이 JSON을 읽을 수 있게 종료 코드는 0이다. 텍스트는 오류 건수로 시작하고, JSON에는 `warnings`와 `scout`(지금 현지 시각이 `schedule.scout_hours` 안인지)가 더해진다 |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.3", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.4", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트를 기록하거나, `--file` 없이 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다. 기본은 읽기 전용, `--apply`는 관측만 저장한다 |
 | `ach recover <id> --expected-observation TOKEN [--dry-run]` | 복구 조건을 모두 만족할 때만 사라진 세션을 저장된 대화로 다시 연다 |

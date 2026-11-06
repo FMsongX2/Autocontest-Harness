@@ -4,6 +4,12 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.8.4 - 2026-11-07
+
+### Changed
+- ContestEditor polishing and the Korean prose polish (`humanize-korean`) now run once, right before submission: on the submission candidate after improvement scoring has settled its content, in the order ContestEditor → polish → page review → final score. They no longer run after the first draft or during improvement loops (skill score loop steps 3–5, level prompts, ContestHQ, ContestEditor, playbooks, CONTRACT).
+- ContestJudge checks the polish record only on a `final` the caller marks as the polished submission candidate; `draft` and improvement-loop `final` scores no longer get a HIGH finding for a missing record.
+
 ## 0.8.3 - 2026-11-03
 
 ### Fixed

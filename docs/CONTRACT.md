@@ -295,7 +295,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
 | `ach doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD. 그 사이 커밋이 문서(`README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `CHANGELOG*.md`, `docs/`, `references/`, `LICENSE`)만 바꿨으면 ok, 바이너리 커밋이 클론 이력에 없으면 경고), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `ach install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
 | `ach --version` | `<버전> (<12자리 git sha>)` |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.3", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.4", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트(17절). `--file`이면 기록하고, 없으면 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다(17절). 기본은 읽기 전용이고, `--apply`는 관측 결과만 저장한다(띄우거나 닫지 않는다) |
 | `ach recover <id> --expected-observation <토큰> [--dry-run]` | 모든 복구 조건이 맞을 때만 같은 대화 기록으로 세션을 다시 연다(17절) |
@@ -652,7 +652,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 1. 점수표(`RUBRIC.md` `## 1. 기준별 풀이`, 템플릿 `harness/templates/RUBRIC.md`): `.harness/gate.json`의 `criteria`(단계·이름·배점)를 기준별로 풀어 쓴다. 만점 조건, 감점 요인, 필요한 근거, 입상작이라면 있었을 것, 공고 원문 위치. 배점이 공개되지 않았으면 [가정] 균등 배분. 목표 총점은 SPEC의 값(기본 90/100).
 2. 기획 채점(stage `plan`): 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge가 점수표로 예측 채점한다. 가장 높은 후보를 고르고 기준별 부족분을 기획에 반영해 다시 채점한다. 예측 총점이 목표 이상이 되거나 3회를 돌 때까지 하고, 그 뒤에 만든다. 호출 세션은 매번 채점 근거 절에 문서화한 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하라고 지시하고, 후보마다·재채점마다 새 ContestJudge 실행을 부른다(이전 실행을 이어 쓰지 않는다). Judge는 근거 절을 공고 원문과 대조하고, 다르면 공고 원문으로 채점하며 차이를 발견 사항으로 낸다.
 3. 중간 채점(stage `draft`): 결과물 초안이 나오면 채점하고, 배점이 큰 기준의 감점부터 고친다.
-4. 최종 채점(stage `final`): 제출 직전. 한글 본문이면 ContestEditor 다듬기와 그 뒤 호출 세션의 한글 윤문(`skills/contest-harness/SKILL.md` "한글 윤문 단계")을 마친 파일을 채점한다. 호출 세션은 제출할 파일 목록, 전 페이지 비전 검수 기록, 한글 윤문 기록 위치를 Judge에 넘긴다.
+4. 최종 채점(stage `final`): 제출 직전. 개선 채점이 끝나 내용이 확정된 제출 후보에만 ContestEditor 다듬기(평가표가 있을 때)와 그 뒤 호출 세션의 한글 윤문(`skills/contest-harness/SKILL.md` "한글 윤문 단계")을 한 번 하고, 그 파일을 채점한다. 초안·중간 단계와 개선 반복 중에는 ContestEditor와 윤문을 돌리지 않으며, Judge는 다듬기를 마친 제출 후보의 `final`에서만 윤문 기록을 본다. 호출 세션은 제출할 파일 목록, 전 페이지 비전 검수 기록, 한글 윤문 기록 위치를 Judge에 넘긴다.
 5. 점수는 매번 `ach score`로 레지스트리에 남긴다. 기준별 점수와 총점 추이가 남아야 무엇이 점수를 올렸는지 안다.
 6. 개선 채점과 독립 최종 평가를 나눈다. `plan`·`draft`와 개선 반복 중의 `final` 채점(개선 채점)은 작업 맥락(이전 점수, `JUDGE.md`, 수정 이력)을 봐도 된다. 위임 승인의 근거가 될 최종 점수는 독립 최종 평가로 낸다: 세션이 `ach evaluation prepare`로 이전 점수·이력·`JUDGE.md`·작성자 정보가 빠진 격리 패킷을 만들고, 새 ContestJudge 실행이 그 패킷만 읽어 채점한 결과를 `ach evaluation record`로 남긴 뒤, 같은 총점·판정·기준과 `evaluation_id`·`assessment_id`를 담은 `final` Judge 출력을 `ach score --stage final`로 기록한다(19절). 레벨 1, 영상 공모전에서 `delegation.video_score_exempt`로 점수 조건을 면제받은 경우, 사용자가 직접 승인하는 경우에는 독립 평가가 필수가 아니다(그래도 권장한다).
 
@@ -696,7 +696,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 
 ### 한글 윤문
 
-- 한글 본문(보고서·제안서·정책 제안·논문·기획서·신청서·칼럼·에세이)은 외부 공용 스킬 `humanize-korean`으로 윤문해야 한다(선택이 아니다). 영상 대본·카드 문구·코드·로그는 대상이 아니다.
+- 한글 본문(보고서·제안서·정책 제안·논문·기획서·신청서·칼럼·에세이)은 외부 공용 스킬 `humanize-korean`으로 윤문해야 한다(선택이 아니다). 시점은 제출 직전 한 번이다: ContestEditor 다듬기까지 마친 제출 후보에 돌리고, 초안 직후나 개선 반복 중에는 돌리지 않는다. 영상 대본·카드 문구·코드·로그는 대상이 아니다.
 - 실행은 결과물을 쓴 호출 세션이 한다. 공모전 폴더의 `.private/humanize/`를 작업 폴더로 스킬 절차대로 `_workspace/<run_id>/`를 만들고, 원문은 바꾸지 않은 사본으로만 넘기며, 스킬의 `scripts/guarded_check.py`와 직접 대조(수치·부호·단위·건수, 인용·출처, 수식, 코드, 제목, 표 구조, 공고 서식)를 모두 통과한 윤문본만 채택한다. 하나라도 실패하거나 오류·불확실하면 이미 검토된 기준본을 바꾸지 않고 그대로 쓴다.
 - 기록은 `JUDGE.md` "한글 윤문 기록" 표(템플릿 `harness/templates/JUDGE.md`)에 대상 파일마다 `run_id`, 경로, 작업 폴더, 검사 결과, 직접 대조 결과, 채택 여부, 적용 뒤 SHA-256으로 남긴다. ContestEditor·문서 리뷰어·ContestJudge는 이 기록을 읽어 확인만 하고 윤문을 실행하지 않는다. 최종 채점 대상 파일의 해시는 마지막 기록과 같아야 하고, 아니면 Judge가 HIGH 발견 사항으로 낸다.
 - 세부 절차는 `skills/contest-harness/SKILL.md`의 "한글 윤문 단계"를 따른다.

@@ -4,10 +4,10 @@
 - 오픈소스 재사용: `OpenSourceScout`가 `research/oss.md`에 구성 요소마다 `reuse`/`fork`/`reference`/`build`를 정한다. SPEC·PLAN의 `## 오픈소스 재사용` 절과 기획 채점 후보의 범위는 이 결정을 따른다. 맞는 것이 없는 부분만 만들고, 아낀 품은 배점이 큰 심사기준에 돌린다. 글·창작만 하는 결과물이면 건너뛴다.
 - 기록: 채점마다 Judge 출력 JSON을 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 남긴다. 공모전을 시작할 때 가장 먼저 `RUBRIC.md` `## 0. 채점 근거`(주최·주관·개최 목적·심사기준과 공고 원문 위치)를 문서화한다(ContestHQ 1단계). 기획 채점은 후보마다·재채점마다 새 ContestJudge를 부르고, 매번 그 절에 문서화한 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하고 `basis`로 밝히라고 지시하며, 출력에 이번 실행의 `evaluator {id, model, run_id}`를 붙인다(스킬 "점수 루프" 2단계).
 - 서비스형이면 SPEC 전에 `ReferenceScout`로 레퍼런스를, 화면이 있으면 체크포인트에서 `UxReviewer`를 골라 쓸 수 있다.
-- 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표(`gate.json`의 `criteria`)가 있으면 최종 채점 전에 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
+- 리뷰어: 체크포인트마다 `ContestJudge`(중간은 `draft`, 제출 직전은 `final`). 글 산출물이고 평가표(`gate.json`의 `criteria`)가 있으면 제출 직전 다듬기 때 한 번만 `ContestEditor`, 코드면 러너의 기본 `reviewer`(없으면 이 세션이 직접 코드 리뷰).
 - 웨이브 폭은 매번 `ach capacity --json`의 `recommended_workers`를 넘기지 않는다(`ram.budget_gb`로 묶인 값). 0이거나 `ram.pressure`가 warning 이상이면 순차로 직접 한다.
 - 템플릿은 `<harness>/harness/templates/`에 있다.
-- 한글 윤문: 한글 본문이면 이 세션이 `contest-harness` 스킬의 "한글 윤문 단계"를 실행해 `JUDGE.md`에 기록한다(초안 직후, 그리고 ContestEditor·리뷰어 반영 뒤 최종 채점 전). ContestEditor·리뷰어·Judge는 기록을 확인만 한다.
+- 제출 직전 다듬기(한 번): 개선 채점이 끝나 내용이 확정된 제출 후보에만 `ContestEditor`(평가표가 있을 때) → `contest-harness` 스킬의 "한글 윤문 단계"(한글 본문일 때) 순서로 한 번 하고 `JUDGE.md`에 기록한 뒤 최종 채점을 받는다. 초안 직후나 개선 반복 중에는 돌리지 않는다. ContestEditor·리뷰어·Judge는 윤문 기록을 확인만 한다.
 - 관문: `awaiting_approval` 전이에는 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수(Judge가 검토한 `artifacts` 포함)가 필요하다. 목표 미달로 내야 하면 `--score-ok "<사유>"`. 전이 전에 `ach check`를 확인하고, 최종 채점 `artifacts` 안의 파일로 `ach readiness`를 기록한다.
 - 개선 채점과 독립 최종 평가: `plan`·`draft`와 개선 반복의 `final` 채점에는 작업 맥락(이전 점수, `JUDGE.md`)을 넘겨도 된다. 개선이 끝난 최종본은 `contest-harness` 스킬의 "독립 최종 평가"대로 블라인드 패킷(`ach evaluation prepare`)을 새 `ContestJudge` 실행이 패킷만 읽고 채점하게 한 뒤 `ach evaluation record`, 같은 값과 `evaluation_id`·`assessment_id`로 `ach score --stage final`을 기록한다(위임 승인에 필요, 영상 점수 면제 제외). 규칙 변경으로 단계가 무효가 되면(`ach rules status`) 그 단계를 다시 채점하거나 재검토를 남긴다. 웨이브·단계가 끝날 때마다 `ach checkpoint`를 남긴다.
 - 사람 관문: 창작물 콘셉트 선택, 제출 승인(사용자 승인 또는 사용자가 준 상시 위임 범위의 위임 승인).

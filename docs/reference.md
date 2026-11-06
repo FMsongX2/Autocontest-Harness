@@ -216,7 +216,7 @@ Every command accepts `--json`. CLI messages and `BOARD.md` are in Korean. Exit 
 | `ach capacity` | Shows how many sessions can start now. JSON fields: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram` (`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `ach board` | Writes the action-oriented `BOARD.md` from stored records only (no network or backend calls); see [Board](#board) |
 | `ach tick [--no-collect] [--auto-launch]` | Runs one control loop: collect, list contests waiting for the gate, optionally route and launch within capacity, then update `BOARD.md`. With `new_work_frozen` it neither collects nor launches. Exits 0 so the scheduled run can read its JSON; the text starts with the error count, and JSON adds `warnings` and `scout` (whether the current local hour is in `schedule.scout_hours`) |
-| `ach contract [--json]` | The interface contract of this binary: `{protocol: 2, version: "0.8.3", capabilities: [...]}`. Controllers check `protocol == 2` before any side effect |
+| `ach contract [--json]` | The interface contract of this binary: `{protocol: 2, version: "0.8.4", capabilities: [...]}`. Controllers check `protocol == 2` before any side effect |
 | `ach checkpoint <id> [--file F]` | Records a stage checkpoint, or prints the latest one without `--file` |
 | `ach reconcile [<id>] [--apply]` | Observes recorded sessions and workspaces. Read-only by default; `--apply` stores the observation only |
 | `ach recover <id> --expected-observation TOKEN [--dry-run]` | Reopens a missing session with its saved conversation only when every recovery condition holds |
