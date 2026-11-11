@@ -4,6 +4,11 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.8.5 - 2026-11-12
+
+### Fixed
+- `ach score` refused every score for a gate with a pass/fail screening step published as weight 0 (e.g. a first-round topic screen): the Judge could neither list it (weights must be above 0) nor omit it (every gate criterion had to be scored). Weight-0 gate criteria are now treated as unscored screens and are not required.
+
 ## 0.8.4 - 2026-11-07
 
 ### Changed

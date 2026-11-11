@@ -163,6 +163,14 @@ fn record_score_checks_gate_criteria_and_reviewed_files() {
     assert!(refused(&mut e, &round, "draft").contains("참신성"));
     assert!(e.scores.is_empty(), "nothing is stored on a refusal");
 
+    // A weight-0 gate criterion is a pass/fail screen: not scored, not required.
+    let mut screened = e.clone();
+    screened.gate.as_mut().unwrap()["criteria"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, json!({"stage": "1차", "name": "주제 적합 선별", "weight": 0}));
+    record_score(&mut screened, &judge(25.0, 60.0, "revise"), "draft", "f", "").unwrap();
+
     // final needs the reviewed files, matching the folder now.
     assert!(refused(&mut e, &judge(27.0, 65.0, "ready"), "final").contains("artifacts"));
     let mut j = judge(27.0, 65.0, "ready");

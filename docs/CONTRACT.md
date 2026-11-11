@@ -295,7 +295,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
 | `ach doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD. 그 사이 커밋이 문서(`README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `CHANGELOG*.md`, `docs/`, `references/`, `LICENSE`)만 바꿨으면 ok, 바이너리 커밋이 클론 이력에 없으면 경고), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `ach install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
 | `ach --version` | `<버전> (<12자리 git sha>)` |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.4", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.5", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트(17절). `--file`이면 기록하고, 없으면 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다(17절). 기본은 읽기 전용이고, `--apply`는 관측 결과만 저장한다(띄우거나 닫지 않는다) |
 | `ach recover <id> --expected-observation <토큰> [--dry-run]` | 모든 복구 조건이 맞을 때만 같은 대화 기록으로 세션을 다시 연다(17절) |

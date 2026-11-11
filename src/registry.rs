@@ -782,12 +782,15 @@ fn points_label(value: f64) -> String {
 
 type GateCriterion = (Option<String>, String, Option<f64>);
 
-/// The criteria of `gate.json` as `(round, name, weight)`; `None` when the gate gives no usable
-/// list (then the Judge rows are not compared with it).
+/// The scored criteria of `gate.json` as `(round, name, weight)`; `None` when the gate gives no
+/// usable list (then the Judge rows are not compared with it). A criterion published with weight 0
+/// is a pass/fail screening step (e.g. "1차 주제 적합 선별"): it carries no points, so it is not
+/// scored and not required.
 fn gate_criteria(entry: &Entry) -> Option<Vec<GateCriterion>> {
     let items = entry.gate.as_ref()?.get("criteria")?.as_array()?;
     let parsed: Vec<_> = items
         .iter()
+        .filter(|c| number(c, "weight") != Some(0.0))
         .filter_map(|c| {
             let name = c.get("name")?.as_str()?.trim();
             let round = c.get("stage").and_then(Value::as_str).map(str::trim).filter(|r| !r.is_empty());
