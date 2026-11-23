@@ -133,24 +133,38 @@ function lastNote(e: Entry): string {
 
 const IN_PROGRESS: Record<string, true> = { gate_pass: true, routed: true, running: true }
 
-function boardSummary(entries: Entry[], cap: Capacity | null, boardPath: unknown): string {
+// What `ach handoff --dry-run` says a submission waits for: contest id → display label
+// (`승인됨`, `제출 중`, `접수 기간 전(개시 …)`, `필수 정보 부족`, …). `사용자 승인 대기` is in it only
+// when the request is the user's to approve.
+function handoffLabels(value: unknown): Map<string, string> {
+  const labels = new Map<string, string>()
+  const results = (value as { results?: unknown } | null)?.results
+  if (!Array.isArray(results)) return labels
+  for (const r of results as Array<{ id?: unknown; display?: { label?: unknown } }>) {
+    if (typeof r?.id === 'string' && typeof r.display?.label === 'string') labels.set(r.id, r.display.label)
+  }
+  return labels
+}
+
+function boardSummary(entries: Entry[], cap: Capacity | null, boardPath: unknown, handoff: Map<string, string>): string {
   const out: string[] = []
   const counts = new Map<string, number>()
   for (const e of entries) counts.set(String(e.state), (counts.get(String(e.state)) ?? 0) + 1)
   const byState = [...counts].map(([s, n]) => `${s} ${n}`).join(' · ')
   out.push(`공모전 ${entries.length}건${byState ? `: ${byState}` : ''}`)
 
-  const section = (title: string, rows: Entry[], note = false) => {
+  const section = (title: string, rows: Entry[], note = false, labels?: Map<string, string>) => {
     if (!rows.length) return
     out.push(`${title} (${rows.length})`)
     for (const e of rows.slice(0, 10)) {
       const n = note ? lastNote(e) : ''
-      out.push(`${line(e)}${n ? ` — ${n}` : ''}`)
+      const label = labels?.get(String(e.id))
+      out.push(`${line(e)}${label ? ` · ${label}` : ''}${n ? ` — ${n}` : ''}`)
     }
     if (rows.length > 10) out.push(`- … ${rows.length - 10}건 더`)
   }
   const byDeadline = (a: Entry, b: Entry) => String(a.deadline ?? '9999').localeCompare(String(b.deadline ?? '9999'))
-  section('제출 승인 대기', entries.filter((e) => e.state === 'awaiting_approval').sort(byDeadline), true)
+  section('제출 단계(승인·접수)', entries.filter((e) => e.state === 'awaiting_approval').sort(byDeadline), true, handoff)
   section('계획 검수 대기(레벨 5)', entries.filter((e) => e.state === 'plan_review').sort(byDeadline), true)
   const holds = entries.filter((e) => e.state === 'hold').sort(byDeadline)
   if (holds.length) {
@@ -219,7 +233,12 @@ export default function (omp: HostApi): void {
           show(ctx, entrySummary((await runHarness(['show', id])) as Entry))
           return
         }
-        const [board, list, cap] = await Promise.allSettled([runHarness(['board']), runHarness(['list']), runHarness(['capacity'])])
+        const [board, list, cap, handoff] = await Promise.allSettled([
+          runHarness(['board']),
+          runHarness(['list']),
+          runHarness(['capacity']),
+          runHarness(['handoff', '--dry-run']),
+        ])
         if (list.status === 'rejected') throw list.reason
         const entries: Entry[] = Array.isArray(list.value) ? list.value : []
         const boardValue = board.status === 'fulfilled' ? board.value : null
@@ -227,8 +246,11 @@ export default function (omp: HostApi): void {
           entries,
           cap.status === 'fulfilled' ? (cap.value as Capacity) : null,
           boardValue && typeof boardValue === 'object' && 'board' in boardValue ? boardValue.board : null,
+          handoffLabels(handoff.status === 'fulfilled' ? handoff.value : null),
         )
-        const errors = [board, cap].filter((r) => r.status === 'rejected').map((r) => errorText((r as PromiseRejectedResult).reason))
+        const errors = [board, cap, handoff]
+          .filter((r) => r.status === 'rejected')
+          .map((r) => errorText((r as PromiseRejectedResult).reason))
         show(ctx, errors.length ? `${text}\n오류: ${errors.join(' / ')}` : text, errors.length ? 'warning' : 'info')
       } catch (err) {
         show(ctx, `ach 실패: ${errorText(err)}`, 'error')

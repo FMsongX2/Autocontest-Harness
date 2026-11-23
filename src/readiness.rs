@@ -260,11 +260,43 @@ fn base_record(entry: &Entry, f: &Fields, artifacts: Vec<Value>) -> Map<String, 
     record
 }
 
+/// What a readiness record submits: the files and their hashes, where and when they go, what
+/// blocks it, and the work revision and rule baseline it was recorded against. Two records with
+/// the same values here are the same submission, whatever their sequence numbers and times.
+const CONTENT_KEYS: &[&str] = &[
+    "revision",
+    "submission_ready",
+    "needs_user_input",
+    "blockers",
+    "artifacts",
+    "followup_required",
+    "rules_binding",
+    "destination",
+    OPENS_AT,
+];
+
+/// When the official submission window opens (optional, KST), for a request that is ready before it.
+pub const OPENS_AT: &str = "submission_opens_at";
+
+/// `submission_opens_at` as stored: `YYYY-MM-DDTHH:MM+09:00` (a date alone means 00:00 that day).
+fn opens_at_value(entry: &Entry, value: &Value) -> Result<String> {
+    let stamp = value.as_str().and_then(crate::text::normalize_stamp);
+    let Some(stamp) = stamp else {
+        bail!(
+            "{}: {OPENS_AT}은 공고의 접수 개시 일시(YYYY-MM-DD 또는 YYYY-MM-DDTHH:MM+09:00)여야 한다. 이미 접수 중이면 뺀다",
+            entry.id
+        )
+    };
+    Ok(if stamp.len() == 10 { format!("{stamp}T00:00+09:00") } else { stamp })
+}
+
 /// Record a readiness request (`ach readiness <id> --file F`) and return it. `raw` needs
 /// `submission_ready`, `needs_user_input`, `followup_required` (booleans), `blockers` (strings)
-/// and non-empty `artifacts [{path, sha256}]` matching the files now. Only in `running` or
-/// `awaiting_approval`. Each record gets the next sequence number and the current work revision;
-/// a new record changes the request token, so an earlier approval no longer counts.
+/// and non-empty `artifacts [{path, sha256}]` matching the files now; `destination` and
+/// `submission_opens_at` (when the official window opens, for a request that is ready before it)
+/// are optional. Only in `running` or `awaiting_approval`. Each record gets the next sequence
+/// number and the current work revision; a new record changes the request token, so an earlier
+/// approval no longer counts.
 pub fn record(entry: &mut Entry, raw: &Value) -> Result<Value> {
     if !RECORD_STATES.contains(&entry.state.as_str()) {
         bail!("{}: 제출 준비는 running이나 awaiting_approval에서만 기록한다(지금 {})", entry.id, entry.state);
@@ -288,8 +320,56 @@ pub fn record(entry: &mut Entry, raw: &Value) -> Result<Value> {
         }
         record["destination"] = json!(destination);
     }
+    if let Some(value) = raw.get(OPENS_AT).filter(|v| !v.is_null()) {
+        record[OPENS_AT] = json!(opens_at_value(entry, value)?);
+    }
     push(entry, record.clone());
     Ok(record)
+}
+
+/// The request token as the stored records give it, without reading any file: `None` without a
+/// readable readiness record. [`evaluate`] gives the same token when the request checks out.
+pub fn request_token(entry: &Entry) -> Option<String> {
+    let seq = original(entry)?.get("seq")?.as_u64()?;
+    Some(token(entry, registry::revision(entry), seq, entry.scores.len()))
+}
+
+/// The original request behind the latest record: the record itself, or the approved request a
+/// personalized record was made from.
+fn original(entry: &Entry) -> Option<&Value> {
+    let current = latest(entry)?;
+    let parsed = stored(entry, current)?;
+    match parsed.root_seq {
+        None => Some(current),
+        Some(root) => find_seq(entry, root),
+    }
+}
+
+fn content_of(record: &Value) -> Value {
+    let mut content = Map::new();
+    for key in CONTENT_KEYS {
+        content.insert((*key).to_string(), record.get(*key).cloned().unwrap_or(Value::Null));
+    }
+    Value::Object(content)
+}
+
+/// What the current request submits, as the stored records give it (no file is read): the
+/// [`CONTENT_KEYS`] of the original request. Two requests with equal content are the same
+/// submission even when their tokens differ (a new score, the same files recorded again).
+pub fn request_content(entry: &Entry) -> Option<Value> {
+    original(entry).map(content_of)
+}
+
+/// [`request_content`] of the request recorded under sequence number `seq` (the `s<seq>` of a
+/// request token), for comparing an earlier request with the current one.
+pub fn content_at(entry: &Entry, seq: u64) -> Option<Value> {
+    let record = find_seq(entry, seq)?;
+    stored(entry, record).filter(|parsed| parsed.root_seq.is_none()).map(|_| content_of(record))
+}
+
+/// When the submission window of the current request opens, if the record says so.
+pub fn opens_at(entry: &Entry) -> Option<&str> {
+    original(entry)?.get(OPENS_AT)?.as_str()
 }
 
 fn valid_email(value: &str) -> bool {
@@ -390,6 +470,49 @@ fn check_stored(entry: &Entry, record: &Stored<'_>, revision: usize, original: b
     if check_artifacts(entry, record.artifacts).is_err() {
         reasons.push(pick("artifact_changed", "original_artifact_changed"));
     }
+}
+
+/// The readiness reasons the stored records alone give, without hashing any file: the codes of
+/// [`evaluate`] for a missing, unreadable or stale record, a record that is not ready, asks the
+/// user or names blockers, and a rule baseline that moved on. Status views that must not touch
+/// the contest folder (the board) use it; approvals always go through [`evaluate`].
+pub fn record_reasons(entry: &Entry) -> Vec<&'static str> {
+    let revision = registry::revision(entry) as u64;
+    let mut reasons: Vec<&'static str> = Vec::new();
+    let mut check = |record: &Stored<'_>, original: bool| {
+        let pick = |plain: &'static str, root: &'static str| if original { root } else { plain };
+        if record.revision != revision {
+            reasons.push(pick("readiness_stale_revision", "original_readiness_stale_revision"));
+        }
+        if !record.fields.submission_ready {
+            reasons.push(pick("readiness_not_ready", "original_readiness_not_ready"));
+        }
+        if record.fields.needs_user_input {
+            reasons.push(pick("needs_user_input", "original_needs_user_input"));
+        }
+        if !record.fields.blockers.is_empty() {
+            reasons.push(pick("blockers_present", "original_blockers_present"));
+        }
+    };
+    match (entry.extra.get(KEY), latest(entry).and_then(|v| stored(entry, v))) {
+        (None, _) => return vec!["readiness_missing"],
+        (Some(_), None) => return vec!["readiness_ambiguous"],
+        (Some(_), Some(current)) => {
+            check(&current, false);
+            if let Some(root_seq) = current.root_seq {
+                match find_seq(entry, root_seq).and_then(|v| stored(entry, v)) {
+                    Some(root) if root.root_seq.is_none() => check(&root, true),
+                    _ => reasons.push("personalization_original_missing"),
+                }
+            }
+        }
+    }
+    if crate::rules::status(entry)["tracked"] == true
+        && latest(entry).and_then(|r| r.get("rules_binding")) != Some(&crate::rules::binding(entry))
+    {
+        reasons.push("readiness_rules_stale");
+    }
+    reasons
 }
 
 /// Evaluate the core submission-approval conditions: `awaiting_approval`; a current readiness

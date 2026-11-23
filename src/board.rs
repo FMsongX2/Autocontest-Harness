@@ -1,7 +1,9 @@
 //! `BOARD.md`: contests grouped by state, with a user-attention section and, for active work, the
 //! runtime, next action, blocker codes and last evidence time from [`runtime::summary`]. The board
-//! only reads the registry (no backend, network or file probes) and shows codes, never notes,
-//! checkpoint text or readiness blocker prose.
+//! only reads stored state (the registry, the configuration and the handoff journal; no backend,
+//! network or contest-folder probes) and shows codes and fixed labels, never notes, checkpoint
+//! text or readiness blocker prose. Contests in `awaiting_approval` show what the submission is
+//! waiting for; `사용자 승인 대기` only when the request is the user's to approve.
 
 use std::path::PathBuf;
 
@@ -16,7 +18,7 @@ use crate::runtime;
 use crate::text::{kst, now};
 
 const ORDER: &[(&str, &str)] = &[
-    ("awaiting_approval", "제출 승인 대기"),
+    ("awaiting_approval", "제출 단계(승인·접수)"),
     ("plan_review", "레벨 5 계획 검수 대기"),
     ("running", "진행 중"),
     ("routed", "라우팅됨(실행 전)"),
@@ -117,11 +119,19 @@ fn blocker_cell(summary: &Value) -> String {
     if all.is_empty() { "-".to_string() } else { all.join(", ") }
 }
 
-/// An active row: the plain columns, then runtime, next action (and due time), blocker and gap
-/// codes, and the latest evidence time.
+/// What a person is shown for an `awaiting_approval` entry: the handoff display label
+/// (`승인됨`, `제출 중`, `접수 기간 전(개시 …)`, …). `사용자 승인 대기` appears only for a request
+/// that is the user's to approve.
+fn handoff_cell(summary: &Value) -> &str {
+    summary["handoff"]["label"].as_str().unwrap_or("-")
+}
+
+/// An active row: the plain columns, then (for `awaiting_approval`) the submission status, the
+/// runtime, next action (and due time), blocker and gap codes, and the latest evidence time.
 fn active_row(e: &Entry, summary: &Value, today: NaiveDate) -> String {
+    let status = if e.state == "awaiting_approval" { format!(" {} |", handoff_cell(summary)) } else { String::new() };
     format!(
-        "{} {} | {} | {} | {} |",
+        "{}{status} {} | {} | {} | {} |",
         row(e, today),
         runtime_cell(summary),
         next_cell(summary),
@@ -130,17 +140,22 @@ fn active_row(e: &Entry, summary: &Value, today: NaiveDate) -> String {
     )
 }
 
-/// One attention row: id, workflow state, codes, next action and its due time. No titles or notes.
+/// One attention row: id, workflow state (with the submission status while `awaiting_approval`),
+/// codes, next action and its due time. No titles or notes.
 fn attention_row(e: &Entry, summary: &Value) -> String {
     let mut reasons = codes(summary, "blockers");
     if summary["needs_user_input"].as_bool() == Some(true) && !reasons.iter().any(|c| c == "needs_user_input") {
         reasons.push("needs_user_input".into());
     }
     let reasons = if reasons.is_empty() { "-".to_string() } else { reasons.join(", ") };
+    let state = if e.state == "awaiting_approval" {
+        format!("{} · {}", e.state, handoff_cell(summary))
+    } else {
+        e.state.clone()
+    };
     format!(
-        "| `{}` | {} | {reasons} | {} | {} |",
+        "| `{}` | {state} | {reasons} | {} | {} |",
         e.id,
-        e.state,
         summary["next_action"].as_str().unwrap_or("none"),
         summary["next_action_at"].as_str().unwrap_or("-")
     )
@@ -203,7 +218,14 @@ pub fn render_on(registry: &Registry, today: NaiveDate) -> String {
             lines.push(String::new());
             continue;
         }
-        if SCORED.contains(&state) {
+        if state == "awaiting_approval" {
+            lines.push(
+                "| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 제출 상태 | 런타임 | 다음 조치 | 막힘 | 근거 시각 |"
+                    .to_string(),
+            );
+            lines.push("|---|---|---|---|---|---|---|---|---|---|".to_string());
+            lines.extend(rows.iter().map(|e| active_row(e, &summaries[e.id.as_str()], today)));
+        } else if SCORED.contains(&state) {
             lines.push("| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 런타임 | 다음 조치 | 막힘 | 근거 시각 |".to_string());
             lines.push("|---|---|---|---|---|---|---|---|---|".to_string());
             lines.extend(rows.iter().map(|e| active_row(e, &summaries[e.id.as_str()], today)));

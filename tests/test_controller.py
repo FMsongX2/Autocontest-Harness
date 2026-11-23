@@ -189,8 +189,12 @@ class ApproveLifecycleTests(Home):
              ('user_approval_request', ['delegation_disabled', 'delegation_off'])),
             ({'status': 'handoff_unknown', 'reasons': ['send_outcome_unknown']},
              ('handoff_attention', ['handoff_unknown', 'send_outcome_unknown'])),
-            ({'status': 'submission_exists', 'reasons': ['submission_unknown']},
-             ('approval_blocked', ['submission_unknown'])),
+            ({'status': 'submission_exists', 'reasons': ['submission_unknown'],
+              'display': {'state': 'sent_confirming'}},
+             ('approval_blocked', ['display:sent_confirming', 'submission_unknown'])),
+            ({'status': 'waiting', 'reasons': ['submission_not_open'], 'user_approval_request': False,
+              'display': {'state': 'before_window', 'opens_at': '2099-01-05T00:00+09:00'}},
+             ('approval_blocked', ['display:before_window', 'submission_not_open'])),
         ]
         for result, expected in cases:
             with self.subTest(status=result['status']):
@@ -205,6 +209,13 @@ class ApproveLifecycleTests(Home):
         for status in ('already_handed_off', 'approved_elsewhere', 'not_applicable'):
             self.waiting_cycle({'status': status, 'reasons': []})
         self.assertEqual(events(self.home / 'data/auto-approve/events.jsonl'), [])
+
+    def test_the_same_submission_under_a_new_token_is_logged_not_alerted(self):
+        self.waiting_cycle({'status': 'reapproved', 'reasons': [], 'request_token': 'tok-2',
+                            'record': {'message_id': 'msg_1', 'continues': 'tok-1'}})
+        logged = events(self.home / 'data/auto-approve/events.jsonl')
+        self.assertEqual([(e['event'], e.get('request_token'), e.get('message_id')) for e in logged],
+                         [('reapproved', 'tok-2', 'msg_1')])
 
 
 class PreflightAndLockTests(Home):

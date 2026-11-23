@@ -4,6 +4,25 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.4 - 2026-11-24
+
+### Fixed
+- The same submission was handed off twice. A request token changes whenever a readiness record or a score is added, and 0.9.2 and 0.9.3 took every new token for a new request: a contest handed off on one event (a final score, say) was approved and handed off again when its session recorded the same files and destination once more. The handoff journal now keeps a hash of what the request submits (work revision, file paths and SHA-256, destination, opening time, the readiness fields, rule baseline). A new token whose content was already handed off only gets its approval recorded again (`reapproved`, with `continues` naming the earlier token); no second message is sent. If the earlier message's outcome is unknown, the approval is recorded and the handoff stays `handoff_unknown`. Changed files, a changed destination, or a new work revision are a new request and are handed off again. Journals written before 0.9.4 carry no hash; theirs is taken from the readiness record their token names. The message now asks the session to check `submit_approval_valid` rather than one exact token, so a token that changes after the message still leads to the submission.
+
+### Added
+- `submission_opens_at` in the readiness record (optional, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM+09:00`): when the official submission window opens, for a request that is ready before it. Until then the handoff approves and sends nothing (`waiting`, `submission_not_open`) and the request is not shown as waiting for the user. `ach tick` now runs the handoff for every contest in `awaiting_approval` (also with `new_work_frozen`, never inside a contest session), so the scheduled run picks the request up once the window has opened; `ach handoff` and the approve controller do the same.
+- `display {state, label, opens_at?}` in every handoff result and, under `handoff`, in `ach approval-status`: `승인됨`, `자동 승인 대기`, `제출 중`, `이미 발송/접수 확인 중`, `접수 기간 전(개시 …)`, `필수 정보 부족`, `제출 준비 중`, `마감 경과`, `인계 확인 필요`, and `사용자 승인 대기` only when `user_approval_request` is true. The hook's stderr line carries the label.
+- `BOARD.md` lists `awaiting_approval` contests under "제출 단계(승인·접수)" with a submission status column, and the attention section shows that status next to the state. `runtime` summaries carry `handoff` and new next actions for `awaiting_approval`: `await_delegated_approval`, `wait_submission_window`, `finish_submission_request`, `submission_in_progress`, `inspect_handoff`, `deadline_passed`.
+
+### Changed
+- A contest in `awaiting_approval` used to be listed as needing the user's approval (`user_submit_approval`, "사용자 확인 필요") whenever it had no valid approval. It is now listed that way only when the request is the user's to approve: the delegation is off or does not cover it, or the score gate was passed with `--score-ok`, and nothing else is missing. Waiting for the window, for an automatic approval, or for a submission in progress no longer asks for the user.
+- The board section "제출 승인 대기" is now "제출 단계(승인·접수)". The `/contest` command of the omp extension shows the same section with the status label.
+- The approve controller logs `reapproved` and `would_reapprove`, and its `approval_blocked` alert status carries `display:<state>`.
+- The handoff message tells the session not to ask the user for approval again, not to record the same files again, and to record `submission_opens_at` when the window is not open yet.
+
+### Migration
+- None for data. Sessions that wrote "접수 개시 전" into `blockers` keep waiting as before (`필수 정보 부족`) until they record the opening time in `submission_opens_at` instead.
+
 ## 0.9.3 - 2026-11-24
 
 ### Added

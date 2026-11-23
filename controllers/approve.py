@@ -149,11 +149,14 @@ class ApproveController:
         status = result.get('status') if isinstance(result.get('status'), str) else 'error'
         reasons = safe_codes(result.get('reasons'))
         token = result.get('request_token')
-        if status == 'handed_off':
+        display = (result.get('display') or {}).get('state')
+        shown = [f'display:{display}'] if isinstance(display, str) else []
+        if status in ('handed_off', 'reapproved'):
+            # `reapproved`: the same submission under a new token; no second message was sent.
             record = result.get('record') or {}
-            self.log.emit('handed_off', contest_id=entry['id'], request_token=token,
+            self.log.emit(status, contest_id=entry['id'], request_token=token,
                           message_id=record.get('message_id'))
-        elif status in ('would_approve_and_hand_off', 'would_hand_off'):
+        elif status in ('would_approve_and_hand_off', 'would_hand_off', 'would_reapprove'):
             self.log.emit(status, contest_id=entry['id'], request_token=token)
         elif status in HANDOFF_SETTLED:
             return
@@ -162,7 +165,8 @@ class ApproveController:
         elif status in HANDOFF_ATTENTION:
             self.alerts.raise_(entry['id'], 'handoff_attention', [status] + reasons, band)
         else:
-            self.alerts.raise_(entry['id'], 'approval_blocked', reasons or [status], band)
+            # A wait on a reason, with the state people are shown (`display:before_window`, …).
+            self.alerts.raise_(entry['id'], 'approval_blocked', (reasons or [status]) + shown, band)
 
     def clean_submitted(self, entry, band='none', now=None):
         full = self.show(entry['id'])

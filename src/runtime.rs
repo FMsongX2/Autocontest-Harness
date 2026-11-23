@@ -422,13 +422,18 @@ struct Facts<'a> {
     due: bool,
     recoverable: bool,
     approval: &'a str,
+    /// The stored handoff display state of an `awaiting_approval` entry ([`handoff::STATES`]).
+    handoff: &'a str,
 }
 
 /// The next action as a stable code.
 fn decide(f: &Facts<'_>) -> &'static str {
     let has = |code: &str| f.blockers.contains(&code);
     let work = WORK_STATES.contains(&f.state);
-    if has("submission_unresolved") {
+    // A session that recorded its intent or started sending is submitting; anything else
+    // unresolved (an unknown outcome, an unreadable record) needs someone to look.
+    let submitting = f.state == "awaiting_approval" && f.handoff == "submitting";
+    if has("submission_unresolved") && !submitting {
         return "resolve_submission";
     }
     if f.needs_user_input || has("checkpoint_blocked") || has("readiness_needs_user_input") || has("readiness_blockers")
@@ -451,7 +456,19 @@ fn decide(f: &Facts<'_>) -> &'static str {
         };
     }
     if f.state == "awaiting_approval" {
-        return if f.approval == "valid" { "proceed_submission" } else { "user_submit_approval" };
+        // Only a request that is the user's to approve asks for the user's approval.
+        return match f.handoff {
+            "submitting" => "submission_in_progress",
+            "sent_confirming" => "resolve_submission",
+            "handoff_attention" => "inspect_handoff",
+            _ if f.approval == "valid" => "proceed_submission",
+            "approved" if f.approval != "invalid" => "proceed_submission",
+            "before_window" => "wait_submission_window",
+            "auto_approval_pending" => "await_delegated_approval",
+            "deadline_passed" => "deadline_passed",
+            "user_approval_pending" => "user_submit_approval",
+            _ => "finish_submission_request",
+        };
     }
     if work && f.runtime == "unobserved" {
         return "observe_runtime";
@@ -563,6 +580,7 @@ fn observe(entry: &Entry, at: DateTime<FixedOffset>) -> Observation {
         }
         recoverable = checkpoint_valid && blocked.is_empty();
     }
+    let handoff = crate::handoff::stored_display_now(entry, at);
     let next_action = decide(&Facts {
         state: &entry.state,
         runtime: probe.state,
@@ -571,6 +589,7 @@ fn observe(entry: &Entry, at: DateTime<FixedOffset>) -> Observation {
         due,
         recoverable,
         approval: approval_integrity,
+        handoff: handoff["state"].as_str().unwrap_or("not_applicable"),
     });
     let basis = basis(entry);
     let token_source = json!({
@@ -1019,6 +1038,7 @@ pub fn summary_at(entry: &Entry, at: DateTime<FixedOffset>) -> Value {
         && blockers.is_empty()
         && due
         && !cp_seq.is_some_and(|seq| recovered_from(entry, seq));
+    let handoff = crate::handoff::stored_display_now(entry, at);
     let next_action = decide(&Facts {
         state: &entry.state,
         runtime: runtime_state,
@@ -1027,8 +1047,11 @@ pub fn summary_at(entry: &Entry, at: DateTime<FixedOffset>) -> Value {
         due,
         recoverable,
         approval: approval_integrity,
+        handoff: handoff["state"].as_str().unwrap_or("not_applicable"),
     });
-    let user_attention = !blockers.is_empty()
+    // A submission the session is in the middle of is not something the user has to look at.
+    let quiet = |code: &&str| next_action == "submission_in_progress" && *code == "submission_unresolved";
+    let user_attention = blockers.iter().any(|code| !quiet(code))
         || matches!(
             next_action,
             "user_input"
@@ -1036,6 +1059,8 @@ pub fn summary_at(entry: &Entry, at: DateTime<FixedOffset>) -> Value {
                 | "user_submit_approval"
                 | "resolve_submission"
                 | "inspect_runtime"
+                | "inspect_handoff"
+                | "deadline_passed"
                 | "manual_restart"
                 | "recover_session"
         );
@@ -1072,6 +1097,7 @@ pub fn summary_at(entry: &Entry, at: DateTime<FixedOffset>) -> Value {
         "due": due,
         "needs_user_input": needs_user_input,
         "user_attention": user_attention,
+        "handoff": if entry.state == "awaiting_approval" { handoff } else { Value::Null },
     })
 }
 

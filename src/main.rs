@@ -1053,7 +1053,21 @@ fn run(cli: &Cli) -> Result<u8> {
             Ok(0)
         }
         Command::ApprovalStatus { id } => {
-            let result = registry::read(|reg| approval::status(&config::load()?, reg.get(id)?))?;
+            // `handoff` is what the delegated handoff would decide from the same records and files
+            // (Orca is not asked), with the `display` state people are shown.
+            let result = registry::read(|reg| {
+                let cfg = config::load()?;
+                let entry = reg.get(id)?;
+                let mut status = approval::status(&cfg, entry)?;
+                let assessed = handoff::assess(&cfg, entry, &status)?;
+                status["handoff"] = json!({
+                    "status": assessed["status"],
+                    "reasons": assessed["reasons"],
+                    "user_approval_request": assessed["user_approval_request"],
+                    "display": assessed["display"],
+                });
+                Ok(status)
+            })?;
             emit(json_mode, &result, None)?;
             Ok(0)
         }
@@ -1705,9 +1719,27 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
     let cfg = config::load()?;
     let mut report =
         json!({"collect": null, "scout": false, "needs_gate": [], "launched": [], "waiting": [], "errors": []});
+    // Requests that became eligible without an event of their own (a submission window that
+    // opened, a handoff that was interrupted) are picked up here, also while new work is frozen.
+    // A contest session never runs it.
+    let in_session = std::env::var(launch::SESSION_ENV).is_ok_and(|session| !session.is_empty());
+    let options = handoff::Options { trigger: "tick", dry_run: false, resend_request: None, origin_session: None };
+    let (handoffs, handoff_error): (Vec<Value>, Option<String>) = match in_session {
+        true => (Vec::new(), None),
+        false => match handoff::sweep(&options) {
+            Ok(mut swept) => (swept["results"].as_array_mut().map(std::mem::take).unwrap_or_default(), None),
+            Err(err) => (Vec::new(), Some(format!("handoff: {err}"))),
+        },
+    };
+    let handoff_lines: Vec<String> = handoffs.iter().map(handoff::describe).collect();
+    report["handoff"] = json!(handoffs);
     if cfg.new_work_frozen {
         report["new_work_frozen"] = json!(true);
-        emit(json_mode, &report, Some("신규 작업 동결: 수집·게이트·실행을 건너뛴다".into()))?;
+        report["errors"] = json!(handoff_error.iter().collect::<Vec<_>>());
+        let mut lines = vec!["신규 작업 동결: 수집·게이트·실행을 건너뛴다".to_string()];
+        lines.extend(handoff_error.iter().map(|e| format!("오류: {e}")));
+        lines.extend(handoff_lines);
+        emit(json_mode, &report, Some(lines.join("\n")))?;
         return Ok(0);
     }
     if !no_collect {
@@ -1773,6 +1805,9 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
         report["errors"] = json!(errors);
         report["warnings"] = json!(warnings);
     }
+    if let (Some(error), Some(errors)) = (handoff_error, report["errors"].as_array_mut()) {
+        errors.push(json!(error));
+    }
     registry::read(board::write)?;
     let ids = |key: &str| -> Vec<String> {
         report[key]
@@ -1807,6 +1842,7 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
         format!("상한으로 실행 대기 {}건: {}", ids("waiting").len(), ids("waiting").join(", ")),
     ]);
     lines.extend(ids("warnings").iter().map(|w| format!("경고: {w}")));
+    lines.extend(handoff_lines);
     // Exit 0 even when launches failed: the report (needs_gate, waiting) is still valid for the
     // scheduled run, which reads `errors` from the JSON.
     emit(json_mode, &report, Some(lines.join("\n")))?;

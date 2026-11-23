@@ -604,14 +604,14 @@ fn board_groups_states_and_formats_rows() {
     assert!(text.contains("## 레벨 5 계획 검수 대기 (1)\n\n| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 런타임 | 다음 조치 | 막힘 | 근거 시각 |\n|---|---|---|---|---|---|---|---|---|\n| D-3 | [프로덕션 \\| 해커톤](https://e.com/r) | software / L5 | Prod-Hack | `x-review` | unobserved(none) | user_plan_review | observation_none, checkpoint_missing | "), "{text}");
     // The plan review waits for the user: listed with codes only.
     assert!(text.contains("## 사용자 확인 필요 (1)\n\n| id | 상태 | 이유 | 다음 조치 | 기한 |\n|---|---|---|---|---|\n| `x-review` | plan_review | - | user_plan_review | - |\n"), "{text}");
-    assert!(text.find("## 사용자 확인 필요").unwrap() < text.find("## 제출 승인 대기").unwrap());
+    assert!(text.find("## 사용자 확인 필요").unwrap() < text.find("## 제출 단계(승인·접수)").unwrap());
     assert!(text.contains("| - | 정책 서비스 | software / L3 | - | `x-l3` |"));
-    assert!(text.contains("## 제출 승인 대기 (0)\n\n(없음)\n"));
+    assert!(text.contains("## 제출 단계(승인·접수) (0)\n\n(없음)\n"));
     assert!(text.contains("## 새로 발견(게이트 전) (45)"));
     assert_eq!(text.matches("| 새 공고 |").count(), 40);
     assert!(text.ends_with("그 밖: 종료 0, 게이트 탈락 0, 하지 않기로 함 0, 중복 0.\n"));
     let order: Vec<usize> = [
-        "## 제출 승인 대기",
+        "## 제출 단계(승인·접수)",
         "## 레벨 5 계획",
         "## 진행 중",
         "## 라우팅됨",
