@@ -357,6 +357,16 @@ pub fn submit_approval_recorded(entry: &Entry) -> bool {
     entry.state == "awaiting_approval" && entry.history.iter().skip(start).any(is_submit_approval)
 }
 
+/// The latest submission approval marker since the entry last entered `awaiting_approval`,
+/// whether or not it still counts (its `extra` holds the request token it was bound to).
+pub fn current_submit_approval(entry: &Entry) -> Option<&HistoryItem> {
+    if entry.state != "awaiting_approval" {
+        return None;
+    }
+    let start = entered_awaiting(entry).map_or(0, |i| i + 1);
+    entry.history.iter().skip(start).rev().find(|h| is_submit_approval(h))
+}
+
 /// Index of the latest real move into `awaiting_approval` (approval markers stay in that state).
 fn entered_awaiting(entry: &Entry) -> Option<usize> {
     entry.history.iter().rposition(|h| h.to == "awaiting_approval" && h.from.as_deref() != Some("awaiting_approval"))

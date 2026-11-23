@@ -132,6 +132,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 - `artifacts`(`[{path, sha256}]`, 하나 이상): 실제로 낼 파일. `path`는 공모전 폴더 기준 상대 경로로 폴더 안의 일반 파일이어야 하고, `sha256`은 소문자 16진수 64자로 지금 파일과 같아야 한다. 레벨 2 이상은 최근 `final` 점수의 `artifacts`(경로·해시)에 들어 있어야 한다.
 - `followup_required`(bool): 접수 뒤 같은 폴더로 할 미래 일정(본선·발표·추가 제출)이 남는가. 제출 뒤 정리(`followup_pending`이냐 `ach clean`이냐)를 이 값으로 정한다.
 - `destination`(문자열, 0.8.0부터 새 제출에 필수): 승인받을 실제 제출처. 공식 접수 URL(http(s)) 또는 메일 주소를 그대로 적는다. 제출 의도(20절)의 `destination`과 정확히 같아야 하고, 이 값이 없는 기록으로 받은 승인은 새 제출 의도를 허가하지 않는다. 개인 항목 사본 기록(`--personalized`)은 이 값을 바꿀 수 없다.
+- `submission_opens_at`(문자열, 선택, 0.9.4): 공고의 접수 개시 일시. 제출물은 준비됐는데 접수가 아직 열리지 않았을 때만 적는다(`YYYY-MM-DD`는 그날 00:00, 또는 `YYYY-MM-DDTHH:MM+09:00`). 이미 접수 중이면 뺀다. 이 시각 전에는 위임 인계가 승인도 인계도 하지 않고(23절), 사람에게는 "접수 기간 전(개시 …)"으로 보인다. 접수 개시 전이라는 사정을 `blockers` 문구로 적으면 기계가 개시일을 읽지 못하므로 이 필드를 쓴다. 개인 항목 사본 기록은 이 값을 바꾸지 않는다.
 
 ```json
 {"submission_ready": true, "needs_user_input": false, "blockers": [], "artifacts": [{"path": "submission/proposal.pdf", "sha256": "<64자리 소문자 16진수>"}], "followup_required": false, "destination": "https://contest.example.org/apply"}
@@ -265,11 +266,11 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach peek <id> [--lines N]` | 띄운 세션의 화면(orca, tmux)이나 로그(headless) 끝 N줄(기본 40) |
 | `ach check <id>` | 공모전 폴더와 커밋 메시지에서 페르소나 흔적을 찾는다(12절) |
 | `ach transition <id> <상태> [--note N \| --note-file F] [--by 누가] [--persona-ok 사유] [--score-ok 사유]` | 상태를 옮긴다(4절 규칙, 레벨 5 승인 규칙, `awaiting_approval` 페르소나 검사·점수 관문). `plan_review → running`(`ach approve`만), `→ submitted`(`ach submit`만), `submitted`·`followup_pending → running`(`ach resume`만)은 거절한다. `--score-ok`는 점수 관문을 사유와 함께 넘긴다(이 사유는 사용자 승인에서만 통한다). `--by` 기본 `agent` |
-| `ach readiness <id> [--file F] [--personalized]` | 제출 준비 기록(4절). `--file` 없이는 지금 기록을 보여 준다. `--file`은 다섯 필드와 `destination`(0.8.0부터 새 제출에 필요)이 있는 JSON을 검사해(파일은 폴더 안의 일반 파일, 해시가 지금 파일과 같음, 레벨 2 이상은 최근 `final` 점수 `artifacts` 안) 지금 작업 판에 기록한다. `running`·`awaiting_approval`에서만 된다. `--personalized`는 유효한 제출 승인 뒤 `personalization_of`(승인된 `request_token`)가 있는 파일로 승인 범위 안의 별도 최종 사본을 기록한다(`destination`은 바꿀 수 없다. 위임 승인에는 `delegation.allow_personalization` 필요) |
-| `ach approval-status <id>` | 승인 판단 상태 `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final}`와 페르소나·위임 정책 검사(4절). 0.8.0부터 `reasons`에 규칙 코드(`rules_pending_review`, `rules_gate_invalidated`, `rules_plan_invalidated`, `rules_final_invalidated`, 위임 승인에만 `rules_untracked`, 18절), 독립 평가 코드(위임 승인에만 `independent_final_missing`, `independent_final_stale`, 19절), 제출 시도 코드(`submission_intent_pending`, `submission_dispatching`, `submission_unknown`, 20절)가 들어갈 수 있다 |
+| `ach readiness <id> [--file F] [--personalized]` | 제출 준비 기록(4절). `--file` 없이는 지금 기록을 보여 준다. `--file`은 다섯 필드와 `destination`(0.8.0부터 새 제출에 필요), 선택 필드 `submission_opens_at`(접수 개시 일시, 0.9.4)이 있는 JSON을 검사해(파일은 폴더 안의 일반 파일, 해시가 지금 파일과 같음, 레벨 2 이상은 최근 `final` 점수 `artifacts` 안) 지금 작업 판에 기록한다. `running`·`awaiting_approval`에서만 된다. `--personalized`는 유효한 제출 승인 뒤 `personalization_of`(승인된 `request_token`)가 있는 파일로 승인 범위 안의 별도 최종 사본을 기록한다(`destination`은 바꿀 수 없다. 위임 승인에는 `delegation.allow_personalization` 필요) |
+| `ach approval-status <id>` | 승인 판단 상태 `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final, handoff}`와 페르소나·위임 정책 검사(4절). 0.8.0부터 `reasons`에 규칙 코드(`rules_pending_review`, `rules_gate_invalidated`, `rules_plan_invalidated`, `rules_final_invalidated`, 위임 승인에만 `rules_untracked`, 18절), 독립 평가 코드(위임 승인에만 `independent_final_missing`, `independent_final_stale`, 19절), 제출 시도 코드(`submission_intent_pending`, `submission_dispatching`, `submission_unknown`, 20절)가 들어갈 수 있다. 0.9.4부터 `handoff {status, reasons, user_approval_request, display {state, label, opens_at?}}`가 붙는다: 위임 인계가 같은 기록과 파일로 내릴 판단(세션 생존은 묻지 않는다)과 사람에게 보일 상태다(23절) |
 | `ach approve <id> (--note "<사용자 원문>" \| --note-file F) [--by 누가]` | 사용자 승인을 기록한다(9절). `plan_review`면 `plan` 승인을 남기고 `running`으로 옮기고, `awaiting_approval`이면 지금 작업 판·제출 준비 기록·점수에 묶인 `submit` 승인을 남긴다(상태는 그대로). 다른 상태는 오류다. 환경 변수 `ACH_SESSION`이 있으면(공모전 세션 안) 거절한다. `--by` 기본 `user` |
 | `ach approve <id> --delegated --expected-request <토큰> (--note N \| --note-file F)` | 상시 위임 범위 안의 위임 승인(9절). 레지스트리 쓰기 잠금 안에서 `approval-status`의 자격, 페르소나 검사, 설정 `delegation`(켜짐, 범위 안의 id), 토큰 일치를 다시 확인하고 하나라도 어긋나면 기록하지 않는다. `awaiting_approval`의 `submit` 승인만 된다(계획 승인 불가). `--score-ok` 점수 미달은 받아들이지 않는다(영상은 `video_score_exempt`일 때만 면제). `ACH_SESSION` 안에서는 거절한다 |
-| `ach handoff [<id>] [--dry-run] [--resend-request <토큰>] [--trigger 이름]` | 위임 인계(23절). 상시 위임이 그 공모전을 포함하고 `approval-status`가 `eligible`이면 위임 승인을 기록하고(위 명령과 같은 검사·토큰 대조) 기록된 공모전 세션에 `orca orchestration send`로 알린다. id가 없으면 `awaiting_approval` 전부. 요청마다 기록을 남겨 같은 요청을 두 번 승인·인계하지 않는다. `ach transition … awaiting_approval`, `ach readiness --file`, `ach score --file`, `ach rules review`·`acknowledge`가 성공한 직후에도 그 항목에 한 번 실행되고 결과가 표준 오류에 한 줄로 나온다. `ACH_SESSION` 안에서는 `--dry-run`만 된다 |
+| `ach handoff [<id>] [--dry-run] [--resend-request <토큰>] [--trigger 이름]` | 위임 인계(23절). 상시 위임이 그 공모전을 포함하고 `approval-status`가 `eligible`이면 위임 승인을 기록하고(위 명령과 같은 검사·토큰 대조) 기록된 공모전 세션에 `orca orchestration send`로 알린다. id가 없으면 `awaiting_approval` 전부. 요청마다 기록을 남겨 같은 요청을 두 번 승인·인계하지 않고, 같은 제출물의 토큰만 바뀐 요청은 승인만 다시 기록한다(`reapproved`, 메시지 없음). 접수 개시 일시(`submission_opens_at`) 전에는 아무것도 하지 않는다. `ach transition … awaiting_approval`, `ach readiness --file`, `ach score --file`, `ach rules review`·`acknowledge`가 성공한 직후와 `ach tick`에서도 실행되고, 앞의 명령들은 결과를 표준 오류에 한 줄로 낸다. 결과의 `display`가 사람에게 보일 상태다. `ACH_SESSION` 안에서는 `--dry-run`만 된다 |
 | `ach submission intent <id> --file F` | 제출 의도를 기록한다(20절). 파일은 `{"method": "form\|email\|site", "destination": "<승인된 제출 준비 기록의 destination과 같은 값>", "expected_request": "<request_token>"}`. 유효한 승인·규칙·파일 해시를 다시 확인하고 승인된 `artifacts`·작업 판·규칙 기준을 묶어 `attempt_id`(`a1`, `a2`, …)를 낸다. 같은 요청은 같은 시도를 돌려주고, 다른 요청이나 진행·불명 시도가 있으면 거절한다 |
 | `ach submission start <id> --attempt A` | 의도를 `dispatching`으로 옮기고 외부 행동 전에 저장한다. 승인·토큰·제출처·파일·규칙·작업 판을 다시 확인한다. 이미 시작했거나 불명·확인된 시도에 다시 부르면 종료 코드 1이고, 어떤 경우에도 두 번째 발송을 허가하지 않는다 |
 | `ach submission unknown <id> --attempt A --file F` | 발송 결과를 알 수 없음을 기록한다(`dispatching`에서만). 파일은 `{"attempt_id", "reason": "timeout\|response_lost\|crash\|ambiguous_response\|other", "observed_at", "evidence"?: [{path, sha256}]}`. 새 의도와 재발송을 막는다 |
@@ -291,14 +292,14 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach session-close <id> --expected-state S --expected-history N [--dry-run]` | 끝난 공모전(`submitted`·`followup_pending`·`closed`·`skipped`·`duplicate`)의 세션만 닫는다. 폴더는 지우지 않는다. `ACH_SESSION` 안에서는 거절한다 |
 | `ach budget` | `omp usage --json`으로 공급자별 남은 한도와 pace를 계산해 권장 병렬 수를 낸다 |
 | `ach capacity` | 한도·메모리·진행 중 세션 수를 합쳐 지금 새로 띄울 수 있는 세션 수를 낸다(필드는 아래) |
-| `ach board` | 할 일 중심 보드 `BOARD.md`를 쓴다(22절). 네트워크·세션 백엔드를 부르지 않고 저장된 관측·기록만 읽는다 |
-| `ach tick [--no-collect] [--auto-launch]` | 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). `new_work_frozen`이면 수집과 새 실행을 하지 않는다. 끝에 `BOARD.md`를 갱신한다. 오류가 있어도 종료 코드는 0이다(정기 실행이 JSON을 읽는다). 텍스트는 오류 건수로 시작한다. JSON은 `collect`, `scout`, `needs_gate`, `launched`, `waiting`, `errors`, `warnings`다. `scout`는 수집했을 때 지금 현지 시가 `schedule.scout_hours` 안이면 `true`(수집하지 않으면 `false`), 텍스트 출력은 `웹 검색(ContestScout) 이번 회차: 실행\|안 함` 줄이다 |
+| `ach board` | 할 일 중심 보드 `BOARD.md`를 쓴다(22절). 네트워크·세션 백엔드·공모전 폴더를 건드리지 않고 저장된 관측·기록(레지스트리, 설정, 위임 인계 기록)만 읽는다 |
+| `ach tick [--no-collect] [--auto-launch]` | 승인 대기 전체에 위임 인계를 한 번 돌리고(23절. 접수가 열린 요청, 끊긴 인계가 여기서 이어진다. `new_work_frozen`이어도 하고, 공모전 세션 안에서는 하지 않는다), 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). `new_work_frozen`이면 수집과 새 실행을 하지 않는다. 끝에 `BOARD.md`를 갱신한다. 오류가 있어도 종료 코드는 0이다(정기 실행이 JSON을 읽는다). 텍스트는 오류 건수로 시작한다. JSON은 `collect`, `scout`, `needs_gate`, `launched`, `waiting`, `errors`, `warnings`, `handoff`(위임 인계 결과 배열)다. `scout`는 수집했을 때 지금 현지 시가 `schedule.scout_hours` 안이면 `true`(수집하지 않으면 `false`), 텍스트 출력은 `웹 검색(ContestScout) 이번 회차: 실행\|안 함` 줄이다 |
 | `ach install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장을 설치한다(10절). 기본은 설정 `runner`, `--runner`는 여러 번 줄 수 있고, `--all`은 코어에 들어 있는 어댑터 중 실행 파일이 PATH에 있는 것 전부. 이어서 설정 러너에만 `agent_models`를 적용한다(`apply_agent_models`, 모델 지정은 설정 러너의 문법이므로). `agent_models`에 `agents/`에 없는 이름이 있으면 아무것도 하기 전에 거절한다 |
 | `ach chat [--runner R] [--workspace terminal\|orca\|tmux]` | 저장소 루트에서 메인 인터페이스 세션을 연다(12절). 기본 러너는 설정 `runner`, 기본 작업 환경은 `terminal` |
 | `ach autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
 | `ach doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD. 그 사이 커밋이 문서(`README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `CHANGELOG*.md`, `docs/`, `references/`, `LICENSE`)만 바꿨으면 ok, 바이너리 커밋이 클론 이력에 없으면 경고), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `ach install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
 | `ach --version` | `<버전> (<12자리 git sha>)` |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.3", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절). 0.9.2부터 `capabilities`에 `delegated_handoff`가 있다 |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.4", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절). 0.9.2부터 `capabilities`에 `delegated_handoff`가 있다 |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트(17절). `--file`이면 기록하고, 없으면 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다(17절). 기본은 읽기 전용이고, `--apply`는 관측 결과만 저장한다(띄우거나 닫지 않는다) |
 | `ach recover <id> --expected-observation <토큰> [--dry-run]` | 모든 복구 조건이 맞을 때만 같은 대화 기록으로 세션을 다시 연다(17절) |
@@ -788,7 +789,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 - 결과 `{entries: [{id, workflow_state, runtime_state, observed_at, observation_token, checkpoint_valid, checkpoint_seq, artifact_integrity, approval_integrity, blocked_reasons, next_action, next_action_at, needs_user_input, recoverable}], changed: [ids], conflicts: [ids], applied}`.
 - `runtime_state`: `running`(살아 있음 확인), `missing`(사라짐 확인), `ambiguous`(기록되지 않은 다른 터미널 등으로 하나로 정할 수 없음), `unknown`(백엔드가 알려 주지 않거나 관측 실패. `missing`이 아니다), `not_started`, `stopped`.
 - `artifact_integrity`·`approval_integrity`: `valid`, `invalid`, `unknown`, `none`(기록 없음), 승인은 `not_applicable`도 있다.
-- `next_action`(코드): `none`, `continue_work`, `wait_until_due`, `recover_session`, `manual_restart`(세션은 사라졌지만 복구 조건이 맞지 않아 사람이 판단해 `ach restart`를 실행해야 함), `inspect_runtime`, `observe_runtime`, `user_input`, `user_plan_review`, `user_submit_approval`, `proceed_submission`, `resolve_submission`.
+- `next_action`(코드): `none`, `continue_work`, `wait_until_due`, `recover_session`, `manual_restart`(세션은 사라졌지만 복구 조건이 맞지 않아 사람이 판단해 `ach restart`를 실행해야 함), `inspect_runtime`, `observe_runtime`, `user_input`, `user_plan_review`, `user_submit_approval`, `proceed_submission`, `resolve_submission`. `awaiting_approval` 항목은 0.9.4부터 저장된 위임 인계 상태(23절 `display`)로 정한다: `user_submit_approval`은 사용자 승인이 남은 요청(`user_approval_pending`)에만 나오고, 그 밖에는 `await_delegated_approval`(자동 승인 대기), `wait_submission_window`(접수 기간 전), `finish_submission_request`(제출 준비 중), `proceed_submission`(승인됨), `submission_in_progress`(제출 중), `resolve_submission`(이미 발송/접수 확인 중), `inspect_handoff`(인계 확인 필요), `deadline_passed`다. 요약에는 `handoff {state, label, opens_at?}`도 들어간다.
 - `blocked_reasons`(코드): `session_unrecorded`, `backend_unknown`, `backend_unavailable`, `backend_cannot_tell`, `probe_failed`, `inventory_failed`, `unrecorded_live_terminal`, `reopen_interrupted`, `checkpoint_missing`, `checkpoint_record_invalid`, `checkpoint_stale_revision`, `checkpoint_artifact_changed`, `checkpoint_blocked`, `needs_user_input`, `readiness_needs_user_input`, `readiness_blockers`, `submission_unresolved`, 규칙 코드(18절), `saved_conversation_unknown`, `saved_conversation_ambiguous`, `next_action_not_due`, `recovery_interrupted`, `recovery_already_done`, `human_plan_review`, `state_not_recoverable`, `runtime_running`·`runtime_unknown`·`runtime_ambiguous`·`runtime_not_started`·`runtime_stopped`, `observation_changed`, `no_capacity`, `runner_unavailable`, `inside_session`. 요약에만 쓰는 코드: `observation_none`, `observation_stale`, `checkpoint_unverified`. 저장된 관측의 `observation.status`는 `none`·`current`·`stale`(항목이 바뀌었거나 360분보다 오래됨)이고, `stale`·`none`이면 요약의 `runtime_state`는 `unobserved`다. 코드는 안정된 이름이고 자유 문장(사적 메모)을 담지 않는다.
 - `--apply`는 관측 결과만 저장한다. 레지스트리 잠금 아래에서 관측 때의 `state`·`history`·`session`과 같을 때만(CAS) 쓰고, 다르면 `conflicts`에 넣는다. 작업 흐름을 완료로 표시하거나 승인 기록을 고치지 않는다.
 
@@ -977,6 +978,8 @@ CLI는 lifecycle 직렬화와 레지스트리 CAS 아래에서 다시 관측해 
 
 알림: 지문은 `{code, status(정렬한 이유 코드), deadline_band}`의 SHA-256이다. 새로 생기거나 바뀌면 `alert`(`change: new|changed`), 사라지면 `alert_resolved`를 한 번 기록하고, 같은 지문은 재시작 뒤에도 다시 쓰지 않는다. `deadline_band`: `none`, `invalid`(읽을 수 없거나 시간대 없는 마감), `expired`, `lt24h`, `lt72h`, `lt7d`, `gte7d`. 코드: `approval_blocked`(대기 사유), `user_approval_request`(사용자 승인을 기다리는 요청), `handoff_attention`(승인·인계 자체가 어긋남: `session_unavailable`, `approve_refused`, `send_failed`, `handoff_unknown`), `runtime_attention`(상태에 `runtime:<상태>`, `checkpoint_invalid`, `needs_user_input`, `recoverable` 등), `clean_refused`, `session_close_refused`, `contest_error`, `new_work_frozen`, `brief_pending`, `capacity_wait`, `level_capacity_wait`, `queue_unknown_contest`, `queue_config_invalid`, `reconcile_failed`(공모전 id `*`), `deadline_expired`, `launch_unverified`, `handoff_unverified`. 그 밖의 기록 이름: 위임 승인 컨트롤러 `handed_off`, `would_approve_and_hand_off`, `would_hand_off`, `cleaned`, `would_clean`, `session_closed`, `would_close_session`, `cycle_error`; 대기열 컨트롤러 `checkpoint`(바뀔 때만), `batch_settled`, `batch_blocked`, `launched`, `would_launch`, `handoff`, `handoff_unverified`, `cycle_error`. 기록에는 코드와 상태만 남기고 사적 메모·접수 문구를 옮기지 않는다.
 
+0.9.4: 위임 승인 컨트롤러의 `approval_blocked` 알림 상태에는 사람에게 보일 상태 코드 `display:<state>`(23절)가 함께 들어가고, 기록 이름에 `reapproved`(같은 제출물의 새 토큰에 승인만 다시 기록)와 `would_reapprove`가 더해졌다.
+
 종료 코드(컨트롤러): 0 정상, 1 `--once` 주기 오류, 2 계약 불일치·사용법 오류, 3 지시서 검토 필요(`briefs`), 75 잠금이 이미 잡혀 있음. `preset.json`의 `non_video: "auto"`는 `auto_providers`(`{공급자: 프리셋}`)와 `auto_default`가 있어야 하고, 없으면 거절한다. `brief-overrides.json`의 `common`은 `## 필수 운영 규칙`, `procedure`는 `## 절차`로 시작해야 하고 `version`은 한 단어다. `status.json`에는 `new_work_frozen`도 남는다.
 
 확인 기준: 두 번째 `queue` 프로세스는 75로 끝난다. `protocol`이 2가 아니면 아무 파일도 바뀌지 않는다. 동결 중 `queue`는 아무것도 띄우지 않는다. 같은 경고가 재시작 뒤 다시 기록되지 않는다.
@@ -985,8 +988,8 @@ CLI는 lifecycle 직렬화와 레지스트리 CAS 아래에서 다시 관측해 
 
 `ach board`는 할 일 중심 `BOARD.md`를 저장된 기록(`runtime::summary`, 승인 상태, 규칙·제출 상태)만으로 쓰고 네트워크·세션 백엔드를 부르지 않는다. 사적 막힘 문장은 옮기지 않고 안정된 코드만 쓴다.
 
-- 맨 위 `## 사용자 확인 필요 (N)`: `| id | 상태 | 이유 | 다음 조치 | 기한 |`. 사용자 입력·계획 검수·제출 승인·불명 제출·규칙 검토처럼 사람이 해야 할 일이 있는 항목. 이유와 다음 조치는 코드(17절 `blocked_reasons`·`next_action`)다.
-- 진행 절 "제출 승인 대기"(`awaiting_approval`), "레벨 5 계획 검수 대기"(`plan_review`), "진행 중"(`running`): `| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 런타임 | 다음 조치 | 막힘 | 근거 시각 |`. 유형·레벨 칸에는 최근 점수 `총점/목표`가 붙는다(예: `idea / L2 · 88/90`). 런타임은 마지막 관측 상태이고, 관측이 없거나 오래됐으면 `unobserved`로 보인다(정상으로 치지 않는다). 근거 시각은 마지막 관측·체크포인트 시각이다.
+- 맨 위 `## 사용자 확인 필요 (N)`: `| id | 상태 | 이유 | 다음 조치 | 기한 |`. 사용자 입력·계획 검수·제출 승인·불명 제출·규칙 검토처럼 사람이 해야 할 일이 있는 항목. 이유와 다음 조치는 코드(17절 `blocked_reasons`·`next_action`)다. `awaiting_approval` 항목의 상태 칸에는 제출 상태가 붙는다(`awaiting_approval · 사용자 승인 대기`). 승인 대기라는 이유만으로는 이 절에 오르지 않는다: 사용자 승인이 남은 요청, 사용자 입력이 필요한 요청, 결과 불명 제출, 확인이 필요한 인계, 마감 경과만 오른다. 접수 기간 전, 자동 승인 대기, 승인됨, 제출 중은 오르지 않는다.
+- 진행 절 "제출 단계(승인·접수)"(`awaiting_approval`), "레벨 5 계획 검수 대기"(`plan_review`), "진행 중"(`running`): `| 마감 | 공모전 | 유형·레벨 | 폴더 | id | 런타임 | 다음 조치 | 막힘 | 근거 시각 |`. "제출 단계" 절에는 id 다음에 `제출 상태` 칸이 더 있다: 23절의 표시 문구(`승인됨`, `제출 중`, `접수 기간 전(개시 …)`, `필수 정보 부족`, `이미 발송/접수 확인 중`, `자동 승인 대기`, `제출 준비 중`, `인계 확인 필요`, `마감 경과`, 그리고 사용자 승인이 남은 요청에만 `사용자 승인 대기`). 유형·레벨 칸에는 최근 점수 `총점/목표`가 붙는다(예: `idea / L2 · 88/90`). 런타임은 마지막 관측 상태이고, 관측이 없거나 오래됐으면 `unobserved`로 보인다(정상으로 치지 않는다). 근거 시각은 마지막 관측·체크포인트 시각이다.
 - 무결성(파일·승인)은 `valid`·`invalid`·`unknown`·`none`으로 구분한다.
 - 반복 알림은 관리 컨트롤러(21절)가 지문으로 줄인다. 보드는 매번 전체를 다시 쓴다.
 
@@ -996,7 +999,7 @@ CLI는 lifecycle 직렬화와 레지스트리 CAS 아래에서 다시 관측해 
 
 상시 위임(`delegation`, 9절)이 켜져 있으면, 제출 준비가 끝난 요청의 승인과 세션 인계를 사람의 추가 지시 없이 CLI가 한다. 정본은 `src/handoff.rs`다. 승인 조건은 바뀌지 않는다. 판단은 `ach approval-status`와 같은 함수(`src/approval.rs`)가 하고, 승인은 `ach approve --delegated --expected-request`와 같은 경로(레지스트리 쓰기 잠금 안에서 위임 범위·페르소나·위임 승인 근거·핵심 조건·요청 토큰을 다시 대조)로 기록된다.
 
-실행 시점: `ach transition <id> awaiting_approval`, `ach readiness <id> --file`(개인 항목 사본 기록 제외), `ach score <id> --file`, `ach rules review`·`acknowledge`가 성공한 직후 그 항목이 `awaiting_approval`이면 한 번 실행된다. 그래서 상태 전이가 먼저든 제출 준비 기록이 먼저든, 마지막 조건을 채운 명령에서 승인된다. 다른 공모전 세션(`ACH_SESSION`이 다른 id)의 명령으로는 실행되지 않는다. 결과는 그 명령의 표준 오류에 `위임 인계[<status>] <id>: …` 한 줄로 나오고, 명령의 표준 출력과 종료 코드는 바뀌지 않는다. 메인 세션·관리 컨트롤러는 `ach handoff [<id>]`로 같은 일을 직접 실행한다(끊긴 인계를 이어 가는 길이기도 하다). 공모전 세션 안에서는 `--dry-run`만 된다.
+실행 시점: `ach transition <id> awaiting_approval`, `ach readiness <id> --file`(개인 항목 사본 기록 제외), `ach score <id> --file`, `ach rules review`·`acknowledge`가 성공한 직후 그 항목이 `awaiting_approval`이면 한 번 실행된다. 그래서 상태 전이가 먼저든 제출 준비 기록이 먼저든, 마지막 조건을 채운 명령에서 승인된다. 다른 공모전 세션(`ACH_SESSION`이 다른 id)의 명령으로는 실행되지 않는다. 결과는 그 명령의 표준 오류에 `위임 인계[<status>] <id> (<표시 문구>): …` 한 줄로 나오고, 명령의 표준 출력과 종료 코드는 바뀌지 않는다. 메인 세션·관리 컨트롤러는 `ach handoff [<id>]`로 같은 일을 직접 실행한다(끊긴 인계를 이어 가는 길이기도 하다). 공모전 세션 안에서는 `--dry-run`만 된다. 세션의 명령 없이 조건이 채워지는 경우(접수 개시 일시가 지남)는 `ach tick`(정기 실행)과 `ach handoff`, 위임 승인 컨트롤러의 주기가 승인 대기 전체를 다시 검사해 잇는다. `ach tick`은 `new_work_frozen`이어도 이 검사를 하고, 공모전 세션 안에서는 하지 않는다.
 
 순서(1~6에서 어긋나면 그 자리에서 멈추고 승인도 인계 기록도 쓰지 않는다):
 
@@ -1004,7 +1007,7 @@ CLI는 lifecycle 직렬화와 레지스트리 CAS 아래에서 다시 관측해 
 2. `delegation.enabled`가 `true`이고 그 id가 범위 안이다. 꺼져 있으면 이미 승인된 요청의 남은 인계도 보내지 않는다.
 3. 제출 흔적이 없다: 항목의 `submissions`와 제출 기록부에 없고(`already_submitted`), 제출 기록부에 같은 공모전으로 보이는 다른 기록도 없고(`submission_ledger_match`, `ach route`가 거절하는 것과 같은 URL·제목 대조), 제출 시도 가운데 `intent`·`dispatching`·`unknown`·`confirmed`가 없고, 지금 작업 판에 묶인 시도가 하나도 없다(해소된 시도 포함, `submission_attempt_exists`). 세션이 이미 제출 단계에 들어간 요청에는 새 지시를 보내지 않는다.
 4. 유효한 승인이 이미 있는데 이 경로의 기록이 없으면(`approved_elsewhere`) 사용자·메인 세션·다른 컨트롤러가 기록한 것이므로 인계하지 않는다. 누가 알렸는지 추정하지 않는다.
-5. `approval-status`가 `eligible`이다. 마감이 확실히 지났으면(`deadline_passed`) 승인하지 않는다.
+5. `approval-status`가 `eligible`이다. 제출 준비 기록에 접수 개시 일시(`submission_opens_at`)가 있고 아직 지나지 않았으면(`submission_not_open`) 승인도 인계도 하지 않는다. 읽을 수 없는 개시 일시(`submission_opens_at_unreadable`)는 열린 것으로 보지 않는다. 마감이 확실히 지났으면(`deadline_passed`) 승인하지 않는다.
 6. 기록된 세션이 확인된다: 작업 환경 `orca`, 러너 `omp`, `orca terminal show`의 `connected: true`, 기록된 작업 공간 id와 같은 `worktreeId`, `agentIdentity: "omp"`. 읽을 수 없는 응답은 살아 있다고 보지 않는다.
 7. 기록을 만들고(`claimed`) 위임 승인을 기록한다(`approved`).
 8. `sending`을 저장한 뒤 `orca orchestration send --to <세션 handle> --type handoff`로 한 번 보낸다. 본문은 공모전 id와 요청 토큰, 승인 확인 방법, 제출 트랜잭션 절차, 확정 뒤 정리(`followup_required`가 `true`면 `followup_pending`, `false`면 `ach clean --dry-run` 확인 뒤 `ach clean`, 시도가 미해결·불명이면 보존)뿐이고 개인 값·제목·제출처는 없다. 터미널에는 입력하지 않는다.
@@ -1017,16 +1020,19 @@ claimed → approved → sending → sent
                         └──→ unknown       응답을 읽지 못함(시간 초과·중단·메시지 id 없음). 자동으로 다시 보내지 않는다
 ```
 
-중복 방지: 한 번에 한 실행만 돈다(`data/handoff.lock`). 기록은 요청 토큰마다 하나이고, 다음 단계로 가기 전에 저장한다. `sent`인 요청은 다시 보내지 않는다. `sending`에서 끊긴 실행은 `unknown`으로 읽는다(도착했을 수 있다). 승인 기록 뒤 끊긴 실행(`claimed`인데 같은 토큰의 위임 승인이 유효)은 승인을 다시 하지 않고 인계만 잇는다. `unknown`이나 재시도를 다 쓴 `send_failed`는 컨트롤이 세션에 도착하지 않았음을 확인한 뒤 `ach handoff <id> --resend-request <그 토큰>`으로만 다시 보낸다. 제출 준비 기록·점수가 다시 기록되면 토큰이 바뀌므로 이전 승인은 효력을 잃고 새 요청이 자기 기록으로 한 번 승인·인계된다.
+중복 방지: 한 번에 한 실행만 돈다(`data/handoff.lock`). 기록은 요청 토큰마다 하나이고, 다음 단계로 가기 전에 저장한다. `sent`인 요청은 다시 보내지 않는다. `sending`에서 끊긴 실행은 `unknown`으로 읽는다(도착했을 수 있다). 승인 기록 뒤 끊긴 실행(`claimed`인데 같은 토큰의 위임 승인이 유효)은 승인을 다시 하지 않고 인계만 잇는다. `unknown`이나 재시도를 다 쓴 `send_failed`는 컨트롤이 세션에 도착하지 않았음을 확인한 뒤 `ach handoff <id> --resend-request <그 토큰>`으로만 다시 보낸다.
 
-결과 `{id, status, reasons, request_token, user_approval_request, record, dry_run}`의 `status`:
+같은 제출물과 새 요청의 구별(0.9.4): 요청 토큰은 제출 준비 기록이나 점수가 더해질 때마다 바뀐다. 파일·해시·제출처가 그대로여도 그렇다. 0.9.2와 0.9.3은 토큰만 보고 요청을 구별해서, 한 이벤트(예: 최종 점수 기록)로 인계된 뒤 세션이 같은 파일로 제출 준비 기록을 다시 남기면 두 번째 승인과 두 번째 메시지가 나갔다. 그래서 기록에 그 요청이 내는 것의 해시 `content`를 둔다: 원래 요청 기록의 작업 판, 파일 경로·SHA-256(동의서·서식 파일 포함), `destination`, `submission_opens_at`, `followup_required`, 준비·질문·막힘 필드, 규칙 기준(`rules_binding`). 새 토큰의 `content`가 같은 작업 판에서 이미 인계된(`sent`) 기록과 같으면 같은 제출물이다. 이전 승인은 토큰이 바뀌어 효력을 잃었으므로 승인은 같은 검사로 새 토큰에 다시 기록하되(`reapproved`), 메시지는 다시 보내지 않는다. 새 기록에는 `continues`(이어받은 토큰)와 이전 `message_id`가 남는다. 이전 기록이 `sending`·`unknown`이면(도착했을 수 있다) 승인만 기록하고 `handoff_unknown`으로 둔다. 파일이나 해시, 제출처, 접수 개시 일시, 작업 판, 규칙 기준 가운데 하나라도 바뀌면 새 요청이고 자기 기록으로 한 번 승인·인계된다. 개인 항목 사본 기록(`--personalized`)은 토큰을 바꾸지 않으므로 다시 승인·인계되지 않는다. 0.9.4 전의 기록에는 `content`가 없으므로, 그 토큰이 가리키는 제출 준비 기록(`s<순번>`)에서 해시를 구해 비교한다. 인계 메시지는 토큰이 아니라 `submit_approval_valid`를 확인하게 하므로, 메시지를 받은 뒤 토큰만 바뀌어도 세션은 지금 토큰으로 이어 간다.
+
+결과 `{id, status, reasons, request_token, user_approval_request, display, record, dry_run}`의 `status`:
 
 | status | 뜻 |
 |---|---|
 | `handed_off` / `already_handed_off` | 이번 실행이 승인·인계함 / 이 요청은 이미 인계됨 |
-| `would_approve_and_hand_off` / `would_hand_off` | `--dry-run`에서 할 일 |
+| `reapproved` | 같은 제출물의 토큰만 바뀌어 승인을 새 토큰에 다시 기록함. 메시지는 보내지 않음 |
+| `would_approve_and_hand_off` / `would_hand_off` / `would_reapprove` | `--dry-run`에서 할 일 |
 | `delegation_off` / `out_of_scope` | 위임이 꺼짐 / 이 공모전은 범위 밖. 멈춘다 |
-| `waiting` | 자격이 없다. `reasons`에 `approval-status`의 코드(또는 `deadline_passed`, `score_override_requires_user`) |
+| `waiting` | 자격이 없거나 아직 때가 아니다. `reasons`에 `approval-status`의 코드(또는 `submission_not_open`, `submission_opens_at_unreadable`, `deadline_passed`, `score_override_requires_user`) |
 | `submission_exists` | 제출 기록이나 시도가 있다(`already_submitted`, `submission_*`, `submission_attempt_exists`) |
 | `approved_elsewhere` | 이 경로가 아닌 곳에서 기록한 유효한 승인이 있다 |
 | `session_unavailable` | 세션을 확인하지 못해 승인하지 않았다(`session_missing`, `session_not_orca`, `session_not_omp`, `session_not_live`, `session_unverified`, `session_workspace_mismatch`, `session_agent_unverified`) |
@@ -1036,6 +1042,26 @@ claimed → approved → sending → sent
 
 <p>표 16. 위임 인계 결과</p>
 
-대기 사유와 사용자 승인 요청의 구별: `user_approval_request`는 그 요청이 사용자 자신의 승인(`ach approve`)만 남겨 둔 때에만 `true`다. 사용자 승인의 핵심 조건(제출 준비 기록·파일·규칙, `--score-ok` 포함)이 모두 맞고 제출 흔적이 없는데, 위임이 꺼져 있거나 범위 밖이거나 점수 관문 예외(`--score-ok`)라서 위임으로는 승인할 수 없는 경우다. 그 밖의 `waiting`·`submission_exists`는 사유(`reasons`)가 풀려야 하는 대기이고 사용자에게 승인을 요청할 일이 아니다. 관리 컨트롤러는 둘을 다른 알림(`user_approval_request`, `approval_blocked`)으로 남긴다(21절).
+대기 사유와 사용자 승인 요청의 구별: `user_approval_request`는 그 요청이 사용자 자신의 승인(`ach approve`)만 남겨 둔 때에만 `true`다. 사용자 승인의 핵심 조건(제출 준비 기록·파일·규칙, `--score-ok` 포함)이 모두 맞고 제출 흔적이 없고 접수가 열려 있는데, 위임이 꺼져 있거나 범위 밖이거나 점수 관문 예외(`--score-ok`)라서 위임으로는 승인할 수 없는 경우다. 그 밖의 `waiting`·`submission_exists`는 사유(`reasons`)가 풀려야 하는 대기이고 사용자에게 승인을 요청할 일이 아니다. 관리 컨트롤러는 둘을 다른 알림(`user_approval_request`, `approval_blocked`)으로 남긴다(21절).
 
-확인 기준: 위임이 꺼져 있으면 승인도 메시지도 없다. 같은 요청에 이벤트·실행이 여러 번 겹쳐도 승인 1건, 메시지 1건이다. 자격이 없는 요청, 제출 시도가 있는 요청, 확인되지 않은 세션에는 승인이 기록되지 않는다. 결과 불명 인계는 다시 보내지 않는다. 테스트는 `orca`를 대역으로 쓰고 실제 사이트에 아무것도 보내지 않는다(`tests/handoff.rs`).
+사람에게 보이는 상태(`display {state, label, opens_at?}`, 0.9.4): 보드, `ach approval-status`, `ach handoff`, 세션의 사용자 보고가 모두 이 상태를 쓴다. `awaiting_approval`이라는 이유만으로 "승인 대기"라고 보이지 않는다.
+
+| state | 표시 문구 | 언제 |
+|---|---|---|
+| `user_approval_pending` | 사용자 승인 대기 | `user_approval_request`가 `true`일 때만 |
+| `approved` | 승인됨 | 유효한 승인이 있고 인계됐다(`handed_off`, `already_handed_off`, `reapproved`, `approved_elsewhere`) |
+| `auto_approval_pending` | 자동 승인 대기 | 자격을 갖췄고 다음 실행이 승인한다(`would_approve_and_hand_off`, `would_reapprove`) |
+| `submitting` | 제출 중 | 세션이 제출 의도를 기록했거나 발송을 시작했다(`submission_intent_pending`, `submission_dispatching`, `submission_attempt_exists`) |
+| `sent_confirming` | 이미 발송/접수 확인 중 | 결과 불명 시도, 제출 기록, 기록부 일치(`submission_unknown`, `already_submitted`, `submission_ledger_match`) |
+| `before_window` | 접수 기간 전(개시 `<일시>`) | 준비는 됐고 `submission_opens_at`이 아직 지나지 않았다. `opens_at`에 그 일시 |
+| `info_missing` | 필수 정보 부족 | 제출 준비 기록이 사용자 답·조치나 막힘을 적었다(`needs_user_input`, `blockers_present`, `readiness_not_ready`) |
+| `preparing` | 제출 준비 중 | 세션이 채울 조건이 남았다(점수, 독립 평가, 바뀐 파일, 규칙 검토, 페르소나 흔적, 제출 준비 기록 없음) |
+| `deadline_passed` | 마감 경과 | 마감이 확실히 지났다 |
+| `handoff_attention` | 인계 확인 필요 | 승인·인계 자체가 어긋났다(`session_unavailable`, `approve_refused`, `send_failed`, `handoff_unknown`, 승인은 됐고 메시지가 남은 `would_hand_off`) |
+| `not_applicable` | 대상 아님 | `awaiting_approval`이 아니거나 legacy 항목 |
+
+<p>표 17. 사람에게 보이는 제출 상태</p>
+
+`ach handoff`와 `ach approval-status`의 `display`는 파일 해시까지 읽은 정확한 판단이다(`approval-status`는 세션 생존을 묻지 않아서, 세션 확인만 남은 요청은 `auto_approval_pending`으로 보인다). 보드와 `runtime::summary`는 저장된 기록(레지스트리, 설정, 인계 기록)만 읽는 `handoff::stored_display`를 쓴다: 제출 시도, 제출 준비 기록의 필드, 지금 토큰에 묶인 승인 표시와 인계 기록, 접수 개시 일시, 마감, 위임 범위와 점수 관문 예외로 정한다. 파일을 읽지 않으므로 세션이 채울 조건이 남았는지는 가리지 못하고, 위임 범위 안에서 승인이 아직 없는 요청은 `auto_approval_pending`으로 보인다. 정확한 사유는 `ach handoff <id> --dry-run`이 낸다.
+
+확인 기준: 위임이 꺼져 있으면 승인도 메시지도 없다. 같은 요청에 이벤트·실행이 여러 번 겹쳐도 승인 1건, 메시지 1건이다. 같은 제출물을 다시 기록하거나 점수를 더해도 메시지는 1건이고, 파일이나 제출처가 바뀌면 새 메시지가 나간다. 접수 개시 일시 전에는 승인도 메시지도 없고, 지난 뒤 `ach tick`이나 `ach handoff`가 승인·인계한다. 자격이 없는 요청, 제출 시도가 있는 요청, 확인되지 않은 세션에는 승인이 기록되지 않는다. 결과 불명 인계는 다시 보내지 않는다. "사용자 승인 대기"는 `user_approval_request`가 `true`인 요청에만 보인다. 테스트는 `orca`를 대역으로 쓰고 실제 사이트에 아무것도 보내지 않는다(`tests/handoff.rs`).

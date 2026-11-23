@@ -279,7 +279,7 @@ fn readiness_then_transition_approves_and_hands_off_once_whatever_follows() {
 }
 
 #[test]
-fn transition_then_readiness_waits_first_and_a_new_request_gets_its_own_handoff() {
+fn transition_then_readiness_waits_first_and_is_handed_off_when_the_request_is_ready() {
     let w = World::new("order-b", true);
     let out = w.await_approval();
     assert!(stderr(&out).contains("위임 인계[waiting]"), "{}", stderr(&out));
@@ -290,26 +290,251 @@ fn transition_then_readiness_waits_first_and_a_new_request_gets_its_own_handoff(
     // A request that is not ready yet waits on its own reasons, not on the user's approval.
     let out = w.ready(json!({"submission_ready": false, "blockers": ["접수 개시 전"]}));
     assert!(stderr(&out).contains("위임 인계[waiting]"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("submission_opens_at"), "the line says how to record an opening time");
     let waiting = w.handoff();
     assert_eq!(waiting["user_approval_request"], false);
+    assert_eq!(waiting["display"]["state"], "info_missing");
     assert!(reasons(&waiting).contains(&"blockers_present"), "{waiting}");
     assert_eq!((w.sends().len(), w.submit_approvals()), (0, 0));
 
     let out = w.ready(json!({}));
     assert!(stderr(&out).contains("위임 인계[handed_off]"), "{}", stderr(&out));
+    assert_eq!((w.sends().len(), w.submit_approvals()), (1, 1));
+}
+
+/// The duplicate seen with 0.9.2: a request was handed off on one event, the session then
+/// recorded the same files and destination again, and that record (a new token) was approved and
+/// handed off a second time. The same submission now gets its approval under the new token and no
+/// second message; changed files or a changed destination are a new request and are handed off.
+#[test]
+fn the_same_submission_under_a_new_token_is_reapproved_without_a_second_message() {
+    let w = World::new("same", true);
+    w.ready(json!({}));
+    let out = w.await_approval();
+    assert!(stderr(&out).contains("위임 인계[handed_off]"), "{}", stderr(&out));
     let first = w.token();
     assert_eq!((w.sends().len(), w.submit_approvals()), (1, 1));
 
-    // The session records the request again: the first approval no longer counts, and the new
-    // request is approved and handed off once under its own token.
+    // The same files and destination recorded again: a new readiness sequence and token.
     let out = w.ready(json!({}));
-    assert!(stderr(&out).contains("위임 인계[handed_off]"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("위임 인계[reapproved]"), "{}", stderr(&out));
     let second = w.token();
     assert_ne!(first, second);
-    assert_eq!((w.sends().len(), w.submit_approvals()), (2, 2));
-    assert!(w.sends()[1].contains(&second), "{:?}", w.sends());
+    assert_eq!((w.sends().len(), w.submit_approvals()), (1, 2), "the approval follows the token; no second message");
+    assert_eq!(w.main(&["approval-status", &w.id])["submit_approval_valid"], true);
+    let record: Value = serde_json::from_str(&fs::read_to_string(w.journal(&second)).unwrap()).unwrap();
+    assert_eq!((record["stage"].as_str(), record["continues"].as_str()), (Some("sent"), Some(first.as_str())));
+    assert_eq!((record["message_id"].as_str(), record["send_attempts"].as_u64()), (Some("msg_1"), Some(0)));
     assert_eq!(w.handoff()["status"], "already_handed_off");
+
+    // A new score for the same files changes the token as well (the event that came first in 0.9.2).
+    w.edit(|e| e.scores.push(json!({"at": harness::text::now(), "stage": "draft", "total": 90, "verdict": "ready"})));
+    let third = w.token();
+    assert_ne!(second, third);
+    let again = w.handoff();
+    assert_eq!((again["status"].as_str(), again["display"]["state"].as_str()), (Some("reapproved"), Some("approved")));
+    assert_eq!((w.sends().len(), w.submit_approvals()), (1, 3));
+
+    // Changed files are a new request: approved and handed off under its own token.
+    fs::write(w.folder.join("entry.md"), "고친 응모작 본문\n").unwrap();
+    let out = w.ready(json!({}));
+    assert!(stderr(&out).contains("위임 인계[handed_off]"), "{}", stderr(&out));
+    assert_eq!((w.sends().len(), w.submit_approvals()), (2, 4));
+    assert!(w.sends()[1].contains(&w.token()), "{:?}", w.sends());
+
+    // So is a changed destination, and recording that request again is not.
+    let out = w.ready(json!({"destination": "https://official.example/apply-2"}));
+    assert!(stderr(&out).contains("위임 인계[handed_off]"), "{}", stderr(&out));
+    let out = w.ready(json!({"destination": "https://official.example/apply-2"}));
+    assert!(stderr(&out).contains("위임 인계[reapproved]"), "{}", stderr(&out));
+    assert_eq!((w.sends().len(), w.submit_approvals()), (3, 6));
+}
+
+#[test]
+fn a_send_nobody_read_back_stays_unknown_for_the_same_submission_under_a_new_token() {
+    let w = World::new("same-unknown", true);
+    w.ready(json!({}));
+    w.mark("SEND_GARBLE", true);
+    w.await_approval();
+    w.mark("SEND_GARBLE", false);
+    assert_eq!(w.sends().len(), 1);
+    // The same submission again: its approval is recorded, but the message that may have arrived
+    // is not sent a second time under the new token.
+    let out = w.ready(json!({}));
+    assert!(stderr(&out).contains("위임 인계[handoff_unknown]"), "{}", stderr(&out));
+    assert_eq!(w.main(&["approval-status", &w.id])["submit_approval_valid"], true);
+    assert_eq!(w.sends().len(), 1);
+    assert_eq!(w.handoff()["display"]["state"], "handoff_attention");
+    // The controller confirmed nothing arrived: one message for the current token.
+    assert_eq!(w.main(&["handoff", &w.id, "--resend-request", &w.token()])["status"], "handed_off");
     assert_eq!(w.sends().len(), 2);
+}
+
+#[test]
+fn nothing_is_handed_off_before_the_submission_window_opens_and_a_later_run_picks_it_up() {
+    let w = World::new("window", true);
+    let bad = w.folder.join(".private/bad.json");
+    let request = json!({"submission_ready": true, "needs_user_input": false, "blockers": [], "followup_required": false,
+        "destination": DESTINATION, "submission_opens_at": "다음 주 월요일",
+        "artifacts": [{"path": "entry.md", "sha256": sha(&w.folder.join("entry.md"))}]});
+    fs::write(&bad, request.to_string()).unwrap();
+    let refused = w.command(Some(&w.id), &["readiness", &w.id, "--file", bad.to_str().unwrap()]).output().unwrap();
+    assert!(!refused.status.success(), "an opening time that is not a date is refused");
+
+    w.ready(json!({"submission_opens_at": "2099-01-05"}));
+    let out = w.await_approval();
+    assert!(stderr(&out).contains("위임 인계[waiting]"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("접수 기간 전(개시 2099-01-05 00:00+09:00)"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("사용자 승인 요청이 아니다"), "{}", stderr(&out));
+    let waiting = w.handoff();
+    assert_eq!((waiting["status"].as_str(), reasons(&waiting)), (Some("waiting"), vec!["submission_not_open"]));
+    assert_eq!(waiting["display"]["state"], "before_window");
+    assert_eq!(waiting["display"]["opens_at"], "2099-01-05T00:00+09:00");
+    assert_eq!(waiting["user_approval_request"], false);
+    // The periodic run looks again and still waits.
+    let tick = w.main(&["tick", "--no-collect"]);
+    assert_eq!(tick["handoff"][0]["status"], "waiting", "{tick}");
+    assert_eq!((w.sends().len(), w.submit_approvals()), (0, 0));
+    assert!(!w.root.join("data/handoff").exists(), "nothing is claimed before the window opens");
+
+    // With the delegation off it is not the user's to approve yet either.
+    w.delegation(false);
+    let off = w.handoff();
+    assert_eq!((off["status"].as_str(), off["user_approval_request"].as_bool()), (Some("delegation_off"), Some(false)));
+    assert_eq!(off["display"]["state"], "before_window");
+    w.delegation(true);
+
+    // The opening time passes (the stored time is moved back; no command of the session runs).
+    w.edit(|e| {
+        e.extra.get_mut("submission_readiness").unwrap()["submission_opens_at"] = json!("2020-01-05T00:00+09:00")
+    });
+    assert_eq!(w.main(&["handoff", &w.id, "--dry-run"])["status"], "would_approve_and_hand_off");
+    let tick = w.main(&["tick", "--no-collect"]);
+    assert_eq!(tick["handoff"][0]["status"], "handed_off", "{tick}");
+    assert_eq!(tick["handoff"][0]["record"]["trigger"], "tick");
+    assert_eq!((w.sends().len(), w.submit_approvals()), (1, 1));
+    assert_eq!(w.main(&["tick", "--no-collect"])["handoff"][0]["status"], "already_handed_off");
+    assert_eq!(w.sends().len(), 1);
+    // A contest session running the periodic command triggers nothing.
+    let inside = w.command(Some(&w.id), &["tick", "--no-collect"]).output().unwrap();
+    let inside: Value = serde_json::from_slice(&inside.stdout).unwrap();
+    assert_eq!(inside["handoff"], json!([]));
+}
+
+fn board(w: &World) -> String {
+    w.main(&["board"]);
+    fs::read_to_string(w.root.join("BOARD.md")).unwrap()
+}
+
+fn shown(w: &World) -> (String, bool) {
+    let status = w.main(&["approval-status", &w.id]);
+    let state = status["handoff"]["display"]["state"].as_str().unwrap().to_string();
+    assert_eq!(w.main(&["handoff", &w.id, "--dry-run"])["display"]["state"], state.as_str(), "both views agree");
+    (state, status["handoff"]["user_approval_request"] == true)
+}
+
+/// What a person sees in `ach approval-status`, `ach handoff --dry-run` and `BOARD.md`: the user is
+/// asked to approve only a request that is the user's to approve.
+#[test]
+fn people_see_what_the_submission_waits_for_and_an_approval_request_only_when_it_is_theirs() {
+    let w = World::new("display", true);
+    let asks = |text: &str| text.contains("사용자 승인 대기");
+
+    w.ready(json!({"needs_user_input": true}));
+    w.delegation(false);
+    w.await_approval();
+    assert_eq!(shown(&w), ("info_missing".into(), false), "a question is not an approval request, also when off");
+    w.delegation(true);
+    assert_eq!(shown(&w), ("info_missing".into(), false));
+    let text = board(&w);
+    assert!(text.contains("## 제출 단계(승인·접수) (1)"), "{text}");
+    assert!(text.contains("| 필수 정보 부족 |") && !asks(&text), "{text}");
+    assert!(text.contains(&format!("| `{}` | awaiting_approval · 필수 정보 부족 |", w.id)), "{text}");
+
+    // Ready, delegation off: this one is the user's to approve.
+    w.delegation(false);
+    w.ready(json!({}));
+    assert_eq!(shown(&w), ("user_approval_pending".into(), true));
+    let text = board(&w);
+    assert!(
+        text.contains(&format!("| `{}` | awaiting_approval · 사용자 승인 대기 | - | user_submit_approval |", w.id)),
+        "{text}"
+    );
+
+    // Delegation on, the handoff interrupted before the message: not the user's, the controller's.
+    w.delegation(true);
+    w.mark("SEND_REFUSE", true);
+    w.handoff();
+    w.mark("SEND_REFUSE", false);
+    assert_eq!(shown(&w), ("handoff_attention".into(), false));
+    let text = board(&w);
+    assert!(text.contains("| 인계 확인 필요 |") && text.contains("inspect_handoff") && !asks(&text), "{text}");
+
+    // Approved and handed off.
+    assert_eq!(w.handoff()["status"], "handed_off");
+    assert_eq!(shown(&w), ("approved".into(), false));
+    let text = board(&w);
+    assert!(text.contains("| 승인됨 |") && text.contains("proceed_submission") && !asks(&text), "{text}");
+    assert!(text.contains("## 사용자 확인 필요 (0)"), "{text}");
+
+    // The session records its intent and starts sending: submitting, nothing for the user.
+    let intent = w.folder.join(".private/intent.json");
+    let request = json!({"method": "form", "destination": DESTINATION, "expected_request": w.token()});
+    fs::write(&intent, request.to_string()).unwrap();
+    w.session(&["submission", "intent", &w.id, "--file", intent.to_str().unwrap()]);
+    assert_eq!(shown(&w), ("submitting".into(), false));
+    w.session(&["submission", "start", &w.id, "--attempt", "a1"]);
+    let text = board(&w);
+    assert!(text.contains("| 제출 중 |") && text.contains("submission_in_progress") && !asks(&text), "{text}");
+    assert!(text.contains("## 사용자 확인 필요 (0)"), "{text}");
+
+    // The outcome is unknown: already sent, receipt being confirmed. Someone has to look.
+    let unknown = w.folder.join(".private/unknown.json");
+    let raw = json!({"attempt_id": "a1", "reason": "timeout", "observed_at": harness::text::now(), "evidence": []});
+    fs::write(&unknown, raw.to_string()).unwrap();
+    w.session(&["submission", "unknown", &w.id, "--attempt", "a1", "--file", unknown.to_str().unwrap()]);
+    assert_eq!(shown(&w), ("sent_confirming".into(), false));
+    let text = board(&w);
+    assert!(
+        text.contains("| 이미 발송/접수 확인 중 |") && text.contains("resolve_submission") && !asks(&text),
+        "{text}"
+    );
+    assert!(text.contains("## 사용자 확인 필요 (1)"), "{text}");
+}
+
+#[test]
+fn the_board_names_the_opening_time_and_an_automatic_approval_that_is_still_due() {
+    let w = World::new("display-window", true);
+    w.ready(json!({"submission_opens_at": "2099-01-05T09:00+09:00"}));
+    w.await_approval();
+    assert_eq!(shown(&w), ("before_window".into(), false));
+    let text = board(&w);
+    assert!(text.contains("| 접수 기간 전(개시 2099-01-05 09:00+09:00) |"), "{text}");
+    assert!(text.contains("wait_submission_window") && text.contains("## 사용자 확인 필요 (0)"), "{text}");
+    assert!(!text.contains("사용자 승인 대기"), "{text}");
+
+    // Eligible but no run has approved it yet (the session cannot be reached): due, not the user's.
+    w.edit(|e| {
+        e.extra.get_mut("submission_readiness").unwrap()["submission_opens_at"] = json!("2020-01-05T09:00+09:00")
+    });
+    w.mark("DEAD", true);
+    assert_eq!(w.handoff()["display"]["state"], "handoff_attention");
+    let status = w.main(&["approval-status", &w.id]);
+    assert_eq!(status["handoff"]["display"]["state"], "auto_approval_pending");
+    let text = board(&w);
+    assert!(text.contains("| 자동 승인 대기 |") && text.contains("await_delegated_approval"), "{text}");
+    assert!(!text.contains("사용자 승인 대기") && text.contains("## 사용자 확인 필요 (0)"), "{text}");
+
+    // A request the user passed through the score gate by hand is the user's to approve.
+    w.mark("DEAD", false);
+    w.edit(|e| {
+        e.level = Some(2);
+        let moved = e.history.iter_mut().rev().find(|h| h.to == "awaiting_approval").unwrap();
+        moved.extra.insert("score_override".into(), json!(true));
+        moved.extra.insert("score_override_revision".into(), json!(3));
+    });
+    assert_eq!(shown(&w), ("user_approval_pending".into(), true));
+    assert!(board(&w).contains("awaiting_approval · 사용자 승인 대기"));
 }
 
 #[test]
@@ -628,4 +853,22 @@ fn a_score_gate_override_waits_for_the_user_not_for_the_delegation() {
         (Some("approved_elsewhere"), Some(false))
     );
     assert_eq!(w.sends().len(), 0);
+}
+
+#[test]
+fn a_journal_written_by_0_9_2_still_marks_its_submission_as_handed_off() {
+    let w = World::new("legacy-journal", true);
+    w.ready(json!({}));
+    w.await_approval();
+    let first = w.token();
+    // Journals written before 0.9.4 have no content hash; the readiness record their token
+    // names gives it.
+    let path = w.journal(&first);
+    let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    record.as_object_mut().unwrap().remove("content");
+    fs::write(&path, record.to_string()).unwrap();
+
+    let out = w.ready(json!({}));
+    assert!(stderr(&out).contains("위임 인계[reapproved]"), "{}", stderr(&out));
+    assert_eq!((w.sends().len(), w.submit_approvals()), (1, 2));
 }

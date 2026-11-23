@@ -216,9 +216,9 @@ Every command accepts `--json`. CLI messages and `BOARD.md` are in Korean. Exit 
 | `ach profile show --for <id> [--json]` | Prints the whole profile, personal details included. Only for a contest in `awaiting_approval` with a valid submit approval, or one already `submitted`; inside a contest session, only for its own id. JSON is `{path, text}` |
 | `ach budget` | Shows per-provider remaining quota, pace, and the recommended worker count |
 | `ach capacity` | Shows how many sessions can start now. JSON fields: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram` (`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
-| `ach board` | Writes the action-oriented `BOARD.md` from stored records only (no network or backend calls); see [Board](#board) |
-| `ach tick [--no-collect] [--auto-launch]` | Runs one control loop: collect, list contests waiting for the gate, optionally route and launch within capacity, then update `BOARD.md`. With `new_work_frozen` it neither collects nor launches. Exits 0 so the scheduled run can read its JSON; the text starts with the error count, and JSON adds `warnings` and `scout` (whether the current local hour is in `schedule.scout_hours`) |
-| `ach contract [--json]` | The interface contract of this binary: `{protocol: 2, version: "0.9.3", capabilities: [...]}`. Controllers check `protocol == 2` before any side effect |
+| `ach board` | Writes the action-oriented `BOARD.md` from stored records only (the registry, the configuration, and the handoff journal; no network, backend, or contest-folder access); see [Board](#board). Contests in `awaiting_approval` are listed under "제출 단계(승인·접수)" with a submission status column, and "사용자 승인 대기" appears only for a request that is yours to approve |
+| `ach tick [--no-collect] [--auto-launch]` | Runs one control loop: the delegated handoff for every contest in `awaiting_approval` (this is what picks up a request whose submission window has opened; it also runs with `new_work_frozen`, and never inside a contest session), collect, list contests waiting for the gate, optionally route and launch within capacity, then update `BOARD.md`. With `new_work_frozen` it neither collects nor launches. Exits 0 so the scheduled run can read its JSON; the text starts with the error count, and JSON adds `warnings`, `scout` (whether the current local hour is in `schedule.scout_hours`), and `handoff` (the handoff results) |
+| `ach contract [--json]` | The interface contract of this binary: `{protocol: 2, version: "0.9.4", capabilities: [...]}`. Controllers check `protocol == 2` before any side effect |
 | `ach checkpoint <id> [--file F]` | Records a stage checkpoint, or prints the latest one without `--file` |
 | `ach reconcile [<id>] [--apply]` | Observes recorded sessions and workspaces. Read-only by default; `--apply` stores the observation only |
 | `ach recover <id> --expected-observation TOKEN [--dry-run]` | Reopens a missing session with its saved conversation only when every recovery condition holds |
@@ -353,7 +353,28 @@ With a standing delegation on (`delegation.enabled`), nobody has to approve an e
 
 Each request has a journal, `data/handoff/<id>--<request_token>.json`, with the stage `claimed → approved → sending → sent`, or `send_failed` (Orca answered with a refusal; later runs retry up to three times) or `unknown` (no readable answer; never resent automatically). One lock serializes runs, so repeated events, a restart, or a partial failure never approve or hand off the same request twice. Resend an `unknown` handoff only after confirming the session got nothing: `ach handoff <id> --resend-request <token>`.
 
-The result is `{id, status, reasons, request_token, user_approval_request, record, dry_run}`. `user_approval_request: true` means the request only needs your own `ach approve` (delegation off or out of scope, or a `--score-ok` override, with everything else in order). Any other `waiting` or `submission_exists` result waits on its `reasons` and is not an approval request. Statuses: `handed_off`, `already_handed_off`, `would_approve_and_hand_off`, `would_hand_off`, `delegation_off`, `out_of_scope`, `waiting`, `submission_exists`, `approved_elsewhere`, `session_unavailable`, `approve_refused`, `send_failed`, `handoff_unknown`, `not_applicable`.
+The same submission is not handed off twice either. A request token changes whenever a readiness record or a score is added, even when the files, hashes, and destination stay the same; 0.9.2 and 0.9.3 took each new token for a new request and sent a second message. The journal now keeps a hash of what the request submits (work revision, file paths and SHA-256, destination, opening time, the readiness fields, rule baseline). A new token with the same hash as a request that was already handed off only gets its approval recorded again (`reapproved`); no message is sent. Changed files, a changed destination, or a new work revision are a new request and are handed off once more.
+
+A request can be ready before the organizer accepts it. Put the official opening time in the readiness record as `submission_opens_at` (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM+09:00`) instead of describing it in `blockers`. Until then nothing is approved or handed off (`waiting`, `submission_not_open`) and nobody is asked to approve; afterwards the next `ach tick` (the scheduled run), `ach handoff`, or controller cycle approves and hands it off.
+
+The result is `{id, status, reasons, request_token, user_approval_request, display, record, dry_run}`. `user_approval_request: true` means the request only needs your own `ach approve` (delegation off or out of scope, or a `--score-ok` override, with everything else in order and the window open). Any other `waiting` or `submission_exists` result waits on its `reasons` and is not an approval request. Statuses: `handed_off`, `already_handed_off`, `reapproved`, `would_approve_and_hand_off`, `would_hand_off`, `would_reapprove`, `delegation_off`, `out_of_scope`, `waiting`, `submission_exists`, `approved_elsewhere`, `session_unavailable`, `approve_refused`, `send_failed`, `handoff_unknown`, `not_applicable`.
+
+`display {state, label, opens_at?}` is what people are shown, in `ach handoff`, in `ach approval-status` (under `handoff`), and on the board:
+
+| `state` | Label | When |
+|---|---|---|
+| `user_approval_pending` | 사용자 승인 대기 | only when `user_approval_request` is true |
+| `approved` | 승인됨 | a valid approval exists and the session was told |
+| `auto_approval_pending` | 자동 승인 대기 | eligible; the next run approves it |
+| `submitting` | 제출 중 | the session recorded its intent or started sending |
+| `sent_confirming` | 이미 발송/접수 확인 중 | an attempt with an unknown outcome, a submission record, or a ledger match |
+| `before_window` | 접수 기간 전(개시 …) | ready, but `submission_opens_at` is still ahead |
+| `info_missing` | 필수 정보 부족 | the readiness record asks the user for something or names blockers |
+| `preparing` | 제출 준비 중 | the session still has conditions to meet (scores, independent assessment, changed files, rule review) |
+| `deadline_passed` | 마감 경과 | the deadline has passed |
+| `handoff_attention` | 인계 확인 필요 | the approval or the message itself went wrong |
+
+The board and `runtime` summaries derive the same states from stored records without reading contest files, so a request inside the delegation that is not approved yet shows as `auto_approval_pending` there; `ach handoff <id> --dry-run` gives the exact reasons.
 
 ### Managed controllers
 
