@@ -1,5 +1,6 @@
 //! A narrow correction of a recorded gate: fill in the judging criteria a gate record left empty
-//! (`ach gate-criteria <id> --file F --expected-revision N [--expected-request T] [--dry-run]`).
+//! (`ach gate-criteria <id> --file F --expected-revision N [--expected-request T]
+//! [--criteria-key K] [--dry-run]`).
 //!
 //! `ach gate` cannot be recorded again once a contest is routed, and an entry whose
 //! `gate.criteria` is empty never gets an independent evaluation packet
@@ -14,7 +15,12 @@
 //! - The recorded gate passed and its `criteria` are empty; the corrected gate file equals the
 //!   recorded gate in every other field.
 //! - The new rows equal the structured `{stage?, name, weight?}` rows of the accepted official
-//!   rules' `criteria` category, whose snapshots still hash as captured.
+//!   rules' `criteria` category, whose snapshots still hash as captured. When the official rules
+//!   give separate criteria per division or track (one `criteria` rule per division, each with its
+//!   own `key`), `--criteria-key` names the one the entry competes in: exactly one accepted
+//!   `criteria` rule has that key, every element of it is a structured row, and the new rows are
+//!   that rule's rows, all of them and no other. Part of a division, rows of two divisions and
+//!   rows no rule has are refused, and the other divisions' rules stay as they are.
 //! - Every recorded score already uses exactly these criteria (round, name, weight).
 //! - No submission approval was recorded since the entry entered `awaiting_approval` and no
 //!   evaluation packet or assessment exists, so nothing reviewed against the old gate carries over.
@@ -57,6 +63,9 @@ pub struct Request<'a> {
     pub text: &'a str,
     pub expected_revision: usize,
     pub expected_request: Option<&'a str>,
+    /// The `key` of the one accepted `criteria` rule to take the rows from (`--criteria-key`);
+    /// `None` compares with the rows of every accepted `criteria` rule together.
+    pub criteria_key: Option<&'a str>,
     /// `ACH_SESSION` as the caller read it.
     pub session: Option<&'a str>,
     pub dry_run: bool,
@@ -125,23 +134,83 @@ fn corrected_rows(value: Option<&Value>) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
+/// A structured criterion row of an accepted `criteria` rule: an object with a `name`.
+fn official_row(item: &Value) -> Option<Row> {
+    let text = |key: &str| item.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+    let name = text("name")?;
+    let weight = item.get("weight").and_then(Value::as_f64).filter(|w| w.is_finite());
+    Some((text("stage").map(str::to_string), name.to_string(), weight))
+}
+
+/// `{key, source, verification}` of an accepted rule, as the amendment record cites it.
+fn citation(rule: &Value) -> Value {
+    json!({"key": rule["key"], "source": rule["source"], "verification": rule["verification"]})
+}
+
 /// The structured rows of the accepted `criteria` rules (array elements that are objects with a
-/// `name`), and `{key, source, verification}` of each rule that contributed one.
+/// `name`), and the citation of each rule that contributed one.
 fn official_rows(accepted: &[Value]) -> (Vec<Row>, Vec<Value>) {
     let (mut rows, mut cited) = (Vec::new(), Vec::new());
     for rule in accepted {
-        let before = rows.len();
-        for item in rule["value"].as_array().into_iter().flatten() {
-            let text = |key: &str| item.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
-            let Some(name) = text("name") else { continue };
-            let weight = item.get("weight").and_then(Value::as_f64).filter(|w| w.is_finite());
-            rows.push((text("stage").map(str::to_string), name.to_string(), weight));
-        }
-        if rows.len() > before {
-            cited.push(json!({"key": rule["key"], "source": rule["source"], "verification": rule["verification"]}));
+        let found: Vec<Row> = rule["value"].as_array().into_iter().flatten().filter_map(official_row).collect();
+        if !found.is_empty() {
+            cited.push(citation(rule));
+            rows.extend(found);
         }
     }
     (rows, cited)
+}
+
+/// A rule key that may be given as `--criteria-key`: letters, digits, `.`, `_` and `-`.
+fn selectable_key(key: &str) -> bool {
+    (1..=100).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
+/// The distinct selectable keys of `rules` (accepted rules or their citations), sorted.
+fn selectable_keys(rules: &[Value]) -> Vec<&str> {
+    let mut keys: Vec<&str> = rules.iter().filter_map(|rule| rule["key"].as_str()).collect();
+    keys.retain(|key| selectable_key(key));
+    keys.sort_unstable();
+    keys.dedup();
+    keys
+}
+
+/// What to try when the rows of several keyed `criteria` rules did not match as one list.
+fn division_hint(cited: &[Value]) -> String {
+    let keys = selectable_keys(cited);
+    if keys.len() < 2 {
+        return String::new();
+    }
+    format!(". 공식 규칙이 부문별 기준이면 --criteria-key로 출품 부문의 규칙 하나를 고른다(key: {})", keys.join(", "))
+}
+
+/// The rows of the one accepted `criteria` rule whose key is `key` (the criteria of one official
+/// division or track) and its citation. The key must name exactly one rule and every element of
+/// that rule must be a structured row, so a division is taken whole or not at all.
+fn division_rows(id: &str, version: &str, accepted: &[Value], key: &str) -> Result<(Vec<Row>, Vec<Value>)> {
+    let matching: Vec<&Value> = accepted.iter().filter(|rule| rule["key"].as_str() == Some(key)).collect();
+    let rule = match matching.as_slice() {
+        [rule] => *rule,
+        [] => {
+            let keys = selectable_keys(accepted);
+            bail!(
+                "{id}: 수락된 규칙 판 {version}에 key가 {key}인 criteria 규칙이 없다(고를 수 있는 key: {})",
+                if keys.is_empty() { "없음".to_string() } else { keys.join(", ") }
+            )
+        }
+        many => bail!(
+            "{id}: 수락된 규칙 판 {version}에 key가 {key}인 criteria 규칙이 {}개다. 규칙 하나로 정해지는 key만 고른다",
+            many.len()
+        ),
+    };
+    let items = rule["value"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let rows: Vec<Row> = items.iter().filter_map(official_row).collect();
+    if rows.is_empty() || rows.len() != items.len() {
+        bail!(
+            "{id}: 수락된 규칙 판 {version}의 criteria 규칙 {key}이(가) 구조화된 기준 행 [{{stage, name, weight}}]만으로 돼 있지 않다. 부문 전체를 확인할 수 없는 규칙으로는 채우지 않는다"
+        );
+    }
+    Ok((rows, vec![citation(rule)]))
 }
 
 /// The folder copy of the gate: a regular file inside the contest folder.
@@ -194,14 +263,20 @@ fn next_seq(entry: &Entry) -> Result<u64> {
 }
 
 /// Fill in the empty `gate.criteria` of `entry` from the corrected gate file. See the module docs
-/// for the conditions. Returns `{id, dry_run, field, before, after, weight_total, state, revision,
-/// request_token, evidence: {rules_version, rules}, scores_checked, folder_gate: {path, sha256},
-/// amendment}`; `amendment` is the record's sequence number, `null` for a dry run.
+/// for the conditions. Returns `{id, dry_run, field, before, after, weight_total, criteria_key,
+/// state, revision, request_token, evidence: {rules_version, rules}, scores_checked, folder_gate:
+/// {path, sha256}, amendment}`; `criteria_key` is the selected rule key (`null` without one) and
+/// `amendment` the record's sequence number, `null` for a dry run.
 pub fn gate_criteria(entry: &mut Entry, request: &Request<'_>) -> Result<Value> {
     let id = entry.id.clone();
     if let Some(session) = request.session.filter(|s| !s.is_empty()) {
         bail!(
             "{id}: 공모전 세션 안(ACH_SESSION={session})에서는 게이트 심사기준을 보완할 수 없다. 메인 세션이나 사용자 터미널에서 실행한다"
+        );
+    }
+    if let Some(key) = request.criteria_key.filter(|key| !selectable_key(key)) {
+        bail!(
+            "{id}: --criteria-key {key:?}는 고를 수 없다. 수락된 criteria 규칙의 key 가운데 영문자·숫자·._-만 쓴 100자 이하 key를 준다"
         );
     }
     if !STATES.contains(&entry.state.as_str()) {
@@ -264,13 +339,23 @@ pub fn gate_criteria(entry: &mut Entry, request: &Request<'_>) -> Result<Value> 
     let Some((version, accepted)) = rules::accepted_criteria(entry)? else {
         bail!("{id}: 수락된 공식 규칙 판이 없다. ach rules capture·review로 원문과 criteria 규칙을 먼저 남긴다")
     };
-    let (official, cited) = official_rows(&accepted);
+    let (official, cited) = match request.criteria_key {
+        Some(key) => division_rows(&id, &version, &accepted, key)?,
+        None => official_rows(&accepted),
+    };
     if official.is_empty() {
         bail!("{id}: 수락된 규칙 판 {version}의 criteria 규칙에 구조화된 기준 행 [{{stage, name, weight}}]이 없다");
     }
-    if sorted_keys(&rows) != sorted_keys(&official) {
+    // A selected division is compared row for row; without a selection the rules are one list and
+    // a row that several of them repeat counts once.
+    let same_count = request.criteria_key.is_none() || rows.len() == official.len();
+    if !same_count || sorted_keys(&rows) != sorted_keys(&official) {
+        let (what, hint) = match request.criteria_key {
+            Some(key) => (format!("criteria 규칙 {key}의 행과"), String::new()),
+            None => ("criteria와".to_string(), division_hint(&cited)),
+        };
         bail!(
-            "{id}: 정정 criteria가 수락된 규칙 판 {version}의 criteria와 다르다(정정: {}; 공식: {})",
+            "{id}: 정정 criteria가 수락된 규칙 판 {version}의 {what} 다르다(정정: {}; 공식: {}){hint}",
             labels(&rows),
             labels(&official)
         );
@@ -319,6 +404,7 @@ pub fn gate_criteria(entry: &mut Entry, request: &Request<'_>) -> Result<Value> 
         "before": before,
         "after": after,
         "weight_total": weight_total,
+        "criteria_key": request.criteria_key,
         "state": entry.state,
         "revision": revision,
         "request_token": token,
@@ -343,6 +429,7 @@ pub fn gate_criteria(entry: &mut Entry, request: &Request<'_>) -> Result<Value> 
         "before": result["before"],
         "after": result["after"],
         "weight_total": weight_total,
+        "criteria_key": request.criteria_key,
         "file": {"path": file, "sha256": format!("{:x}", Sha256::digest(request.text.as_bytes()))},
         "evidence": result["evidence"],
         "state": entry.state,
@@ -354,8 +441,9 @@ pub fn gate_criteria(entry: &mut Entry, request: &Request<'_>) -> Result<Value> 
     entry.gate = Some(gate_after);
     let list = entry.extra.entry(KEY.to_string()).or_insert_with(|| Value::Array(Vec::new()));
     list.as_array_mut().expect("next_seq accepts only an absent or array-valued record").push(record);
+    let division = request.criteria_key.map(|key| format!(", 공식 부문 규칙 key {key}")).unwrap_or_default();
     let note = format!(
-        "게이트 심사기준 보완 #{seq}: 비어 있던 criteria에 {}건(배점 합 {}), 근거 규칙 판 {version}",
+        "게이트 심사기준 보완 #{seq}: 비어 있던 criteria에 {}건(배점 합 {}), 근거 규칙 판 {version}{division}",
         rows.len(),
         registry::points(weight_total)
     );
