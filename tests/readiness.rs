@@ -89,7 +89,7 @@ fn score(e: &mut Entry, stage: &str, total: f64, verdict: &str) {
         j["evaluator"] =
             json!({"id": "ContestJudge", "model": "stub/judge", "run_id": format!("run-{}", e.scores.len())});
     }
-    record_score(e, &j, stage, "judge.json", "").unwrap();
+    record_score(e, &j, stage, "judge.json", "", 3).unwrap();
 }
 
 /// A level 2 entry with plan + passing final, in awaiting_approval with a ready request.

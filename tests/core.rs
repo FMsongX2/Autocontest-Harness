@@ -505,8 +505,7 @@ fn running(counts: [usize; 5]) -> BTreeMap<u8, usize> {
 }
 
 fn capacity(free_gb: impl Into<Option<f64>>, run: [usize; 5], pressure: &str, report: &Value) -> Value {
-    let cfg = config_with(json!({"max_running": 4, "ram_reserve_gb": 8,
-        "max_running_by_level": {"1": 3, "2": 1, "3": 2, "4": 1, "5": 0}}));
+    let cfg = config_with(json!({"max_running": 4, "ram_reserve_gb": 8}));
     budget::capacity_with(&cfg, &running(run), report, free_gb.into(), pressure)
 }
 
@@ -515,14 +514,12 @@ fn slots(cap: &Value) -> Vec<u64> {
 }
 
 #[test]
-fn capacity_caps_each_level_by_count_and_memory_budget() {
+fn capacity_is_the_window_minus_running_for_every_level() {
     let none = json!({"reports": []});
     let roomy = capacity(20.0, [1, 1, 0, 0, 0], "normal", &none);
     assert_eq!(roomy["ram"]["budget_gb"], 12.0);
     assert_eq!(roomy["slots"], 2);
-    assert_eq!(slots(&roomy), [2, 0, 2, 1, 0]);
-    let tight = capacity(13.0, [1, 1, 0, 0, 0], "normal", &none);
-    assert_eq!(slots(&tight), [2, 0, 1, 0, 0]);
+    assert_eq!(slots(&roomy), [2; 5]);
     // Without usage data: no providers, unknown basis, token workers fall back to max_workers.
     assert_eq!(roomy["providers"], json!({}));
     assert_eq!(roomy["limits"]["basis"], "unknown");
@@ -530,19 +527,31 @@ fn capacity_caps_each_level_by_count_and_memory_budget() {
     let keys: Vec<&String> = roomy.as_object().unwrap().keys().collect();
     assert_eq!(
         keys,
-        ["slots", "slots_by_level", "recommended_workers", "running", "running_by_level", "ram", "limits", "providers"]
+        [
+            "slots",
+            "slots_by_level",
+            "recommended_workers",
+            "running",
+            "running_by_level",
+            "ram",
+            "limits",
+            "warnings",
+            "providers"
+        ]
     );
     assert_eq!(roomy["running_by_level"], json!({"1": 1, "2": 1, "3": 0, "4": 0, "5": 0}));
-    assert_eq!(roomy["limits"]["ram_gb_by_level"], json!({"1": 2, "2": 3, "3": 4, "4": 6, "5": 8}));
     assert_eq!(roomy["ram"]["reserve_gb"], json!(8));
     assert_eq!(roomy["ram"]["basis"], "measured");
-    assert!(roomy["ram"].get("warning").is_none());
+    assert_eq!(roomy["warnings"], json!([]));
+    assert_eq!(capacity(20.0, [2, 1, 1, 0, 0], "normal", &none)["slots"], 0, "a full window");
 }
 
 #[test]
-fn capacity_stops_on_memory_pressure_and_bounds_workers_by_memory() {
+fn memory_and_tokens_only_warn_and_size_workers() {
     let none = json!({"reports": []});
-    assert_eq!(slots(&capacity(40.0, [0; 5], "warning", &none)), [0; 5]);
+    let pressured = capacity(0.0, [0; 5], "critical", &none);
+    assert_eq!(slots(&pressured), [4; 5]);
+    assert_eq!(pressured["warnings"].as_array().unwrap().len(), 1);
     let now = chrono::Utc::now().timestamp_millis();
     let maxing = json!({"reports": [{"provider": "anthropic", "limits": [{"label": "7d", "status": "ok",
         "amount": {"remainingFraction": 0.8}, "window": {"durationMs": 1_000_000_000i64, "resetsAt": now + 400_000_000}}]}]});
@@ -551,30 +560,10 @@ fn capacity_stops_on_memory_pressure_and_bounds_workers_by_memory() {
     assert_eq!(cap["limits"]["basis"], "anthropic");
     assert_eq!(cap["providers"]["anthropic"]["mode"], "maxing");
     assert_eq!(capacity(11.0, [0; 5], "normal", &maxing)["recommended_workers"], 2);
-}
-
-#[test]
-fn capacity_with_unknown_memory_keeps_count_and_level_limits() {
-    let none = json!({"reports": []});
-    let cap = capacity(None, [1, 1, 0, 0, 0], "unknown", &none);
-    // Count limit 4 - 2 running = 2; per-level caps 3,1,2,1,0 minus running; memory does not cut.
-    assert_eq!(cap["slots"], 2);
-    assert_eq!(slots(&cap), [2, 0, 2, 1, 0]);
-    assert_eq!(cap["recommended_workers"], 6);
-    assert_eq!(cap["ram"]["basis"], "unavailable");
-    assert!(cap["ram"]["warning"].as_str().is_some_and(|w| !w.is_empty()));
-    assert_eq!(cap["ram"]["available_gb"], Value::Null);
-    assert_eq!(cap["ram"]["budget_gb"], Value::Null);
-    // Pressure and token throttling still block when memory is unknown.
-    assert_eq!(slots(&capacity(None, [0; 5], "critical", &none)), [0; 5]);
-    // Measured zero memory still means no room: unknown is not the same as empty.
-    assert_eq!(capacity(0.0, [0; 5], "normal", &none)["slots"], 0);
-}
-
-#[test]
-fn config_override_keeps_unlisted_level_defaults() {
-    let cfg = config_with(json!({"max_running_by_level": {"5": 0}}));
-    assert_eq!(cfg.max_running_by_level, BTreeMap::from([(1, 3), (2, 2), (3, 2), (4, 1), (5, 0)]));
+    let unknown = capacity(None, [1, 1, 0, 0, 0], "unknown", &none);
+    assert_eq!(unknown["slots"], 2);
+    assert_eq!(unknown["ram"]["basis"], "unavailable");
+    assert_eq!(unknown["ram"]["budget_gb"], Value::Null);
 }
 
 #[test]

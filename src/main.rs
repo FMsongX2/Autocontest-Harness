@@ -873,14 +873,9 @@ fn run(cli: &Cli) -> Result<u8> {
                     let cap = budget::capacity(&cfg, &running);
                     let free = base.level.and_then(|l| cap["slots_by_level"][l.to_string()].as_u64()).unwrap_or(0);
                     if free == 0 {
-                        let budget_gb = cap["ram"]["budget_gb"].as_f64().map(|gb| gb.to_string());
                         return Err(Error(format!(
-                            "{id}: 지금은 레벨 {} 공모전을 더 띄우지 않는다(진행 중 {running:?}, 레벨별 상한 {:?}, 메모리 예산 {}GB·압박 {}, 전체 여유 {}). 넘기려면 --force",
-                            base.level.map(|l| l.to_string()).unwrap_or_else(|| "-".into()),
-                            cfg.max_running_by_level,
-                            budget_gb.as_deref().unwrap_or("알 수 없음"),
-                            cap["ram"]["pressure"].as_str().unwrap_or("unknown"),
-                            cap["slots"],
+                            "{id}: 진행 중 공모전이 창(max_running {})을 채웠다(진행 중 {running:?}). 넘기려면 --force",
+                            cfg.max_running,
                         )));
                     }
                 }
@@ -1079,6 +1074,7 @@ fn run(cli: &Cli) -> Result<u8> {
             let raw = read_file(file)?;
             let judge: Value = serde_json::from_str(&raw).map_err(|err| Error(format!("{}: {err}", file.display())))?;
             let shown = file.canonicalize().unwrap_or_else(|_| file.clone());
+            let final_rounds = config::load()?.final_rounds;
             let record = registry::write(|reg| {
                 registry::record_score(
                     reg.get_mut(id)?,
@@ -1086,6 +1082,7 @@ fn run(cli: &Cli) -> Result<u8> {
                     stage,
                     &shown.to_string_lossy(),
                     note.as_deref().unwrap_or(""),
+                    final_rounds,
                 )
             })?;
             emit(json_mode, &record, Some(format!("점수 기록: {id} {}", score_line(&record))))?;
@@ -1654,15 +1651,13 @@ fn add_one(
 }
 
 fn capacity_text(cap: &Value, running: &std::collections::BTreeMap<u8, usize>) -> String {
-    let by_level: Vec<String> =
-        registry::LEVELS.iter().map(|l| format!("L{l} {}", cap["slots_by_level"][l.to_string()])).collect();
     let now_running: Vec<String> = running.iter().filter(|(_, n)| **n > 0).map(|(l, n)| format!("L{l} {n}")).collect();
     let ram = &cap["ram"];
     let gb = |v: &Value| v.as_f64().map(|n| format!("{n}GB")).unwrap_or_else(|| "알 수 없음".to_string());
     let mut text = format!(
-        "새로 띄울 수 있는 세션 {}개({}), 세션 안 권장 워커 {}명\n진행 중 {}({}), 메모리 {} 중 사용자 몫 {}를 뺀 예산 {}, 압박 {}, 한도 기준 {}",
+        "새로 띄울 수 있는 세션 {}개(창 {}), 세션 안 권장 워커 {}명\n진행 중 {}({}), 메모리 {} 중 사용자 몫 {}를 뺀 예산 {}, 압박 {}, 한도 기준 {}",
         cap["slots"],
-        by_level.join(" · "),
+        cap["limits"]["max_running"],
         cap["recommended_workers"],
         cap["running"],
         if now_running.is_empty() { "없음".to_string() } else { now_running.join(" · ") },
@@ -1672,8 +1667,8 @@ fn capacity_text(cap: &Value, running: &std::collections::BTreeMap<u8, usize>) -
         ram["pressure"].as_str().unwrap_or("unknown"),
         cap["limits"]["basis"].as_str().unwrap_or("unknown"),
     );
-    if let Some(warning) = ram["warning"].as_str() {
-        text.push_str(&format!("\n경고: {warning}"));
+    for warning in cap["warnings"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        text.push_str(&format!("\n참고: {warning}"));
     }
     text
 }
@@ -1715,18 +1710,12 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
         });
         let cap = budget::capacity(&cfg, &running);
         let mut left = cap["slots"].as_u64().unwrap_or(0);
-        // No memory reading (null budget) means no memory limit; the count limits still apply.
-        let mut ram_left = cap["ram"]["budget_gb"].as_f64().unwrap_or(f64::INFINITY);
-        let mut left_by_level: std::collections::BTreeMap<u8, u64> =
-            registry::LEVELS.iter().map(|l| (*l, cap["slots_by_level"][l.to_string()].as_u64().unwrap_or(0))).collect();
         report["capacity"] = cap;
         let submitted = ledger::load_at(&ledger::path())?;
         let (mut launched, mut waiting, mut errors, mut warnings) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for base in ready {
             let id = base.id.clone();
-            let level = base.level.unwrap_or(0);
-            let cost = cfg.ram_gb_by_level.get(&level).copied().unwrap_or(f64::INFINITY);
-            if left == 0 || left_by_level.get(&level).copied().unwrap_or(0) == 0 || cost > ram_left {
+            if left == 0 {
                 waiting.push(id);
                 continue;
             }
@@ -1747,8 +1736,6 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
                     result["id"] = json!(id);
                     launched.push(result);
                     left -= 1;
-                    *left_by_level.entry(level).or_default() -= 1;
-                    ram_left -= cost;
                 }
                 Err(err) => errors.push(format!("{id}: {err}")),
             }

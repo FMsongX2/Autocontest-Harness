@@ -587,5 +587,10 @@ fn launched_session_carries_its_contest_id_and_the_main_session_does_not() {
 
     let main = launch::chat(&cfg, Some("omp"), Some("tmux")).unwrap();
     assert!(!main["command"].as_str().unwrap().contains("ACH_SESSION"), "{main}");
+    assert!(!main["command"].as_str().unwrap().contains("--model"), "no main_model, no --model: {main}");
+    let mut with_model = cfg.clone();
+    with_model.main_model = Some("stub/lead:high".into());
+    let main = launch::chat(&with_model, Some("omp"), Some("tmux")).unwrap();
+    assert!(main["command"].as_str().unwrap().contains("--model stub/lead:high"), "{main}");
     fs::remove_dir_all(&root).unwrap();
 }

@@ -206,6 +206,16 @@ impl Workspace for Orca {
         live_terminals_in(&result, workspace_id).map(Some)
     }
 
+    /// `worktree show --worktree id:<workspace>`; an unknown selector means it is gone.
+    fn workspace_exists(&self, workspace_id: &str) -> Result<bool> {
+        let selector = format!("id:{workspace_id}");
+        match orca_json(&["worktree", "show", "--worktree", &selector]) {
+            Ok(_) => Ok(true),
+            Err(e) if GONE.iter().any(|c| e.0.contains(c)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     /// `worktree rm` on a folder-project workspace (`<repo>::<path>::workspace:<uuid>`) only stops
     /// its terminals and forgets the metadata; on a git worktree it would delete the checkout, so
     /// anything else is refused (the harness trashes contest folders itself).

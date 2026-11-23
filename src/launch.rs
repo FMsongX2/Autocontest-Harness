@@ -158,7 +158,7 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
     let Some(folder) = entry.folder.clone().filter(|f| !f.is_empty()) else {
         crate::bail!("{}: 폴더가 없다. 먼저 ach route를 실행한다", entry.id)
     };
-    let Some(level) = entry.level.filter(|l| config.ram_gb_by_level.contains_key(l)) else {
+    let Some(level) = entry.level.filter(|l| crate::registry::LEVELS.contains(l)) else {
         crate::bail!("{}: 레벨이 없다. 게이트(ach gate)로 레벨을 먼저 기록한다", entry.id)
     };
     let runner = runners::get(&config.runner)?;
@@ -193,9 +193,14 @@ pub fn launch(entry: &mut Entry, config: &Config, preset: Option<&str>, dry_run:
     }
     let argv = if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? };
     let argv = session_env(Some(&entry.id), argv);
-    let existing_id = (session_field(entry, "workspace") == Some(workspace.name()))
+    let recorded_id = (session_field(entry, "workspace") == Some(workspace.name()))
         .then(|| session_field(entry, "workspace_id").map(str::to_string))
         .flatten();
+    // A recorded workspace the backend no longer knows is dropped and a new one is created.
+    let existing_id = match recorded_id {
+        Some(id) if dry_run || workspace.workspace_exists(&id)? => Some(id),
+        _ => None,
+    };
     let mut result = json!({
         "command": shell_command(&folder, &argv),
         "prompt": prompt_path.display().to_string(),
@@ -342,7 +347,7 @@ pub fn chat(config: &Config, runner: Option<&str>, workspace: Option<&str>) -> R
         prompt: None,
         first_message: "첨부한 지시대로 메인 인터페이스를 시작해.".to_string(),
         system_append: Some(main_system_prompt(config)?),
-        model: None,
+        model: config.main_model.clone(),
         preset_file: None,
         extra_args: config.runner_args(runner.name()),
     };

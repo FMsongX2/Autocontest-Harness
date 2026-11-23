@@ -4,6 +4,26 @@
 
 주요 변경 기록이다. 버전은 [Semantic Versioning](https://semver.org/)을 따른다. 1.0 전에는 마이너 버전이 CLI나 파일 형식을 바꿀 수 있고, 그때는 항목에 무엇을 어떻게 옮기는지 적는다.
 
+## 0.9.0 - 2026-11-13
+
+- **바뀜**:
+  - 점수 루프에 한도를 둔다. 26개 공모전의 Judge 실행 421회를 보면 같은 묶음을 다시 채점해도 총점이 중앙값 9점(최대 11.5점) 흔들렸고, 최고점 갱신 폭은 2회차 +3.9, 3회차 +1.7, 4회차 +2.6, 5회차부터는 평균 0.7 이하였다. 제출 관문이 최근 `final`의 `total >= target`을 요구해 세션이 운 좋은 표본이 나올 때까지 다시 채점했다(한 공모전은 draft·final 41회, 끝에는 85.5~92를 오갔다). 기획 채점은 후보마다 따로 Judge를 불러 전체 실행의 40%를 차지했고, 따로 받은 후보 점수는 그 흔들림을 사이에 두고 비교됐다.
+  - ContestJudge 판정은 발견 사항으로 정한다. 페르소나 흔적 말고 관문 실패나 규칙·자격 위반이면 `reject`, 페르소나 흔적이나 CRITICAL·HIGH(한글 윤문 기록 HIGH 포함)가 남으면 `revise`, 그 밖에는 `ready`다. 총점이 목표 미만인 것만으로는 `revise`가 아니다. 독립 평가 후보도 같다.
+  - 새 설정 `final_rounds`(정수, 1 이상, 기본 3). `ach score --stage final`이 그때의 값을 `final` 기록에 `final_rounds`로 남긴다(Judge 출력의 같은 키는 쓰지 않는다). 점수 관문(`ach transition … awaiting_approval`, `ach approval-status`, 제출 준비·승인 검사)은 최근 `final`이 지금 작업 판의 `ready`이고 검토 파일 해시가 맞아야 하는 것은 그대로이고, `final_below_target`은 지금 작업 판의 `final` 기록 수가 최근 `final`에 남은 `final_rounds`보다 적은 동안만 낸다. 메시지에 `최근 final 86/90 목표 미달(이번 작업 판 final 2/3회)`처럼 쓴 횟수가 나온다. 그 수에 이르면 목표 미만인 `ready` `final`이 관문을 넘는다. 한도 때문에 점수 기록을 거절하지는 않는다.
+  - 세션 반복 규칙(스킬 "점수 루프", CONTRACT 15절, ContestHQ, 레벨 지시문, 템플릿, 플레이북): `draft`는 체크포인트마다 한 번 채점하고 같은 체크포인트를 다시 채점하지 않는다. `final`은 작업 판마다 `final_rounds`회가 예산이고, 실행마다 CRITICAL·HIGH부터 고치며, 최근 `final`이 `ready`이고 목표 이상이거나 예산을 다 쓰면 멈춘다. 고치지 않은 파일을 더 높은 점수를 바라고 다시 채점하지 않는다. 예산을 다 쓰고도 `revise`·`reject`면 남은 CRITICAL·HIGH를 사용자에게 알리고 사용자 승인으로 `--score-ok`를 쓴다. 레벨 1은 Judge 1회, `revise`면 고친 뒤 한 번만 더.
+  - 기획 채점은 회차마다 새 ContestJudge 한 번에 그 회차의 후보 전부를 넘긴다(최대 3회). Judge는 같은 근거·채점표로 후보를 하나씩 채점해 새 선택 필드 `plan_candidates[{candidate, total, scores, plan_changes}]`에 모두 내고, 최상위 값은 총점이 가장 높은 후보의 것이라 `ach score --stage plan`이 그대로 기록한다. 세션은 후보마다의 총점을 `RUBRIC.md` 추이 표에 같은 회차 번호로 적는다. 고른 후보의 예측 총점이 목표 이상이거나 남은 `plan_changes`가 흔들림보다 작으면 일찍 멈춘다.
+  - 새 설정 `main_model`(문자열 또는 `null`, 기본 `null`). 메인 인터페이스 세션(`ach chat`)을 이 모델로 연다. 공모전 세션과 정기 실행에는 쓰지 않는다.
+  - ContestEditor가 AI 티(같은 문형·종결 반복, 상투 연결과 번역투, 기계적인 셋 나열과 대구, 문단 끝 요약, 근거 없는 강조어)도 `humanize-korean` 분류를 기준으로 걷어 내, 내용·수치·주장은 그대로 두고 사람이 쓴 글처럼 문장 전체를 교정한다.
+  - 글을 다듬는 Gemini 호출을 세션 러너가 아니라 Antigravity CLI로 한다. 새 `scripts/agy-polish.sh`가 호출자가 쓴 지시 파일로 `agy`(기본 모델 `gemini-4-hydrogen-high`)에 한 단계를 맡기고, 파일 읽기·쓰기만 허용하고 명령 실행은 막으며, 대상 파일의 SHA-256 변화를 알려 주고, 실패하면 대상 파일이 하나도 안 바뀐 경우에만 다시 시도한다. ContestEditor는 지시 파일을 쓰고 스크립트를 돌린 뒤 원본 사본과 diff를 검수해 보존 규칙을 어긴 고침을 되돌린다(`.private/editor/`에 쓰는 `write` 도구가 생겼다). humanize-korean의 역할 콜(진단·윤문·마무리)도 러너 하위 에이전트 대신 같은 스크립트로 돌린다. 실패한 호출은 보고하고 다른 모델로 바꾸지 않는다.
+  - 공모전 세션 시작(`launch`, `restart`, `resume`, `recover`, `tick`, 수정 요청 뒤 `running`)을 막는 상한은 창 `max_running`(기본 6) 하나다. 메모리 예산, 메모리 압박, 토큰 throttle은 더 이상 세션을 거절하지 않고, `ach capacity`가 새 `warnings` 목록으로 알리며 `recommended_workers`와 정기 실행의 게이트 수를 정하는 데만 쓴다. `slots_by_level`은 남기되 모든 레벨에 같은 여유 수를 보인다. 설정 키 `max_running_by_level`과 `ram_gb_by_level`은 없앴다.
+- **수정**:
+  - `ach launch`와 `ach restart`가 레지스트리에 기록된 작업 공간 id를 작업 환경이 이미 잊은 뒤에도(손으로 지웠거나 정리로 빠짐) 그대로 다시 써서, 몇 번을 다시 실행해도 Orca `selector_not_found`로 실패했다. 이제 `orca worktree show`가 모르는 기록된 작업 공간은 버리고 새로 만든다.
+- **옮기는 법**:
+  - 레지스트리 이전은 없다. 이전 점수 기록은 그대로 유효하고, `final_rounds`가 없는 `final` 기록은 3으로 본다.
+  - 실행 중인 세션은 스킬을 다시 읽으면 새 규칙을 따른다.
+  - 한도 없는 반복으로 되돌리는 설정은 없다. 예산을 늘리려면 `ach config set final_rounds <n>`을 쓴다. 바꾼 값은 다음에 기록하는 `final`부터 적용된다.
+  - `data/config.json`에서 `max_running_by_level`과 `ram_gb_by_level`을 지운다(`ach config unset max_running_by_level`, `ach config unset ram_gb_by_level`). 이제 설정을 읽을 때 모르는 키로 거절한다. 창은 `ach config set max_running <n>`으로 정한다.
+
 ## 0.8.5 - 2026-11-12
 
 - **수정**:

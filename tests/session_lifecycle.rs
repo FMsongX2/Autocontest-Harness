@@ -119,12 +119,11 @@ fn temp_dir(tag: &str) -> PathBuf {
     fs::canonicalize(&dir).unwrap()
 }
 
-/// Headless omp with runner args and generous count limits. Successful resumes (which measure live
-/// memory pressure) are covered by the unit tests in `src/lifecycle.rs` with a fixed capacity.
+/// Headless omp with runner args and a generous window. Successful resumes are covered by the unit
+/// tests in `src/lifecycle.rs` with a fixed capacity.
 fn config(overlay: Value) -> Config {
     let mut base = json!({"runner": "omp", "workspace": "headless", "runner_args": {"omp": ["--approval-mode", "yolo"]},
-        "max_running": 100, "max_running_by_level": {"1": 100, "2": 100, "3": 100, "4": 100, "5": 100},
-        "ram_gb_by_level": {"1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0, "5": 0.0}});
+        "max_running": 100});
     for (k, v) in overlay.as_object().unwrap() {
         base[k] = v.clone();
     }
@@ -296,10 +295,10 @@ fn resume_checks_capacity_before_touching_the_session() {
     let old = live_session(&folder, "manual-full");
     let session = json!({"workspace": "headless", "runner": "omp", "handle": old, "session_id": UUID_A});
     let before = stored("manual-full", "followup_pending", &folder, session.clone());
-    let cfg = config(json!({"max_running_by_level": {"2": 0}}));
+    let cfg = config(json!({"max_running": 0}));
 
     let err = lifecycle::resume("manual-full", &cfg, None, None, false).unwrap_err();
-    assert!(err.0.contains("더 띄우지 않는다"), "{err}");
+    assert!(err.0.contains("창(max_running 0)"), "{err}");
     assert_eq!(Headless.is_open(&old).unwrap(), Some(true));
     let after = current("manual-full");
     assert_eq!((after.state.as_str(), after.history.len()), ("followup_pending", before.history.len()));

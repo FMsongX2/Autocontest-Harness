@@ -16,7 +16,7 @@
 - [ ] T002 [P] 이전 수상작·심사평 조사 (research/research.md)
 - [ ] T003 [P] 도구·계정 확인(한컴독스, GPU 서버 등) (PLAN.md)
 - [ ] T008 (레벨 2 이상) 공고 정독 직후 가장 먼저 `RUBRIC.md` `## 0. 채점 근거`(주최·주관·개최 목적·심사기준을 공고 원문 위치와 함께, 주최 의도 요약)를 쓰고 커밋, 이어서 기준별 점수표 작성 (RUBRIC.md)
-- [ ] T009 (레벨 2 이상) 콘셉트·기획 후보 2~3개 기획 채점(후보마다·재채점마다 새 ContestJudge stage `plan`, 이 공모전의 주최·주관·개최 목적·심사기준 근거 `basis`와 `evaluator` 포함, `.harness/judge/plan-<n>.json`, `ach score <id> --stage plan --file <경로>`), 최고안 선택·보완을 예측 총점이 목표 이상이 되거나 3회까지 반복. T010을 돌렸으면 후보의 범위는 `research/oss.md`의 재사용 결정을 따른다 (RUBRIC.md, research/research.md) after: T008, T010(돌릴 때)
+- [ ] T009 (레벨 2 이상) 콘셉트·기획 후보 2~3개 기획 채점(회차마다 새 ContestJudge stage `plan` 한 번에 그 회차의 후보 전부, 이 공모전의 주최·주관·개최 목적·심사기준 근거 `basis`와 `evaluator` 포함, `.harness/judge/plan-<n>.json`, `ach score <id> --stage plan --file <경로>`), 최고안 선택·보완을 예측 총점이 목표 이상이 되거나 3회까지 반복. T010을 돌렸으면 후보의 범위는 `research/oss.md`의 재사용 결정을 따른다 (RUBRIC.md, research/research.md) after: T008, T010(돌릴 때)
 - [ ] T006 [P] (레벨 5 필수) ReferenceScout 레퍼런스 조사 (research/references.md)
 - [ ] T010 [P] (결과물에 코드·모델·서비스·실험 파이프라인·데이터 처리 도구가 들어가면 필수, 레벨 2 PoC는 선택) OpenSourceScout 오픈소스 재사용 조사: 구성 요소별 reuse/fork/reference/build, 라이선스·공고 규칙, 제출물 고지 문안. DomainResearcher 조사와 같은 웨이브 (research/oss.md)
 - [ ] T007 (레벨 5 필수) SPEC·PLAN·TASKS 커밋·푸시 후 검수 요청 요약과 예측 총점을 `.private/note.txt`에 쓰고 `ach transition <id> plan_review --note-file .private/note.txt`, 사용자 검수 요청하고 멈춤 (PLAN.md) after: T006, T009
@@ -47,7 +47,7 @@
 
 - [ ] T090 서식·형식 최종 반영 뒤 최종 파일 전 페이지를 렌더링해 비전으로 직접 검수(줄간격·배치·잘림·겹침 포함, 메타데이터·텍스트 검사만으로 완료 금지). 파일 해시·렌더 도구·전체/확인 쪽수·페이지별 근거 기록, 수정 뒤 전 페이지 재검수(HWP/HWPX 렌더·PDF 변환은 한컴독스 웹) ([경로])
 - [ ] T091 AI 활용 고지·사용한 오픈소스 고지(`research/oss.md`)·서약·동의서 확인 (SUBMISSION.md)
-- [ ] T092 ContestJudge 개선 채점(stage `final`) `ready`·목표 이상, 이어서 익명 사본으로 독립 최종 평가(`ach evaluation prepare` → 패킷만 읽는 새 ContestJudge → `ach evaluation record`) 뒤 같은 값과 `evaluation_id`·`assessment_id`로 `ach score <id> --stage final --file <경로>` (JUDGE.md). `ach rules status <id>`에 검토 대기·무효 없음
+- [ ] T092 ContestJudge 개선 채점(stage `final`, 작업 판마다 `final_rounds`회까지) `ready`, 목표 이상이거나 예산을 다 씀, 이어서 익명 사본으로 독립 최종 평가(`ach evaluation prepare` → 패킷만 읽는 새 ContestJudge → `ach evaluation record`) 뒤 같은 값과 `evaluation_id`·`assessment_id`로 `ach score <id> --stage final --file <경로>` (JUDGE.md). `ach rules status <id>`에 검토 대기·무효 없음
 - [ ] T093 SUBMISSION.md 작성, `destination`이 든 `.private/readiness.json`으로 `ach readiness`, `ach checkpoint`(stage `submission`), 커밋·푸시, 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`
 - [ ] T094 (`ach approve`로 제출 승인이 기록된 뒤) 개인정보·서명을 채우거나 파일을 다시 저장·변환했다면 전 페이지 재렌더·비전 재검수 및 제출 파일 해시 대조 → `ach submission intent` → `ach submission start` → 승인된 제출처에 제출 → 접수 증빙으로 `ach submit <id> --attempt <A> --file .private/submission-proof.json`(결과 불명이면 다시 내지 않고 `ach submission unknown`) → 커밋·푸시 → `ach clean <id>`(남은 본선·발표가 있거나 풀리지 않은 시도가 있으면 정리하지 않는다)
 

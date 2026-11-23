@@ -1,5 +1,5 @@
 //! `data/config.json` laid over built-in defaults. Map-valued keys (per-level tables, runner args,
-//! persona) are merged key by key, so a config that only sets `{"max_running_by_level": {"5": 0}}`
+//! persona) are merged key by key, so a config that only sets `{"preset_by_level": {"5": null}}`
 //! keeps the defaults for the other levels.
 
 use std::collections::BTreeMap;
@@ -13,17 +13,8 @@ use crate::error::{Error, Result};
 use crate::registry::LEVELS;
 use crate::{paths, runners, schedule, workspaces};
 
-const MERGED_KEYS: &[&str] = &[
-    "preset_by_level",
-    "model_by_level",
-    "max_running_by_level",
-    "ram_gb_by_level",
-    "runner_args",
-    "persona",
-    "schedule",
-    "agent_models",
-    "delegation",
-];
+const MERGED_KEYS: &[&str] =
+    &["preset_by_level", "model_by_level", "runner_args", "persona", "schedule", "agent_models", "delegation"];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,10 +75,10 @@ pub struct Config {
     pub preset_by_level: BTreeMap<u8, Option<String>>,
     pub model_by_level: BTreeMap<u8, String>,
     pub runner_args: BTreeMap<String, Vec<String>>,
+    /// The window: how many contests may be in progress at once. It is the only limit on starting
+    /// a session; memory and token windows are reported by `ach capacity` but never block.
     pub max_running: usize,
-    pub max_running_by_level: BTreeMap<u8, usize>,
     pub ram_reserve_gb: f64,
-    pub ram_gb_by_level: BTreeMap<u8, f64>,
     pub ram_gb_per_worker: f64,
     pub max_workers: usize,
     pub primary_provider: String,
@@ -97,6 +88,12 @@ pub struct Config {
     /// Explicit operator freeze: no new collection, gating, routing or launches.
     pub new_work_frozen: bool,
     pub gate_batch: usize,
+    /// Final Judge runs per work revision after which a `ready` final below target passes the
+    /// score gate. `ach score --stage final` stamps it on the record; the gate reads the stamp.
+    pub final_rounds: usize,
+    /// Model of the main interface session (`ach chat`), in the runner's selector syntax. `null`
+    /// leaves the runner's own default. Contest sessions and scheduled runs never use it.
+    pub main_model: Option<String>,
     pub persona: Persona,
     pub schedule: Schedule,
     pub delegation: Delegation,
@@ -117,9 +114,7 @@ pub fn defaults() -> Value {
         "model_by_level": {},
         "runner_args": {"omp": [], "claude": ["--permission-mode", "auto"]},
         "max_running": 6,
-        "max_running_by_level": {"1": 3, "2": 2, "3": 2, "4": 1, "5": 1},
         "ram_reserve_gb": 8,
-        "ram_gb_by_level": {"1": 2, "2": 3, "3": 4, "4": 6, "5": 8},
         "ram_gb_per_worker": 1.5,
         "max_workers": 6,
         "primary_provider": "anthropic",
@@ -128,6 +123,8 @@ pub fn defaults() -> Value {
         "auto_launch": false,
         "new_work_frozen": false,
         "gate_batch": 16,
+        "final_rounds": 3,
+        "main_model": null,
         "persona": {"enabled": false, "file": "data/persona.md", "call_user": "", "guard_terms": []},
         "schedule": {"cron": "0 */6 * * *", "scheduler": "orca", "scout_hours": "0-5"},
         "delegation": {
@@ -287,17 +284,13 @@ pub fn validate(config: &Config) -> Result<()> {
     let levels = [
         ("preset_by_level", config.preset_by_level.keys().copied().collect::<Vec<_>>()),
         ("model_by_level", config.model_by_level.keys().copied().collect()),
-        ("max_running_by_level", config.max_running_by_level.keys().copied().collect()),
-        ("ram_gb_by_level", config.ram_gb_by_level.keys().copied().collect()),
     ];
     for (key, keys) in levels {
         if let Some(bad) = keys.iter().find(|l| !LEVELS.contains(l)) {
             bail!("{key}의 키는 레벨 1~5만 쓴다: {bad}");
         }
     }
-    let gb = [("ram_reserve_gb", config.ram_reserve_gb)]
-        .into_iter()
-        .chain(config.ram_gb_by_level.values().map(|v| ("ram_gb_by_level", *v)));
+    let gb = [("ram_reserve_gb", config.ram_reserve_gb)];
     for (key, value) in gb {
         if !value.is_finite() || value < 0.0 {
             bail!("{key}는 0 이상의 숫자여야 한다: {value}");
@@ -308,6 +301,12 @@ pub fn validate(config: &Config) -> Result<()> {
     }
     if config.collect_pages == 0 {
         bail!("collect_pages는 1 이상이어야 한다");
+    }
+    if config.final_rounds == 0 {
+        bail!("final_rounds는 1 이상이어야 한다");
+    }
+    if config.main_model.as_deref().is_some_and(|m| m.trim().is_empty()) {
+        bail!("main_model은 비어 있을 수 없다(쓰지 않으려면 null)");
     }
     Ok(())
 }

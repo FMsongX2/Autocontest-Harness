@@ -256,9 +256,14 @@ fn plan(
             if workspace.interactive() { runner.interactive(&spec)? } else { runner.oneshot(&spec)? }
         }
     };
-    let workspace_id = (recorded_workspace == Some(workspace.name()))
+    // A recorded workspace the backend no longer knows is dropped; the session step creates a new one.
+    let workspace_id = match (recorded_workspace == Some(workspace.name()))
         .then(|| session_field(entry, "workspace_id").filter(|w| !w.is_empty()).map(str::to_string))
-        .flatten();
+        .flatten()
+    {
+        Some(id) if dry_run || workspace.workspace_exists(&id)? => Some(id),
+        _ => None,
+    };
     Ok(Plan {
         runner,
         workspace,
@@ -274,7 +279,7 @@ fn plan(
 /// Measures capacity for the running sessions per level ([`budget::capacity`] outside tests).
 pub(crate) type CapacityObserver<'a> = &'a dyn Fn(&Config, &BTreeMap<u8, usize>) -> Value;
 
-/// Free session slots for the entry's level, as `observe` measures them; fails when there are none.
+/// Free session slots, as `observe` measures them: only the window (`max_running`) limits a start.
 pub(crate) fn check_capacity(
     entry: &Entry,
     config: &Config,
@@ -286,11 +291,9 @@ pub(crate) fn check_capacity(
     let free = cap["slots_by_level"][&level].as_u64().unwrap_or(0);
     if free == 0 {
         crate::bail!(
-            "{}: 지금은 레벨 {level} 공모전 세션을 더 띄우지 않는다(진행 중 {running:?}, 레벨별 상한 {:?}, 메모리 압박 {}, 전체 여유 {}). 자리가 나면 다시 실행한다",
+            "{}: 진행 중 공모전이 창(max_running {})을 채웠다(진행 중 {running:?}). 하나가 끝나거나 창을 넓히면 다시 실행한다",
             entry.id,
-            config.max_running_by_level,
-            cap["ram"]["pressure"].as_str().unwrap_or("unknown"),
-            cap["slots"]
+            config.max_running,
         );
     }
     Ok(())
@@ -750,14 +753,9 @@ exec sleep 30
         budget::capacity_with(config, running, &json!({"reports": []}), None, "normal")
     }
 
-    /// Kernel memory pressure at `warning`: no new sessions.
-    fn pressured(config: &Config, running: &BTreeMap<u8, usize>) -> Value {
-        budget::capacity_with(config, running, &json!({"reports": []}), None, "warning")
-    }
-
     fn config() -> Config {
         let overlay = json!({"runner": "omp", "workspace": "headless", "runner_args": {"omp": ["--approval-mode", "yolo"]},
-            "max_running": 100, "max_running_by_level": {"1": 100, "2": 100, "3": 100, "4": 100, "5": 100}});
+            "max_running": 100});
         serde_json::from_value(crate::config::merge(crate::config::defaults(), overlay)).unwrap()
     }
 
@@ -866,15 +864,26 @@ exec sleep 30
     }
 
     #[test]
-    fn memory_pressure_blocks_a_resume_before_the_session_is_touched() {
-        let Some(env) = isolated("memory_pressure_blocks_a_resume_before_the_session_is_touched") else { return };
+    fn a_full_window_blocks_a_resume_before_the_session_is_touched() {
+        let Some(env) = isolated("a_full_window_blocks_a_resume_before_the_session_is_touched") else { return };
         let session = json!({"workspace": "headless", "runner": "omp", "handle": null, "session_id": UUID});
-        let (before, folder) = stored(&env, "manual-unit-pressure", "followup_pending", session.clone());
-        let err = reopen("manual-unit-pressure", &config(), Action::Resume, None, None, false, &pressured).unwrap_err();
-        assert!(err.0.contains("warning"), "{err}");
-        let after = current("manual-unit-pressure");
+        let (before, folder) = stored(&env, "manual-unit-full", "followup_pending", session.clone());
+        let mut full = config();
+        full.max_running = 0;
+        let err = reopen("manual-unit-full", &full, Action::Resume, None, None, false, &roomy).unwrap_err();
+        assert!(err.0.contains("max_running 0"), "{err}");
+        let after = current("manual-unit-full");
         assert_eq!((after.state.as_str(), after.history.len()), ("followup_pending", before.history.len()));
         assert_eq!(after.session, Some(session));
         assert!(!folder.join(".harness").exists());
+    }
+
+    #[test]
+    fn memory_pressure_and_throttling_never_refuse_a_session_inside_the_window() {
+        let none = json!({"reports": []});
+        let cap = budget::capacity_with(&config(), &BTreeMap::new(), &none, Some(0.0), "critical");
+        assert_eq!(cap["slots"], 100);
+        assert_eq!(cap["slots_by_level"]["3"], 100);
+        assert!(cap["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("critical")));
     }
 }

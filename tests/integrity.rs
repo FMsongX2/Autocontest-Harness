@@ -244,9 +244,10 @@ fn config_rejects_unknown_keys_and_bad_values_naming_the_file() {
         (json!({"schedule": {"cron": "0 25 * * *"}}), "cron"),
         (json!({"schedule": {"cron": "@daily"}}), "cron"),
         (json!({"schedule": {"scout_hours": "25"}}), "scout_hours"),
-        (json!({"max_running_by_level": {"9": 1}}), "max_running_by_level"),
-        (json!({"ram_gb_by_level": {"0": 1}}), "ram_gb_by_level"),
+        (json!({"max_running_by_level": {"1": 1}}), "max_running_by_level"),
         (json!({"collect_pages": 0}), "collect_pages"),
+        (json!({"final_rounds": 0}), "final_rounds"),
+        (json!({"main_model": " "}), "main_model"),
         (json!({"ram_gb_per_worker": 0}), "ram_gb_per_worker"),
         (json!({"max_running": "6"}), "invalid type"),
     ];
@@ -620,7 +621,7 @@ fn plan_review_ends_only_through_approve() {
         }
         j
     };
-    registry::record_score(&mut e, &judge("plan", false), "plan", "plan.json", "").unwrap();
+    registry::record_score(&mut e, &judge("plan", false), "plan", "plan.json", "", 3).unwrap();
     transition(&mut e, "plan_review", "t", "검수").unwrap();
     assert!(transition(&mut e, "running", "t", "승인 원문").is_err());
     assert!(registry::approve(&mut e, "진행해", "user", Some("x-5")).is_err(), "not from a contest session");
@@ -628,7 +629,7 @@ fn plan_review_ends_only_through_approve() {
     assert_eq!(e.state, "running");
     assert_eq!(e.history.last().unwrap().note, "진행해 10/16 09:00");
     assert!(registry::plan_approved(&e));
-    registry::record_score(&mut e, &judge("final", true), "final", "final.json", "").unwrap();
+    registry::record_score(&mut e, &judge("final", true), "final", "final.json", "", 3).unwrap();
     assert_eq!(
         registry::score_gate(&e, "awaiting_approval", None).unwrap(),
         None,

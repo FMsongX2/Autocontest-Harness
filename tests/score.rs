@@ -77,6 +77,9 @@ fn plan_provenance(j: &mut Value, run_id: &str) {
     j["evaluator"] = json!({"id": "ContestJudge", "model": "stub/judge", "run_id": run_id});
 }
 
+/// The default `final_rounds` (config), as `ach score` passes it.
+const ROUNDS: usize = 3;
+
 fn add(e: &mut Entry, stage: &str, a: f64, b: f64, verdict: &str) {
     let mut j = judge(a, b, verdict);
     if stage == "final" {
@@ -85,7 +88,7 @@ fn add(e: &mut Entry, stage: &str, a: f64, b: f64, verdict: &str) {
     if stage == "plan" {
         plan_provenance(&mut j, &format!("run-{}", e.scores.len()));
     }
-    record_score(e, &j, stage, "/c/.harness/judge/x.json", "").unwrap();
+    record_score(e, &j, stage, "/c/.harness/judge/x.json", "", ROUNDS).unwrap();
 }
 
 #[test]
@@ -147,7 +150,8 @@ fn score_record_rejects_bad_judge_output() {
 #[test]
 fn record_score_checks_gate_criteria_and_reviewed_files() {
     let mut e = entry("x-gate", 2);
-    let refused = |e: &mut Entry, j: &Value, stage: &str| record_score(e, j, stage, "f", "").unwrap_err().to_string();
+    let refused =
+        |e: &mut Entry, j: &Value, stage: &str| record_score(e, j, stage, "f", "", ROUNDS).unwrap_err().to_string();
     // Gate criteria: every row names one, every one is scored, published weights agree.
     let extra = json!({"total": 80, "verdict": "ready", "scores": [
         {"name": "참신성", "weight": 30, "score": 25}, {"name": "완성도", "weight": 70, "score": 55},
@@ -169,7 +173,7 @@ fn record_score_checks_gate_criteria_and_reviewed_files() {
         .as_array_mut()
         .unwrap()
         .insert(0, json!({"stage": "1차", "name": "주제 적합 선별", "weight": 0}));
-    record_score(&mut screened, &judge(25.0, 60.0, "revise"), "draft", "f", "").unwrap();
+    record_score(&mut screened, &judge(25.0, 60.0, "revise"), "draft", "f", "", ROUNDS).unwrap();
 
     // final needs the reviewed files, matching the folder now.
     assert!(refused(&mut e, &judge(27.0, 65.0, "ready"), "final").contains("artifacts"));
@@ -177,24 +181,24 @@ fn record_score_checks_gate_criteria_and_reviewed_files() {
     j["artifacts"] = json!([{"path": "out.md", "sha256": "0".repeat(64)}]);
     assert!(refused(&mut e, &j, "final").contains("SHA-256"));
     j["artifacts"] = json!([{"path": "../out.md", "sha256": "0".repeat(64)}]);
-    assert!(record_score(&mut e, &j, "final", "f", "").is_err(), "outside the folder");
+    assert!(record_score(&mut e, &j, "final", "f", "", ROUNDS).is_err(), "outside the folder");
     j["artifacts"] = json!([{"path": "missing.md", "sha256": "0".repeat(64)}]);
-    assert!(record_score(&mut e, &j, "final", "f", "").is_err());
+    assert!(record_score(&mut e, &j, "final", "f", "", ROUNDS).is_err());
     let outside = temp_dir("outside");
     fs::write(outside.join("secret.md"), "x").unwrap();
     std::os::unix::fs::symlink(outside.join("secret.md"), folder(&e).join("link.md")).unwrap();
     let sha = readiness::sha256_file(&outside.join("secret.md")).unwrap();
     j["artifacts"] = json!([{"path": "link.md", "sha256": sha}]);
-    assert!(record_score(&mut e, &j, "final", "f", "").is_err(), "a symlink out of the folder");
+    assert!(record_score(&mut e, &j, "final", "f", "", ROUNDS).is_err(), "a symlink out of the folder");
     j["artifacts"] = json!([{"path": outside.join("secret.md").to_string_lossy(), "sha256": sha}]);
-    assert!(record_score(&mut e, &j, "final", "f", "").is_err(), "an absolute path outside");
+    assert!(record_score(&mut e, &j, "final", "f", "", ROUNDS).is_err(), "an absolute path outside");
     assert!(e.scores.is_empty());
 
     // Absolute paths inside the folder are stored relative, with the work revision.
     let mut ok = judge(27.0, 65.0, "ready");
     let sha = readiness::sha256_file(&folder(&e).join("out.md")).unwrap();
     ok["artifacts"] = json!([{"path": folder(&e).join("out.md").to_string_lossy(), "sha256": sha.to_uppercase()}]);
-    let r = record_score(&mut e, &ok, "final", "f", "").unwrap();
+    let r = record_score(&mut e, &ok, "final", "f", "", ROUNDS).unwrap();
     assert_eq!(r["artifacts"], json!([{"path": "out.md", "sha256": sha}]));
     assert_eq!(r["revision"].as_u64(), Some(registry::revision(&e) as u64));
     assert_eq!(e.scores.len(), 1);
@@ -206,7 +210,7 @@ fn record_score_checks_gate_criteria_and_reviewed_files() {
 #[test]
 fn plan_scores_need_the_contest_basis_and_a_fresh_judge_run() {
     let mut e = entry("x-1", 2);
-    let refused = |e: &mut Entry, j: &Value| record_score(e, j, "plan", "f", "").unwrap_err().to_string();
+    let refused = |e: &mut Entry, j: &Value| record_score(e, j, "plan", "f", "", ROUNDS).unwrap_err().to_string();
     let bare = judge(25.0, 60.0, "revise");
     assert!(refused(&mut e, &bare).contains("basis"), "a plan score without the contest basis");
 
@@ -220,7 +224,7 @@ fn plan_scores_need_the_contest_basis_and_a_fresh_judge_run() {
     assert!(e.scores.is_empty());
 
     plan_provenance(&mut j, "run-a");
-    let r = record_score(&mut e, &j, "plan", "f", "").unwrap();
+    let r = record_score(&mut e, &j, "plan", "f", "", ROUNDS).unwrap();
     assert_eq!(r["basis"]["organizer"], "주최 기관 / 주관 기관");
     assert_eq!(r["evaluator"]["run_id"], "run-a");
 
@@ -229,10 +233,10 @@ fn plan_scores_need_the_contest_basis_and_a_fresh_judge_run() {
     plan_provenance(&mut again, "run-a");
     assert!(refused(&mut e, &again).contains("새 Judge 실행"));
     plan_provenance(&mut again, "run-b");
-    record_score(&mut e, &again, "plan", "f", "").unwrap();
+    record_score(&mut e, &again, "plan", "f", "", ROUNDS).unwrap();
     assert_eq!(e.scores.len(), 2);
     // draft and final keep their own rules.
-    record_score(&mut e, &judge(26.0, 61.0, "revise"), "draft", "f", "").unwrap();
+    record_score(&mut e, &judge(26.0, 61.0, "revise"), "draft", "f", "", ROUNDS).unwrap();
 }
 
 #[test]
@@ -241,7 +245,7 @@ fn plan_scores_need_the_basis_documented_in_the_rubric_first() {
     let rubric = folder(&e).join("RUBRIC.md");
     let mut j = judge(25.0, 60.0, "revise");
     plan_provenance(&mut j, "run-a");
-    let refused = |e: &mut Entry| record_score(e, &j, "plan", "f", "").unwrap_err().to_string();
+    let refused = |e: &mut Entry| record_score(e, &j, "plan", "f", "", ROUNDS).unwrap_err().to_string();
 
     fs::remove_file(&rubric).unwrap();
     assert!(refused(&mut e).contains("RUBRIC.md"), "no rubric yet");
@@ -259,7 +263,7 @@ fn plan_scores_need_the_basis_documented_in_the_rubric_first() {
     assert!(e.scores.is_empty());
 
     fs::write(&rubric, RUBRIC).unwrap();
-    let r = record_score(&mut e, &j, "plan", "f", "").unwrap();
+    let r = record_score(&mut e, &j, "plan", "f", "", ROUNDS).unwrap();
     assert_eq!(r["basis"]["document"]["path"], "RUBRIC.md");
     assert_eq!(r["basis"]["document"]["sha256"].as_str().map(str::len), Some(64));
 }
@@ -274,7 +278,7 @@ fn awaiting_approval_needs_plan_and_a_passing_current_final_from_level_2() {
     add(&mut e, "final", 27.0, 65.0, "ready");
     assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
     add(&mut e, "final", 25.0, 63.0, "ready");
-    assert!(refused(&e).contains("목표 미달"), "{}", refused(&e));
+    assert!(refused(&e).contains("88/90 목표 미달(이번 작업 판 final 2/3회)"), "{}", refused(&e));
     add(&mut e, "final", 28.0, 67.0, "revise");
     assert!(refused(&e).contains("판정 revise"));
     let note = score_gate(&e, "awaiting_approval", Some("마감 2시간 전")).unwrap().unwrap();
@@ -288,6 +292,43 @@ fn awaiting_approval_needs_plan_and_a_passing_current_final_from_level_2() {
     assert!(refused(&only_final).contains("plan 점수 없음"));
     // Other moves are not gated.
     assert_eq!(score_gate(&only_final, "skipped", None).unwrap(), None);
+}
+
+#[test]
+fn a_ready_final_below_target_passes_once_the_final_rounds_are_used() {
+    let mut e = entry("x-rounds", 2);
+    let refused = |e: &Entry| score_gate(e, "awaiting_approval", None).unwrap_err().to_string();
+    let codes = |e: &Entry| registry::score_problems(e).iter().map(|p| p.code).collect::<Vec<_>>();
+    add(&mut e, "plan", 25.0, 60.0, "revise");
+    // Below the limit a ready final under target still blocks, naming the finals used.
+    add(&mut e, "final", 25.0, 61.0, "ready");
+    assert!(refused(&e).contains("86/90 목표 미달(이번 작업 판 final 1/3회)"), "{}", refused(&e));
+    // A final_rounds key in the Judge output is ignored: the configured limit is stamped.
+    let mut j = judge(25.0, 62.0, "ready");
+    j["artifacts"] = artifacts(&e);
+    j["final_rounds"] = json!(1);
+    let r = record_score(&mut e, &j, "final", "f", "", ROUNDS).unwrap();
+    assert_eq!(r["final_rounds"], json!(3));
+    assert_eq!(codes(&e), ["final_below_target"]);
+    assert!(refused(&e).contains("2/3회"), "{}", refused(&e));
+    // The third ready final uses the budget: below target, it passes.
+    add(&mut e, "final", 25.0, 63.0, "ready");
+    assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
+    // A revise final still blocks however many finals were taken.
+    add(&mut e, "final", 25.0, 64.0, "revise");
+    assert_eq!(codes(&e), ["final_not_ready"]);
+
+    // Finals of an earlier work revision do not count toward the current one.
+    transition(&mut e, "awaiting_approval", "t", "").unwrap();
+    transition(&mut e, "running", "t", "고친다").unwrap();
+    add(&mut e, "final", 25.0, 63.0, "ready");
+    assert!(refused(&e).contains("88/90 목표 미달(이번 작업 판 final 1/3회)"), "{}", refused(&e));
+
+    // The limit stamped on the latest final applies (a changed config counts from the next final).
+    let mut j = judge(25.0, 63.0, "ready");
+    j["artifacts"] = artifacts(&e);
+    record_score(&mut e, &j, "final", "f", "", 2).unwrap();
+    assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
 }
 
 #[test]

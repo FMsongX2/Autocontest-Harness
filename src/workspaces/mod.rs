@@ -48,6 +48,12 @@ pub trait Workspace: Sync {
     fn live_terminals(&self, _workspace_id: &str) -> Result<Option<Vec<(String, String)>>> {
         Ok(None)
     }
+    /// Whether the backend still knows `workspace_id`. A recorded workspace can disappear (removed
+    /// by hand or by a cleanup) while the registry keeps its id; launching into it then fails
+    /// forever, so callers create a new one instead. Backends without workspaces say yes.
+    fn workspace_exists(&self, _workspace_id: &str) -> Result<bool> {
+        Ok(true)
+    }
     /// Forget the workspace (never the contest folder itself; the harness trashes that). Backends
     /// without workspaces do nothing.
     fn remove_workspace(&self, workspace_id: &str) -> Result<()>;

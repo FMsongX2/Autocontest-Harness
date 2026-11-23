@@ -193,11 +193,10 @@ fn level_map<T: Copy + Into<Value>>(map: &BTreeMap<u8, T>) -> Map<String, Value>
 }
 
 /// Capacity from explicit inputs (used by `capacity` and by tests).
-/// New sessions overall (`slots`) and per level, plus recommended workers inside a session. Memory
-/// budget = available minus the user's reserve, divided by each level's session size; memory
-/// pressure at `warning` or above, or a throttled token window, blocks new sessions. When the
-/// available memory is unknown (`None`), the memory limit is skipped and only count and token
-/// limits apply; `ram.basis` is then `unavailable` with a warning.
+/// New sessions (`slots`, the same number for every level in `slots_by_level`) are limited only by
+/// the window `max_running`: the operator chose it, so nothing else blocks a start. Memory, memory
+/// pressure and throttled token windows are measured and reported (`ram`, `limits`, `providers`,
+/// `warnings`) and size the recommended workers inside a session, but never refuse a session.
 pub fn capacity_with(
     config: &Config,
     running: &BTreeMap<u8, usize>,
@@ -209,7 +208,7 @@ pub fn capacity_with(
     let rec = recommend(&windows(report, now_ms), config.max_workers);
     let budget_gb = available_gb.map(|gb| round_to((gb - config.ram_reserve_gb).max(0.0), 1));
     let total: usize = running.values().sum();
-    let by_count = config.max_running.saturating_sub(total);
+    let slots = config.max_running.saturating_sub(total);
     let primary = rec.get(&config.primary_provider);
     let basis: Vec<&Value> = match primary {
         Some(p) => vec![p],
@@ -218,26 +217,11 @@ pub fn capacity_with(
     let token_workers =
         basis.iter().filter_map(|r| r["workers"].as_u64()).map(|w| w as usize).min().unwrap_or(config.max_workers);
     let throttled = basis.iter().any(|r| r["mode"] == "throttle");
-    let blocked = throttled || pressure == "warning" || pressure == "critical";
-    let fits = |cost: f64| match budget_gb {
-        Some(budget) if cost > 0.0 => (budget / cost).floor() as usize,
-        _ => usize::MAX,
+    let by_memory = match budget_gb {
+        Some(budget) => 1.max((budget / config.ram_gb_per_worker).floor() as usize),
+        None => usize::MAX,
     };
-    let costs = &config.ram_gb_by_level;
-    let caps = &config.max_running_by_level;
-    let mut slots_by_level = Map::new();
-    for level in LEVELS {
-        let slots = if blocked {
-            0
-        } else {
-            let cap = caps.get(&level).copied().unwrap_or(0).saturating_sub(running.get(&level).copied().unwrap_or(0));
-            by_count.min(cap).min(fits(costs.get(&level).copied().unwrap_or(f64::INFINITY)))
-        };
-        slots_by_level.insert(level.to_string(), json!(slots));
-    }
-    let cheapest = costs.values().copied().fold(f64::INFINITY, f64::min);
-    let slots = if blocked { 0 } else { by_count.min(fits(cheapest)) };
-    let by_memory = 1.max(fits(config.ram_gb_per_worker));
+    let slots_by_level: Map<String, Value> = LEVELS.iter().map(|l| (l.to_string(), json!(slots))).collect();
     let basis_name = if rec.is_empty() {
         "unknown".to_string()
     } else if primary.is_some() {
@@ -245,16 +229,15 @@ pub fn capacity_with(
     } else {
         "all".to_string()
     };
-    let costs_json: Map<String, Value> = costs.iter().map(|(k, v)| (k.to_string(), number(*v))).collect();
-    let mut ram = json!({
-        "available_gb": available_gb,
-        "reserve_gb": number(config.ram_reserve_gb),
-        "budget_gb": budget_gb,
-        "pressure": pressure,
-        "basis": if available_gb.is_some() { "measured" } else { "unavailable" },
-    });
+    let mut warnings = Vec::new();
+    if throttled {
+        warnings.push(format!("{basis_name} 토큰 한도가 빠듯하다(throttle). 세션 시작은 막지 않는다"));
+    }
+    if pressure == "warning" || pressure == "critical" {
+        warnings.push(format!("메모리 압박 {pressure}. 세션 시작은 막지 않는다"));
+    }
     if available_gb.is_none() {
-        ram["warning"] = json!("남은 메모리를 읽지 못해 메모리 한도 없이 개수·토큰 한도만 적용했다");
+        warnings.push("남은 메모리를 읽지 못했다".to_string());
     }
     json!({
         "slots": slots,
@@ -262,16 +245,20 @@ pub fn capacity_with(
         "recommended_workers": token_workers.min(by_memory),
         "running": total,
         "running_by_level": level_map(running),
-        "ram": ram,
+        "ram": {
+            "available_gb": available_gb,
+            "reserve_gb": number(config.ram_reserve_gb),
+            "budget_gb": budget_gb,
+            "pressure": pressure,
+            "basis": if available_gb.is_some() { "measured" } else { "unavailable" },
+        },
         "limits": {
-            "by_count": by_count,
+            "max_running": config.max_running,
             "throttled": throttled,
             "token_workers": token_workers,
-            "max_running": config.max_running,
-            "max_running_by_level": level_map(caps),
-            "ram_gb_by_level": costs_json,
             "basis": basis_name,
         },
+        "warnings": warnings,
         "providers": rec,
     })
 }

@@ -1175,11 +1175,11 @@ exec sleep 30
         crate::budget::capacity_with(config, running, &json!({"reports": []}), None, "normal")
     }
 
-    /// One level-2 session at most: the recovering entry itself already counts as running, so a
-    /// recovery succeeds only when it is left out of the count.
+    /// One session at most: the recovering entry itself already counts as running, so a recovery
+    /// succeeds only when it is left out of the count.
     fn config() -> Config {
         let overlay = json!({"runner": "omp", "workspace": "headless", "runner_args": {"omp": ["--approval-mode", "yolo"]},
-            "max_running": 1, "max_running_by_level": {"1": 1, "2": 1, "3": 1, "4": 1, "5": 1}});
+            "max_running": 1});
         serde_json::from_value(crate::config::merge(crate::config::defaults(), overlay)).unwrap()
     }
 

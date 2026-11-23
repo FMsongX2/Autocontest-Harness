@@ -678,6 +678,8 @@ pub const SCORE_STAGES: &[&str] = &["plan", "draft", "final"];
 pub const VERDICTS: &[&str] = &["ready", "revise", "reject"];
 /// Target total (out of 100) when the Judge output does not give one.
 pub const DEFAULT_TARGET: f64 = 90.0;
+/// Final Judge runs per work revision (config `final_rounds`) when a final record carries none.
+pub const DEFAULT_FINAL_ROUNDS: u64 = 3;
 
 fn number(record: &Value, key: &str) -> Option<f64> {
     record.get(key).and_then(Value::as_f64).filter(|n| n.is_finite())
@@ -892,8 +894,17 @@ fn plan_provenance(entry: &Entry, judge: &Value) -> Result<(Value, Value)> {
 /// record carries the current work `revision`, and `artifacts` (`[{path, sha256}]`, the files the
 /// Judge reviewed) are checked against the contest folder as it is now and stored as
 /// folder-relative paths. `final` requires them; `plan` and `draft` store them when given. `plan`
-/// also requires the contest basis and a fresh Judge run ([`plan_provenance`]).
-pub fn record_score(entry: &mut Entry, judge: &Value, stage: &str, file: &str, note: &str) -> Result<Value> {
+/// also requires the contest basis and a fresh Judge run ([`plan_provenance`]). A `final` record
+/// is stamped with `final_rounds`, the configured limit in force (never taken from the Judge
+/// output), which [`score_problems`] reads.
+pub fn record_score(
+    entry: &mut Entry,
+    judge: &Value,
+    stage: &str,
+    file: &str,
+    note: &str,
+    final_rounds: usize,
+) -> Result<Value> {
     let mut record = score_record(judge, stage, file, note)?;
     let provenance = if stage == "plan" { Some(plan_provenance(entry, judge)?) } else { None };
     if matches!(stage, "plan" | "final") {
@@ -924,6 +935,9 @@ pub fn record_score(entry: &mut Entry, judge: &Value, stage: &str, file: &str, n
     }
     if let Some(artifacts) = artifacts {
         object.insert("artifacts".into(), Value::Array(artifacts));
+    }
+    if stage == "final" {
+        object.insert("final_rounds".into(), serde_json::json!(final_rounds));
     }
     entry.scores.push(record);
     if let Err(error) = crate::rules::score_recorded(entry, stage) {
@@ -958,8 +972,12 @@ pub struct ScoreProblem {
 
 /// Why the scores do not let a level 2-5 submission through: a `plan` score is required (any
 /// revision: the plan stays valid across revise cycles), and the latest `final` must be stamped
-/// with the current work revision, judged `ready` with `total >= target`, and its reviewed files
-/// must still hash as recorded. Older unstamped finals stay readable but never pass.
+/// with the current work revision, judged `ready`, and its reviewed files must still hash as
+/// recorded. `total >= target` is required only while fewer finals than the limit stamped on the
+/// latest final (`final_rounds`, [`DEFAULT_FINAL_ROUNDS`] when absent) carry the current work
+/// revision: re-scoring unchanged files only samples Judge noise, so the loop is bounded and a
+/// `ready` final passes once the budget is used. Older unstamped finals stay readable but never
+/// pass.
 pub fn score_problems(entry: &Entry) -> Vec<ScoreProblem> {
     let mut problems = Vec::new();
     let mut add = |code: &'static str, message: String| problems.push(ScoreProblem { code, message });
@@ -984,10 +1002,23 @@ pub fn score_problems(entry: &Entry) -> Vec<ScoreProblem> {
     if verdict != "ready" {
         add("final_not_ready", format!("최근 final 판정 {verdict}"));
     }
-    if total < target {
-        add("final_below_target", format!("최근 final {} 목표 미달", score_label(score)));
-    }
     let current = revision(entry) as u64;
+    if total < target {
+        let limit =
+            score.get("final_rounds").and_then(Value::as_u64).filter(|n| *n >= 1).unwrap_or(DEFAULT_FINAL_ROUNDS);
+        let used = entry
+            .scores
+            .iter()
+            .filter(|s| s.get("stage").and_then(Value::as_str) == Some("final"))
+            .filter(|s| s.get("revision").and_then(Value::as_u64) == Some(current))
+            .count() as u64;
+        if used < limit {
+            add(
+                "final_below_target",
+                format!("최근 final {} 목표 미달(이번 작업 판 final {used}/{limit}회)", score_label(score)),
+            );
+        }
+    }
     match score.get("revision").and_then(Value::as_u64) {
         None => add("final_unstamped", "최근 final에 작업 판 표시가 없다(이전 형식, 다시 채점한다)".to_string()),
         Some(r) if r != current => {

@@ -110,16 +110,16 @@ bin/ach peek wevity-111674                   # 세션 화면이나 로그의 끝
 
 ## 설정
 
-설정은 [`src/config.rs`](../src/config.rs)의 기본값 위에 `data/config.json`을 덮어 읽는다. 적지 않은 키는 기본값을 그대로 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `max_running_by_level`, `ram_gb_by_level`, `runner_args`, `persona`, `schedule`, `agent_models`)는 적은 항목만 덮는다. `{"max_running_by_level": {"5": 0}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
+설정은 [`src/config.rs`](../src/config.rs)의 기본값 위에 `data/config.json`을 덮어 읽는다. 적지 않은 키는 기본값을 그대로 쓴다. 사전 값 키(`preset_by_level`, `model_by_level`, `runner_args`, `persona`, `schedule`, `agent_models`)는 적은 항목만 덮는다. `{"preset_by_level": {"5": null}}`은 레벨 5만 바꾼다. 레벨 키는 문자열 `"1"`~`"5"`다.
 
 `ach config`는 파일을 열지 않고 설정을 읽고 바꾼다. 키는 점으로 이은 경로다(`schedule.cron`, `agent_models.ContestJudge`, `model_by_level.3`). `set`은 값이 JSON으로 읽히면 JSON으로(숫자, `true`/`false`, `null`, `"..."`, `[...]`, `{...}`), 아니면 문자열로 받고, 설정 전체를 검사한 뒤에야 파일을 쓴다(원자적으로, 권한 0600). 틀린 값은 거절하고 파일은 그대로 둔다. `unset`은 파일에서 키를 지워 기본값으로 되돌린다. `get`은 적용되는 값(기본값 + 파일)을 보여 주고, 키가 없으면 설정 전체를 보여 준다.
 
 ```bash
 ach config path                          # 설정 파일 경로
 ach config get schedule                  # 적용되는 값
-ach config set max_running_by_level.5 0  # 숫자 0으로 읽는다
+ach config set max_running 5            # 숫자 5로 읽는다
 ach config set github_org my-org         # JSON이 아니므로 문자열로 읽는다
-ach config unset max_running_by_level.5  # 기본값으로 되돌린다
+ach config unset max_running            # 기본값으로 되돌린다
 ```
 
 설정 파일은 읽을 때 검증하고, 설정 오류는 모두 파일 경로로 시작한다. 모르는 키는 거절한다(`unknown field ...`). `persona`와 `schedule` 안도 같다. `runner`는 코어에 든 어댑터 이름, `workspace`는 `orca`·`tmux`·`headless`·`terminal`, `schedule.scheduler`는 `orca`·`launchd`·`cron` 가운데 하나여야 한다. `schedule.cron`과 `schedule.scout_hours`(cron의 시 칸, 0~23, 비워도 된다)는 해석되어야 한다. 레벨별 키는 `"1"`~`"5"`만 쓴다. 메모리 값은 유한한 0 이상의 수, `ram_gb_per_worker`는 0보다 큰 수, `collect_pages`는 1 이상이어야 한다.
@@ -134,10 +134,8 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `preset_by_level` | `{"1": null, "2": null, "3": null, "4": null, "5": null}` | 프리셋을 지원하는 어댑터의 레벨별 모델 프리셋. omp는 예컨대 `{"3": "ResearchPreset"}`을 `~/.omp/agent/config.yml`의 `modelPresets`에서 가져와 실행마다 따로 만드는 `--config` 덮개로 넘기므로, 전역 omp 설정은 바뀌지 않는다. `null`이면 omp 기본 역할을 쓴다. 이름을 적은 프리셋이 omp 설정에 없으면 `launch`가 실패한다 |
 | `model_by_level` | `{}` | 프리셋이 없을 때 쓰는 레벨별 모델 id |
 | `runner_args` | `{"omp": [], "claude": ["--permission-mode", "auto"]}` | 러너 이름별로, 그 어댑터의 모든 명령에 붙이는 인자 |
-| `max_running` | `6` | 모든 레벨을 합쳐 동시에 진행하는 공모전 수의 상한. `0`이면 실행을 모두 멈춘다 |
-| `max_running_by_level` | `{"1": 3, "2": 2, "3": 2, "4": 1, "5": 1}` | 레벨별 동시 진행 상한. `0`이면 그 레벨의 공모전은 `gate_pass`에 머물고 실행되지 않는다 |
+| `max_running` | `6` | 창: 모든 레벨을 합쳐 동시에 진행하는 공모전 수. 세션 시작을 막는 유일한 상한이고, 메모리·토큰 상태는 알리기만 한다. `0`이면 실행을 모두 멈춘다 |
 | `ram_reserve_gb` | `8` | 사용자가 쓰는 앱 몫으로 남겨 두는 메모리. 메모리 예산은 쓸 수 있는 메모리(macOS는 `vm_stat`의 free + inactive + speculative, Linux는 `/proc/meminfo`의 `MemAvailable`)에서 이 값을 뺀 것이다 |
-| `ram_gb_by_level` | `{"1": 2, "2": 3, "3": 4, "4": 6, "5": 8}` | 레벨별로 세션 하나가 쓴다고 보는 메모리. 측정값이 아닌 추정치다 |
 | `ram_gb_per_worker` | `1.5` | 세션 안 워커 하나가 쓰는 메모리. 권장 워커 수의 상한을 정한다 |
 | `max_workers` | `6` | 세션 하나에 권장하는 병렬 워커 수의 상한 |
 | `primary_provider` | `"anthropic"` | 토큰 사용 속도 계산의 기준이 되는 모델 공급자 |
@@ -145,6 +143,8 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `collect_skip` | `[]` | 끌 출처 이름 목록. 예: `["devpost", "kaggle"]` |
 | `auto_launch` | `false` | `true`면 `ach tick`이 통과한 공모전을 용량만큼 라우팅·실행한다. 게이트 판정을 믿을 수 있을 때까지는 꺼 둔다 |
 | `gate_batch` | `16` | 정기 실행 한 번에 병렬로 게이트하는 `discovered` 공모전 수의 상한. 실제 수는 `primary_provider`의 토큰 사용 속도로 정한다: mode가 maxing이면 이 값 전부, steady면 절반, conserve면 4개, throttle이면 0개 |
+| `final_rounds` | `3` | 작업 판마다 `final` 채점 예산(1 이상). 지금 작업 판에 `final`을 이만큼 기록하면 목표 미만이어도 `ready`인 최근 `final`로 점수 관문을 넘는다. `ach score --stage final`이 그때의 값을 기록에 남기므로 바꾸면 다음 `final` 기록부터 적용된다 |
+| `main_model` | `null` | 메인 세션(`ach chat`)의 모델(러너의 모델 지정 문법). `null`이면 러너 기본값을 쓴다. 공모전 세션과 정기 실행에는 쓰지 않는다 |
 | `persona.enabled` | `false` | 메인 세션에 운영자 페르소나를 넣을지. 공모전 세션에는 넣지 않는다 |
 | `persona.file` | `"data/persona.md"` | 페르소나 글 파일(git 제외). 예시는 `data/persona.example.md` |
 | `persona.call_user` | `""` | 페르소나가 사용자를 부르는 말. 페르소나 검사 대상에도 들어간다 |
@@ -160,9 +160,9 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 
 `ach capacity`의 계산 방식:
 
-- **토큰 사용 속도.** `omp usage --json`이 알려 주는 사용 한도 창마다 pace = 남은 한도 비율 ÷ 남은 시간 비율을 구한다. 가장 빠듯한 창을 기준으로 pace가 1.5 이상이면 `max_workers`(maxing), 1~1.5면 그 절반(steady), 1 미만이면 그보다 줄인다(conserve). 남은 한도가 10% 이하이면 워커 1명만 권장하고 새 세션은 띄우지 않는다(throttle). omp가 없으면 메모리와 개수 상한만 적용한다.
-- **메모리.** 새 세션의 `ram_gb_by_level`이 메모리 예산 안에 들어갈 때만 띄운다. 쓸 수 있는 메모리는 macOS에서 `vm_stat`, Linux에서 `/proc/meminfo`의 `MemAvailable`로 읽는다. memory pressure가 `warning` 이상이면 새 세션을 띄우지 않는다. macOS는 memory pressure 수준을, Linux는 `/proc/pressure/memory`의 `some avg10`을 본다(10 이상 `warning`, 40 이상 `critical`, 파일이 없으면 알 수 없음). 메모리를 읽을 수 없으면 메모리 상한은 건너뛰고(개수·토큰 상한은 그대로 적용한다) `ach capacity --json`이 `ram.basis: "unavailable"`, null인 `ram.available_gb`·`ram.budget_gb`, `ram.warning`을 낸다. 평소에는 `ram.basis`가 `"measured"`다.
-- **개수 상한.** 토큰·메모리 조건 위에 `max_running`과 `max_running_by_level`을 함께 적용한다. `running`과 `plan_review` 공모전을 진행 중으로 센다.
+- **토큰 사용 속도.** `omp usage --json`이 알려 주는 사용 한도 창마다 pace = 남은 한도 비율 ÷ 남은 시간 비율을 구한다. 가장 빠듯한 창을 기준으로 pace가 1.5 이상이면 `max_workers`(maxing), 1~1.5면 그 절반(steady), 1 미만이면 그보다 줄인다(conserve). 남은 한도가 10% 이하이면 워커 1명만 권장하고 경고한다(throttle). 정기 실행의 게이트 수는 줄지만 창 안에서는 세션을 띄운다.
+- **메모리.** 메모리 예산은 세션 안 권장 워커 수를 정하는 데만 쓰고 세션 시작을 막지 않는다. 쓸 수 있는 메모리는 macOS에서 `vm_stat`, Linux에서 `/proc/meminfo`의 `MemAvailable`로 읽는다. memory pressure가 `warning` 이상이면 `warnings`로 알린다. macOS는 memory pressure 수준을, Linux는 `/proc/pressure/memory`의 `some avg10`을 본다(10 이상 `warning`, 40 이상 `critical`, 파일이 없으면 알 수 없음). 메모리를 읽을 수 없으면 `ach capacity --json`이 `ram.basis: "unavailable"`, null인 `ram.available_gb`·`ram.budget_gb`, 경고를 낸다. 평소에는 `ram.basis`가 `"measured"`다.
+- **창.** 세션 시작을 막는 것은 `max_running` 하나다. `running`과 `plan_review` 공모전을 진행 중으로 센다.
 
 ## CLI 명령
 
@@ -189,7 +189,7 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `ach launch <id> [--preset 이름] [--dry-run] [--force]` | 설정한 러너를 설정한 작업 환경에서 레벨 지시문으로 띄우고 `running`으로 옮긴다. 그 레벨에 빈 자리나 메모리가 없으면 거절한다(`--force`로만 넘긴다). `--preset`은 omp 전용이다. `--dry-run`은 아무것도 쓰지 않고 명령과, 러너·작업 환경 실행 파일이 없을 때의 경고를 보여 준다. JSON에는 `prompt`(실제 실행이 쓸 경로), `prompt_text`, `warnings`가 있다 |
 | `ach peek <id> [--lines N]` | 세션 화면이나 로그의 마지막 N줄(기본 40)을 보여 준다 |
 | `ach check <id>` | 공모전 폴더와 커밋 메시지에서 페르소나 흔적을 찾는다 |
-| `ach transition <id> <상태> [--note N \| --note-file F] [--by 누가] [--persona-ok 사유] [--score-ok 사유]` | 전이 규칙, 승인 규칙, 점수 관문, 페르소나 검사를 지키며 상태를 옮긴다. `plan_review → running`(`approve`만), `→ submitted`(`submit`만), `submitted`·`followup_pending → running`(`resume`만)은 거절한다. `--score-ok`는 이력 항목에 타입이 있는 점수 미달 표시를 남긴다. 인정되는 것은 이 표시뿐이고, 그것도 사용자 승인에서만 통한다. 위임 승인에서는 통하지 않고, 노트 문구로는 점수 관문을 넘을 수 없다 |
+| `ach transition <id> <상태> [--note N \| --note-file F] [--by 누가] [--persona-ok 사유] [--score-ok 사유]` | 전이 규칙, 승인 규칙, 점수 관문, 페르소나 검사를 지키며 상태를 옮긴다. `plan_review → running`(`approve`만), `→ submitted`(`submit`만), `submitted`·`followup_pending → running`(`resume`만)은 거절한다. 레벨 2 이상의 `→ awaiting_approval`은 지금 작업 판의 최근 `final`이 `ready`이고 파일이 그대로여야 하며, 목표 미만은 그 작업 판의 `final`이 `final_rounds`회 미만인 동안만 막는다. `--score-ok`는 이력 항목에 타입이 있는 점수 미달 표시를 남긴다. 인정되는 것은 이 표시뿐이고, 그것도 사용자 승인에서만 통한다. 위임 승인에서는 통하지 않고, 노트 문구로는 점수 관문을 넘을 수 없다 |
 | `ach readiness <id> [--file F] [--personalized]` | `--file`이 없으면 지금 제출 준비 기록을 보여 준다. `--file`이 있으면 다섯 필드 `submission_ready`, `needs_user_input`, `blockers`, `artifacts`(`[{path, sha256}]`, 공모전 폴더 안의 일반 파일이고 해시가 지금 파일과 같아야 하며, 레벨 2 이상은 최근 `final` 점수의 `artifacts` 안), `followup_required`와 `destination`(공식 제출 URL 또는 메일 주소 그대로. 0.8.0부터 새 제출 의도에 필요)을 검사해 지금 작업 판에 기록한다. `running`·`awaiting_approval`에서만 되고, 새로 기록하면 이전 기록에 대한 승인은 효력을 잃는다. `--personalized`는 유효한 제출 승인 뒤 승인된 별도 최종 사본을 기록한다. 파일에 `personalization_of`(승인된 `request_token`)를 더하고, `artifacts`의 개인 항목 사본마다 `source`(채운 승인된 원본의 상대 경로)를 적는다. 바뀌지 않은 원본은 `source` 없이 자기 경로와 해시로 적어도 된다. 승인된 원본 하나하나가 정확히 한 번씩 대응해야 하고 사본이 원본을 덮어쓰면 안 된다. `followup_required`와 `destination`은 승인된 기록과 같아야 한다(바꾸려면 일반 제출 준비 기록을 다시 남기고 새로 승인받는다). 위임 승인이면 `delegation.allow_personalization`도 켜져 있어야 한다 |
 | `ach approval-status <id>` | `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final}`와 페르소나·위임 정책 검사를 보여 준다. 0.8.0부터 `reasons`에 규칙 코드(`rules_pending_review`, `rules_gate_invalidated`, `rules_plan_invalidated`, `rules_final_invalidated`, 위임 승인에만 `rules_untracked`), 위임 승인의 독립 평가 코드(`independent_final_missing`, `independent_final_stale`), 제출 시도 코드(`submission_intent_pending`, `submission_dispatching`, `submission_unknown`)가 들어갈 수 있다 |
 | `ach approve <id> (--note N \| --note-file F) [--by 누가]` | 사용자의 승인을 기록한다. `plan_review`에서는 `plan` 승인을 남기고 `running`으로 옮기며, `awaiting_approval`에서는 지금 작업 판·제출 준비 기록·점수에 묶인 `submit` 승인을 남긴다(상태는 그대로). `ACH_SESSION`이 있으면, 곧 공모전 세션 안에서는 거절한다 |
@@ -200,7 +200,7 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `ach submission resolve <id> --attempt A --file F` | 접수되지 않았다는 긍정 증거를 기록한다(`{"attempt_id", "verified_not_submitted": true, "source": "portal_listing\|organizer_reply\|mailbox_search", "observed_at", "artifacts"}`, `.private/` 아래 증거 하나 이상, `dispatching`·`unknown`에서). 이것만 새 의도를 다시 연다. `--force`는 없다 |
 | `ach submission status <id>` | `{tracked, unresolved, latest, attempts, blockers, review_needed}`. 접수 문구·제출처·증빙 내용은 내지 않는다 |
 | `ach submit <id> --attempt A --file <proof.json>` | 시작한 시도를 접수 증빙으로 확인하고 `submitted`로 옮긴다(이리로 가는 유일한 길). 같은 쓰기에서 제출 기록부에도 더한다. 증빙: `{"attempt_id", "receipt": "<접수 번호·참조 한 줄>", "source": "confirmation_page\|receipt_email\|portal_listing\|organizer_reply", "observed_at", "destination", "submitted_sha256": [...], "artifacts": [{path, sha256}]}`. `dispatching`·`unknown` 시도만 받고 `intent`는 거절한다. 증빙 파일은 `.private/submissions/<A>/`에 읽기 전용 사본으로 남고 메타데이터에는 접수 참조와 해시만 남는다. 같은 증빙으로 다시 실행하면 빠진 기록부 기록만 되살리고, 다른 증빙은 거절한다. 그사이 작업 흐름이 바뀌었으면 증빙과 기록부는 남기되 상태는 바꾸지 않고 `review_needed`를 낸다 |
-| `ach score <id> --stage plan\|draft\|final --file <judge.json> [--note N \| --note-file F]` | `ContestJudge` 점수를 지금 작업 판에 기록한다. 기준은 `gate.json`과 정확히 같아야 하고(심사 단계, 이름, 공개 배점), 배점은 0보다 크며, 심사 단계와 이름이 겹치면 안 되고, `total`은 환산한 합과 0.5 넘게 다르면 안 된다. `plan` 점수는 공모전을 시작할 때 폴더 `RUBRIC.md`의 `## 0. 채점 근거` 절에 문서화한 근거(주최·주관·개최 목적·심사기준 네 행, 행마다 내용과 공고 원문 위치, 템플릿 자리표시 없음), Judge가 낸 `basis: {organizer, purpose, criteria_source}`, 채점한 Judge 실행 `evaluator: {id, model, run_id}`가 있어야 하고, 이 공모전에 이미 기록된 `run_id`면 거절한다(매번 새 실행). 기록에는 그 절의 `{path, sha256}`이 `basis.document`로 남는다. `final` 점수는 `artifacts: [{path, sha256}]`가 있고 해시가 지금 파일과 같아야 하며, `evaluation_id`·`assessment_id`가 있으면 그 독립 평가와 정확히 같아야 하고 묶음이 남는다. 모든 점수에 지금 `rules_binding`이 붙고, 새 `plan`·`final` 점수는 그 단계의 규칙 무효를 푼다. 승인 뒤 새 `final`을 기록하면 그 승인은 효력을 잃는다. `--stage`가 없으면 점수 이력을 보여 준다 |
+| `ach score <id> --stage plan\|draft\|final --file <judge.json> [--note N \| --note-file F]` | `ContestJudge` 점수를 지금 작업 판에 기록한다. 기준은 `gate.json`과 정확히 같아야 하고(심사 단계, 이름, 공개 배점), 배점은 0보다 크며, 심사 단계와 이름이 겹치면 안 되고, `total`은 환산한 합과 0.5 넘게 다르면 안 된다. `plan` 점수는 공모전을 시작할 때 폴더 `RUBRIC.md`의 `## 0. 채점 근거` 절에 문서화한 근거(주최·주관·개최 목적·심사기준 네 행, 행마다 내용과 공고 원문 위치, 템플릿 자리표시 없음), Judge가 낸 `basis: {organizer, purpose, criteria_source}`, 채점한 Judge 실행 `evaluator: {id, model, run_id}`가 있어야 하고, 이 공모전에 이미 기록된 `run_id`면 거절한다(매번 새 실행). 기록에는 그 절의 `{path, sha256}`이 `basis.document`로 남는다. `final` 점수는 `artifacts: [{path, sha256}]`가 있고 해시가 지금 파일과 같아야 하며, `evaluation_id`·`assessment_id`가 있으면 그 독립 평가와 정확히 같아야 하고 묶음이 남는다. `final` 기록에는 그때의 설정 `final_rounds`도 남는다. 모든 점수에 지금 `rules_binding`이 붙고, 새 `plan`·`final` 점수는 그 단계의 규칙 무효를 푼다. 승인 뒤 새 `final`을 기록하면 그 승인은 효력을 잃는다. `--stage`가 없으면 점수 이력을 보여 준다 |
 | `ach submitted` | 제출 기록부 목록: 날짜, 제목, 방법, 접수 증빙 |
 | `ach submitted add --title T [--url U] [--org O] [--date D] [--method M] [--receipt R] [--folder F] [--note N]` | 하네스 밖에서 낸 공모전을 기록한다(보관용 기록. 하네스 제출 시도를 시작·확인·해소하지 않는다) |
 | `ach submitted import` | 레지스트리의 제출 항목을 기록부로 한 번 옮긴다. 이미 있는 key는 건너뛴다 |
@@ -216,7 +216,7 @@ ach config unset max_running_by_level.5  # 기본값으로 되돌린다
 | `ach capacity` | 지금 띄울 수 있는 세션 수를 보여 준다. JSON 필드: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `ach board` | 저장된 기록만으로(네트워크·백엔드 호출 없음) 할 일 중심 `BOARD.md`를 쓴다([보드](#보드) 참고) |
 | `ach tick [--no-collect] [--auto-launch]` | 제어 루프를 한 번 돈다: 수집하고, 게이트 대기 목록을 내고, 선택하면 용량 안에서 라우팅·실행하고, `BOARD.md`를 갱신한다. `new_work_frozen`이면 수집도 실행도 하지 않는다. 정기 실행이 JSON을 읽을 수 있게 종료 코드는 0이다. 텍스트는 오류 건수로 시작하고, JSON에는 `warnings`와 `scout`(지금 현지 시각이 `schedule.scout_hours` 안인지)가 더해진다 |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.8.5", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.0", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트를 기록하거나, `--file` 없이 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다. 기본은 읽기 전용, `--apply`는 관측만 저장한다 |
 | `ach recover <id> --expected-observation TOKEN [--dry-run]` | 복구 조건을 모두 만족할 때만 사라진 세션을 저장된 대화로 다시 연다 |

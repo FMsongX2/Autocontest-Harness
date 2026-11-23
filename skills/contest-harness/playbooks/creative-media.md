@@ -31,7 +31,7 @@
 - 화풍·색·음악 분위기
 - 위험(규정 위반 소지, 제작 난도, GPU 필요 여부)
 
-레벨 2 이상이면 카드를 보이기 전에 점수 루프의 기획 채점을 한다: 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)를 쓰고, ContestJudge(stage `plan`)가 카드마다 "이대로 완성하면" 예측 점수를 매긴다. 결과를 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한다. 가장 높은 카드의 부족분을 반영해 다시 채점하고(예측 총점이 목표 이상이 되거나 3회까지), 카드에 예측 총점을 적어 보인다. 레벨 1은 이 단계를 건너뛰어도 된다.
+레벨 2 이상이면 카드를 보이기 전에 점수 루프의 기획 채점을 한다: 점수표 `RUBRIC.md`(템플릿 `<harness>/harness/templates/RUBRIC.md`, `<harness>`는 하네스 저장소)를 쓰고, 카드 전부를 한 번의 ContestJudge(stage `plan`) 실행에 넘겨 "이대로 완성하면" 예측 점수를 함께 받는다(회차마다 새 Judge 실행 한 번). 결과를 `.harness/judge/plan-<n>.json`에 저장하고 `ach score <id> --stage plan --file <경로>`로 기록한다. 가장 높은 카드의 부족분을 반영해 다시 채점하고(예측 총점이 목표 이상이 되거나 3회까지), 카드에 예측 총점을 적어 보인다. 레벨 1은 이 단계를 건너뛰어도 된다.
 
 사용자에게 카드를 보이고 고르게 한다. 고를 때까지 콘셉트와 무관한 일(서식 채우기, 도구 준비, 음악 후보 생성 설정, 합성 프로젝트 뼈대)을 한다.
 
@@ -58,7 +58,7 @@
 
 ## 7. 심사와 제출 준비
 
-1. ContestJudge를 부른다(레벨 1은 1회, 레벨 2 이상은 초안에서 stage `draft`, 제출 직전 stage `final`). `final`에는 제출할 파일 목록을 넘기고 Judge 출력의 `artifacts`를 확인한다. 레벨 2 이상은 결과를 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. `reject`·`revise`면 배점이 큰 기준의 감점부터 고치고 다시 부른다.
+1. ContestJudge를 부른다(레벨 1은 1회, 레벨 2 이상은 초안에서 stage `draft`, 제출 직전 stage `final`). `final`에는 제출할 파일 목록을 넘기고 Judge 출력의 `artifacts`를 확인한다. 레벨 2 이상은 결과를 `.harness/judge/<stage>-<n>.json`에 저장하고 `ach score <id> --stage <stage> --file <경로>`로 기록한다. `reject`·`revise`면 CRITICAL·HIGH와 배점이 큰 기준의 감점부터 고치고 다시 부른다. 레벨 1은 한 번만 더, 레벨 2 이상의 `final`은 작업 판마다 `final_rounds`(기본 3)회까지 부른다(스킬 "점수 루프" 5단계).
 2. `SUBMISSION.md`를 채운다: 제출처, 업로드 제목·설명·해시태그·공개 설정, 메일 제목·본문, 첨부 목록, 폼 응답값(개인 값은 승인 뒤에 채운다).
-3. 커밋·푸시하고 `ach check <id>`를 확인한 뒤, 제출 파일의 경로·SHA-256과 막는 것을 `.private/readiness.json`에 써서 `ach readiness <id> --file .private/readiness.json`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인"). 결과물·점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`·목표 이상인 최근 `final` 점수가 있어야 하고 제출 준비 기록의 파일은 그 `final` 점수 `artifacts` 안에 있어야 한다(마감 때문에 목표 미달로 내야 하면 `--score-ok "<사유>"`).
+3. 커밋·푸시하고 `ach check <id>`를 확인한 뒤, 제출 파일의 경로·SHA-256과 막는 것을 `.private/readiness.json`에 써서 `ach readiness <id> --file .private/readiness.json`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인"). 결과물·점수 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 최근 `final` 점수가 있어야 하고(목표 미만이면 그 작업 판의 `final`이 `final_rounds`회에 이를 때까지 막힌다) 제출 준비 기록의 파일은 그 `final` 점수 `artifacts` 안에 있어야 한다(그 전에 내거나 `ready`가 아닌 채 내야 하면 `--score-ok "<사유>"`).
 4. `ach approval-status <id>`로 `eligible`·`reasons`를 확인하고, 사용자에게 메인 세션이나 `ach approve <id>`로 제출 승인을 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다. 사용자가 상시 위임했으면 메인 세션이 위임 범위 안에서 기록한다). 유튜브 업로드, 메일 발송, 폼 제출은 승인이 기록된 뒤에만 한다.
