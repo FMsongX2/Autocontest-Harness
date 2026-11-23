@@ -4,6 +4,22 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.2 - 2026-11-24
+
+### Added
+- Delegated handoff (`ach handoff [<id>] [--dry-run] [--resend-request TOKEN]`, `src/handoff.rs`). With the standing delegation (`delegation`) on, the CLI approves a request the moment it becomes eligible in `awaiting_approval` and tells the recorded contest session, with no further prompt from a person. It runs once for the entry right after a successful `ach transition … awaiting_approval`, `ach readiness --file`, `ach score --file`, and `ach rules review` or `acknowledge`, so the order of the state move and the readiness record does not matter; the main session and the approve controller run it with `ach handoff`. The approval is the existing delegated one: `approval-status` must be `eligible`, and the write rechecks the delegation scope, the persona guard, the delegated evidence, the core conditions, and the request token under the registry lock. The session is told with `orca orchestration send --type handoff`; nothing is typed into a terminal.
+- What stops it, each as a stable code in `{status, reasons}`: the delegation off or not covering the contest (pending handoffs stop too); any submission record, any `intent`/`dispatching`/`unknown`/`confirmed` attempt, or any attempt of the current work revision; a valid approval recorded elsewhere; a deadline that has passed; a session that is not a live, connected omp terminal of the recorded Orca workspace.
+- A journal per request, `data/handoff/<id>--<request_token>.json` (`claimed → approved → sending → sent | send_failed | unknown`), written before each next step under one lock. A request already `sent` is never sent again; a run interrupted while sending is read back as `unknown` and is not resent automatically (`--resend-request <token>` after the controller confirmed the session got nothing); a refusal reported by Orca is retried by later runs up to three times; an approval recorded before an interruption is not recorded again.
+- `user_approval_request` in the result tells a request that needs the user's own approval (delegation off or out of scope, or a `--score-ok` override, with every human-approval condition met) from one that waits on a reason. The approve controller records them as different alerts (`user_approval_request`, `approval_blocked`), and `handoff_attention` when the approval or the message itself went wrong.
+- `ach contract` lists the capability `delegated_handoff`.
+
+### Changed
+- `ach controller approve` no longer approves and notifies by itself: it runs `ach handoff <id> --trigger controller` for each waiting contest. It used to type the notice into the session's terminal (`orca terminal send`); that is gone. Event names `approved` and `would_approve` became `handed_off`, `would_approve_and_hand_off`, and `would_hand_off`.
+- The approval policy functions moved from the binary into `src/approval.rs` so that `ach approval-status`, `ach approve --delegated`, and the handoff decide through the same code. Behavior of the two commands is unchanged.
+
+### Migration
+- None for data. With `delegation.enabled: true`, contest sessions on this version get approved and notified as soon as they finish; turn it off (`ach config set delegation.enabled false`) to keep approving by hand. The approve controller needs this CLI version (`ach handoff`).
+
 ## 0.9.1 - 2026-11-24
 
 ### Added

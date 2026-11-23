@@ -195,6 +195,7 @@ ach config unset max_running            # 기본값으로 되돌린다
 | `ach approval-status <id>` | `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final}`와 페르소나·위임 정책 검사를 보여 준다. 0.8.0부터 `reasons`에 규칙 코드(`rules_pending_review`, `rules_gate_invalidated`, `rules_plan_invalidated`, `rules_final_invalidated`, 위임 승인에만 `rules_untracked`), 위임 승인의 독립 평가 코드(`independent_final_missing`, `independent_final_stale`), 제출 시도 코드(`submission_intent_pending`, `submission_dispatching`, `submission_unknown`)가 들어갈 수 있다 |
 | `ach approve <id> (--note N \| --note-file F) [--by 누가]` | 사용자의 승인을 기록한다. `plan_review`에서는 `plan` 승인을 남기고 `running`으로 옮기며, `awaiting_approval`에서는 지금 작업 판·제출 준비 기록·점수에 묶인 `submit` 승인을 남긴다(상태는 그대로). `ACH_SESSION`이 있으면, 곧 공모전 세션 안에서는 거절한다 |
 | `ach approve <id> --delegated --expected-request 토큰 (--note N \| --note-file F)` | 설정 `delegation` 범위 안의 위임 `submit` 승인. 메인 세션이 `approval-status`의 `request_token`으로 실행한다. 레지스트리 잠금 안에서 자격, 페르소나 검사, 위임 범위, 토큰을 다시 확인하고 하나라도 어긋나면 기록하지 않는다. 계획 승인은 할 수 없고, `--score-ok` 점수 미달은 받아들이지 않는다(영상 공모전은 `video_score_exempt`일 때만 면제). 공모전 세션 안에서는 거절한다 |
+| `ach handoff [<id>] [--dry-run] [--resend-request 토큰] [--trigger 이름]` | 위임 인계. 상시 위임이 그 공모전을 포함하고 `approval-status`가 `eligible`이면 위임 승인을 기록하고(윗줄과 같은 검사·토큰 대조) 기록된 공모전 세션에 `orca orchestration send`로 알린다. id가 없으면 `awaiting_approval` 전부를 본다. `ach transition … awaiting_approval`, `ach readiness --file`, `ach score --file`, `ach rules review`·`acknowledge`가 성공한 직후에도 그 항목에 한 번 실행되고 표준 오류에 한 줄을 낸다. 요청마다 기록이 있어 같은 요청을 두 번 승인·인계하지 않는다. 공모전 세션 안에서는 `--dry-run`만 된다. [위임 인계](#위임-인계) 참고 |
 | `ach submission intent <id> --file F` | 제출 의도를 기록한다: `{"method": "form\|email\|site", "destination": "<승인된 제출 준비 기록의 destination과 같은 값>", "expected_request": "<request_token>"}`. 승인·규칙·파일 해시를 다시 확인하고 승인된 `artifacts`·작업 판·규칙 기준을 새 `attempt_id`(`a1`, `a2`, …)에 묶는다. 같은 요청은 같은 시도를 돌려주고, 다른 요청이나 `dispatching`·`unknown` 시도가 있으면 거절한다 |
 | `ach submission start <id> --attempt A` | 외부 발송 전에 의도를 `dispatching`으로 옮겨 저장한다. 승인·토큰·제출처·파일·규칙·작업 판을 다시 확인한다. 두 번째 시작은 늘 실패하고(종료 코드 1) 다시 보내도 된다는 뜻이 아니다 |
 | `ach submission unknown <id> --attempt A --file F` | 발송 결과를 모름을 기록한다(`{"attempt_id", "reason": "timeout\|response_lost\|crash\|ambiguous_response\|other", "observed_at", "evidence"?}`, `dispatching`에서만). 새 의도와 재발송을 막는다 |
@@ -217,7 +218,7 @@ ach config unset max_running            # 기본값으로 되돌린다
 | `ach capacity` | 지금 띄울 수 있는 세션 수를 보여 준다. JSON 필드: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `ach board` | 저장된 기록만으로(네트워크·백엔드 호출 없음) 할 일 중심 `BOARD.md`를 쓴다([보드](#보드) 참고) |
 | `ach tick [--no-collect] [--auto-launch]` | 제어 루프를 한 번 돈다: 수집하고, 게이트 대기 목록을 내고, 선택하면 용량 안에서 라우팅·실행하고, `BOARD.md`를 갱신한다. `new_work_frozen`이면 수집도 실행도 하지 않는다. 정기 실행이 JSON을 읽을 수 있게 종료 코드는 0이다. 텍스트는 오류 건수로 시작하고, JSON에는 `warnings`와 `scout`(지금 현지 시각이 `schedule.scout_hours` 안인지)가 더해진다 |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.1", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.2", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트를 기록하거나, `--file` 없이 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다. 기본은 읽기 전용, `--apply`는 관측만 저장한다 |
 | `ach recover <id> --expected-observation TOKEN [--dry-run]` | 복구 조건을 모두 만족할 때만 사라진 세션을 저장된 대화로 다시 연다 |
@@ -340,6 +341,20 @@ ach schedule remove      # 지운다(다른 스케줄러는 --scheduler orca|lau
 
 시도 상태는 `intent`, `dispatching`, `unknown`, `verified_not_submitted`, `confirmed`, `expired`(시작하지 않은 의도의 승인이 지난 경우. 보낸 것 없음)다. `ach submission status <id>`는 접수 문구와 제출처를 내지 않는다. 풀리지 않은 시도가 있으면 새 의도, 복구, 정리가 거절된다.
 
+### 위임 인계
+
+상시 위임이 켜져 있으면(`delegation.enabled`) 자격을 갖춘 요청을 사람이 따로 승인하지 않는다. 요청이 `awaiting_approval`에서 자격을 갖추는 순간 CLI가 한다. `ach transition <id> awaiting_approval`, `ach readiness <id> --file`, `ach score <id> --file`, `ach rules review`·`acknowledge` 가운데 마지막 조건을 채운 명령이 성공한 직후다. 메인 세션과 위임 승인 컨트롤러는 `ach handoff [<id>]`로 같은 단계를 실행한다.
+
+1. 위임이 그 공모전을 포함하지 않으면 멈춘다. 위임을 끄면 승인은 됐지만 아직 보내지 않은 인계도 멈춘다.
+2. 제출한 적이 있거나 제출을 시작했으면 멈춘다. 제출 기록, `intent`·`dispatching`·`unknown`·`confirmed` 시도, 지금 작업 판의 시도가 해당한다.
+3. 이 경로가 기록하지 않은 유효한 승인(`approved_elsewhere`)은 기록한 쪽에 맡긴다.
+4. `ach approval-status`가 `eligible`이어야 하고, 마감이 지나지 않았어야 하며, 기록된 세션이 기록된 Orca 작업 공간의 살아 있는 omp 터미널이어야 한다.
+5. `ach approve --delegated --expected-request`와 같은 코드로 위임 승인을 기록한 다음 `orca orchestration send --to <세션 handle> --type handoff`로 메시지를 한 번 보낸다. 메시지에는 공모전 id, 요청 토큰, 승인 확인 방법, 제출 트랜잭션 절차, 접수 확정 뒤 정리 방법이 있고 개인정보는 없다. 터미널에는 입력하지 않는다.
+
+요청마다 기록 `data/handoff/<id>--<request_token>.json`이 있다. 단계는 `claimed → approved → sending → sent`이고, Orca가 거절을 답하면 `send_failed`(다음 실행이 세 번까지 다시 보낸다), 응답을 읽지 못하면 `unknown`(자동으로 다시 보내지 않는다)이 된다. 실행은 잠금 하나로 차례대로 돌므로 이벤트가 겹치거나 다시 시작하거나 중간에 실패해도 같은 요청을 두 번 승인·인계하지 않는다. `unknown` 인계는 세션에 도착하지 않았음을 확인한 뒤에만 `ach handoff <id> --resend-request <토큰>`으로 다시 보낸다.
+
+결과는 `{id, status, reasons, request_token, user_approval_request, record, dry_run}`이다. `user_approval_request: true`는 그 요청에 사용자 자신의 `ach approve`만 남았다는 뜻이다(위임이 꺼짐·범위 밖, 또는 `--score-ok` 예외이고 나머지는 모두 맞음). 그 밖의 `waiting`·`submission_exists`는 `reasons`가 풀려야 하는 대기이고 승인 요청이 아니다. `status`는 `handed_off`, `already_handed_off`, `would_approve_and_hand_off`, `would_hand_off`, `delegation_off`, `out_of_scope`, `waiting`, `submission_exists`, `approved_elsewhere`, `session_unavailable`, `approve_refused`, `send_failed`, `handoff_unknown`, `not_applicable` 가운데 하나다.
+
 ### 관리 컨트롤러
 
 상시 자동화는 `controllers/` 패키지에 있고 `data/`에는 상태와 기록만 둔다.
@@ -351,7 +366,7 @@ ach controller briefs refresh --dry-run --id <id>
 ach controller preset --pick
 ```
 
-- `approve [--once] [--dry-run] [--interval 120]`: `ach reconcile --apply`(관측만), `approval-status`, `approve --delegated --expected-request`, 끝난 공모전의 `session-close`·`clean`. 준비 줄 `AUTOAPPROVE_READY`.
+- `approve [--once] [--dry-run] [--interval 120]`: `ach reconcile --apply`(관측만), `awaiting_approval` 항목마다 `ach handoff <id> --trigger controller`(승인과 세션 알림은 CLI가 한다. 컨트롤러는 터미널에 입력하지 않는다), 끝난 공모전의 `session-close`·`clean`. 준비 줄 `AUTOAPPROVE_READY`.
 - `queue [--once] [--dry-run] [--interval 60]`: 주기마다 `data/queue-master/queue.json`, `preset.json`, `new_work_frozen`을 다시 읽고, 동결이 아니면 `queue.json`의 `routed` 공모전만 띄운다. 세션을 복구하지 않는다. 준비 줄 `QUEUE_READY`.
 - `briefs create <id>...` / `briefs refresh [--dry-run] [--adopt-legacy] (--id ... | --file ...)`: `.private/controller-brief.md`를 관리한다(종료 코드 3은 검토 필요). 운영자 전용 문구는 공개 패키지가 아니라 `data/queue-master/brief-overrides.json`에 둔다.
 - `preset <프리셋> (<id>... | --all | --video) [--resume] [--dry-run]` 또는 `preset --pick`(`preset.json`의 `auto_providers`·`auto_default`가 있어야 `auto`를 쓴다).

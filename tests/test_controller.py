@@ -156,20 +156,55 @@ class ApproveLifecycleTests(Home):
         for forbidden in ('recover', 'restart', 'resume', 'launch'):
             self.assertNotIn(forbidden, ach.commands() + dry.commands())
 
-    def test_eligible_request_is_approved_with_its_exact_token(self):
-        waiting = contest('awaiting_approval', session={})
-        ach = FakeAch(self.home, {
-            'reconcile': {'entries': []}, 'list': [waiting], 'show': waiting,
-            'approval-status': {'eligible': True, 'request_token': 'tok-1'}, 'approve': {},
-        })
-        self.controller(ach).cycle()
-        approved = next(call for call in ach.calls if call[0] == 'approve')
-        self.assertIn('--delegated', approved)
-        self.assertEqual(approved[approved.index('--expected-request') + 1], 'tok-1')
-        self.assertIn('submission intent', approve.HANDOFF)
-        self.assertIn('submission start', approve.HANDOFF)
-        self.assertIn('submission unknown', approve.HANDOFF)
-        self.assertIn('ach submit <id> --attempt', approve.HANDOFF)
+    def waiting_cycle(self, handoff, dry_run=False):
+        waiting = contest('awaiting_approval')
+        ach = FakeAch(self.home, {'reconcile': {'entries': []}, 'list': [waiting], 'handoff': handoff})
+        self.controller(ach, dry_run=dry_run).cycle()
+        return ach
+
+    def test_waiting_requests_go_through_the_cli_handoff_and_nothing_else(self):
+        ach = self.waiting_cycle({'status': 'handed_off', 'reasons': [], 'request_token': 'tok-1',
+                                  'record': {'message_id': 'msg_1'}})
+        self.assertIn(['handoff', 'fixture-contest', '--trigger', 'controller'], ach.calls)
+        # The CLI approves and mails the session itself: the controller neither approves nor
+        # reads the approval status, and it has no way to type into a terminal.
+        for forbidden in ('approve', 'approval-status', 'show'):
+            self.assertNotIn(forbidden, ach.commands())
+        self.assertFalse(hasattr(approve.ApproveController, 'notify'))
+        logged = events(self.home / 'data/auto-approve/events.jsonl')
+        self.assertEqual([(e['event'], e.get('request_token'), e.get('message_id')) for e in logged],
+                         [('handed_off', 'tok-1', 'msg_1')])
+
+    def test_dry_run_asks_the_cli_for_a_dry_handoff(self):
+        ach = self.waiting_cycle({'status': 'would_approve_and_hand_off', 'reasons': [],
+                                  'request_token': 'tok-1'}, dry_run=True)
+        self.assertIn(['handoff', 'fixture-contest', '--trigger', 'controller', '--dry-run'], ach.calls)
+        self.assertEqual(self.files(), [])
+
+    def test_a_user_approval_request_is_not_reported_as_a_waiting_reason(self):
+        cases = [
+            ({'status': 'waiting', 'reasons': ['blockers_present'], 'user_approval_request': False},
+             ('approval_blocked', ['blockers_present'])),
+            ({'status': 'delegation_off', 'reasons': ['delegation_disabled'], 'user_approval_request': True},
+             ('user_approval_request', ['delegation_disabled', 'delegation_off'])),
+            ({'status': 'handoff_unknown', 'reasons': ['send_outcome_unknown']},
+             ('handoff_attention', ['handoff_unknown', 'send_outcome_unknown'])),
+            ({'status': 'submission_exists', 'reasons': ['submission_unknown']},
+             ('approval_blocked', ['submission_unknown'])),
+        ]
+        for result, expected in cases:
+            with self.subTest(status=result['status']):
+                (self.home / 'data/auto-approve/alerts.json').unlink(missing_ok=True)
+                (self.home / 'data/auto-approve/events.jsonl').unlink(missing_ok=True)
+                self.waiting_cycle(result)
+                alerts = [(e['code'], e['status']) for e in events(self.home / 'data/auto-approve/events.jsonl')
+                          if e['event'] == 'alert']
+                self.assertEqual(alerts, [expected])
+
+    def test_settled_handoffs_are_silent(self):
+        for status in ('already_handed_off', 'approved_elsewhere', 'not_applicable'):
+            self.waiting_cycle({'status': status, 'reasons': []})
+        self.assertEqual(events(self.home / 'data/auto-approve/events.jsonl'), [])
 
 
 class PreflightAndLockTests(Home):
@@ -336,14 +371,14 @@ class AlertTests(Home):
 
     def test_controller_restart_repeats_no_unchanged_approval_warning(self):
         waiting = contest('awaiting_approval', deadline=(NOW + timedelta(days=30)).isoformat())
-        responses = {'reconcile': {'entries': []}, 'list': [waiting], 'show': waiting,
-                     'approval-status': {'eligible': False, 'reasons': ['score_missing']}}
+        responses = {'reconcile': {'entries': []}, 'list': [waiting],
+                     'handoff': {'status': 'waiting', 'reasons': ['score_missing']}}
         for _ in range(2):
             approve.ApproveController(FakeAch(self.home, responses), home=self.home, clock=lambda: NOW).cycle()
         self.assertEqual(self.logged(), [('alert', 'approval_blocked', 'new')])
-        responses['approval-status'] = {'eligible': False, 'reasons': ['rules_untracked']}
+        responses['handoff'] = {'status': 'waiting', 'reasons': ['rules_untracked']}
         approve.ApproveController(FakeAch(self.home, responses), home=self.home, clock=lambda: NOW).cycle()
-        responses['approval-status'] = {'submit_approval_valid': True}
+        responses['handoff'] = {'status': 'already_handed_off', 'reasons': []}
         approve.ApproveController(FakeAch(self.home, responses), home=self.home, clock=lambda: NOW).cycle()
         self.assertEqual(self.logged(), [('alert', 'approval_blocked', 'new'),
                                          ('alert', 'approval_blocked', 'changed'),

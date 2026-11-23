@@ -9,12 +9,13 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use harness::approval::{self, check_submission_policy, delegated_approval, persona_findings};
 use harness::error::{Error, Result};
 use harness::ledger;
 use harness::registry::{self, Entry, NewEntry, STATES};
 use harness::{
-    amend, board, budget, clean, collect, config, dedupe, evaluation, guard, install, launch, lifecycle, profile,
-    readiness, route, rules, runners, runtime, schedule, sources, submission, text,
+    amend, board, budget, clean, collect, config, dedupe, evaluation, guard, handoff, install, launch, lifecycle,
+    profile, readiness, route, rules, runners, runtime, schedule, sources, submission, text,
 };
 
 const EXIT_DUPLICATE: u8 = 3;
@@ -227,6 +228,24 @@ enum Command {
     },
     /// Current approval validity and eligibility under the active delegation.
     ApprovalStatus { id: String },
+    /// Apply the standing delegation to a request that waits for approval: when it covers the
+    /// contest and `approval-status` is eligible, record the delegated approval and tell the
+    /// recorded contest session through Orca orchestration mail. Without an id: every contest in
+    /// `awaiting_approval`. Journaled per request, so nothing is approved or handed off twice.
+    /// Refused inside contest sessions (ACH_SESSION set) unless `--dry-run`.
+    Handoff {
+        id: Option<String>,
+        /// Check every condition and show what would happen without writing or sending anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Send again a handoff whose outcome is unknown or whose retries ran out, for exactly this
+        /// request token. Only after confirming that the session never received the message.
+        #[arg(long, requires = "id")]
+        resend_request: Option<String>,
+        /// What triggered this run (recorded with a new request).
+        #[arg(long, default_value = "manual")]
+        trigger: String,
+    },
     /// Move an entry to another state.
     Transition {
         id: String,
@@ -615,7 +634,7 @@ fn run(cli: &Cli) -> Result<u8> {
                     "protocol": harness::CONTROL_PROTOCOL,
                     "version": env!("CARGO_PKG_VERSION"),
                     "capabilities": ["readiness", "reconcile", "checkpoint", "recover", "rules", "evaluation",
-                        "submission_transactions", "managed_controllers", "new_work_freeze"]
+                        "submission_transactions", "managed_controllers", "new_work_freeze", "delegated_handoff"]
                 }),
                 None,
             )?;
@@ -675,6 +694,9 @@ fn run(cli: &Cli) -> Result<u8> {
                 RulesAction::Status { id } => registry::read(|reg| Ok(rules::status(reg.get(id)?)))?,
             };
             emit(json_mode, &result, None)?;
+            if let RulesAction::Review { id, .. } | RulesAction::Acknowledge { id, .. } = action {
+                delegated_handoff(id, "rules");
+            }
             Ok(0)
         }
         Command::Evaluation { action } => {
@@ -986,10 +1008,47 @@ fn run(cli: &Cli) -> Result<u8> {
                 })?
             };
             emit(json_mode, &result, None)?;
+            if file.is_some() && !*personalized {
+                delegated_handoff(id, "readiness");
+            }
+            Ok(0)
+        }
+        Command::Handoff { id, dry_run, resend_request, trigger } => {
+            let session = std::env::var(launch::SESSION_ENV).ok().filter(|s| !s.is_empty());
+            if !*dry_run && let Some(session) = &session {
+                return Err(Error(format!(
+                    "공모전 세션 안(ACH_SESSION={session})에서는 위임 인계를 실행할 수 없다. 상태는 ach handoff <id> --dry-run으로 본다"
+                )));
+            }
+            let options = handoff::Options {
+                trigger,
+                dry_run: *dry_run,
+                resend_request: resend_request.as_deref(),
+                origin_session: None,
+            };
+            let (result, text) = match id {
+                Some(id) => {
+                    let result = handoff::run(id, &options)?;
+                    let text = handoff::describe(&result);
+                    (result, text)
+                }
+                None => {
+                    let result = handoff::sweep(&options)?;
+                    let lines: Vec<String> =
+                        result["results"].as_array().into_iter().flatten().map(handoff::describe).collect();
+                    let text = if lines.is_empty() {
+                        "승인 대기 중인 공모전 없음".to_string()
+                    } else {
+                        lines.join("\n")
+                    };
+                    (result, text)
+                }
+            };
+            emit(json_mode, &result, Some(text))?;
             Ok(0)
         }
         Command::ApprovalStatus { id } => {
-            let result = registry::read(|reg| approval_status(&config::load()?, reg.get(id)?))?;
+            let result = registry::read(|reg| approval::status(&config::load()?, reg.get(id)?))?;
             emit(json_mode, &result, None)?;
             Ok(0)
         }
@@ -1047,6 +1106,9 @@ fn run(cli: &Cli) -> Result<u8> {
                 Ok(entry.clone())
             })?;
             emit(json_mode, &entry, Some(format!("상태 변경: {}", line(&entry))))?;
+            if state == "awaiting_approval" {
+                delegated_handoff(id, "transition");
+            }
             Ok(0)
         }
         Command::Approve { id, note, note_file, by, delegated, expected_request } => {
@@ -1058,31 +1120,16 @@ fn run(cli: &Cli) -> Result<u8> {
             let (entry, stage) = registry::write(|reg| {
                 let entry = reg.get_mut(id)?;
                 let cfg = config::load()?;
-                let approval_note = if *delegated {
-                    if !cfg.delegation.covers(id) {
-                        return Err(Error(format!("{id}: 현재 유효한 사용자 제출 위임이 없다")));
-                    }
-                    if !persona_findings(&cfg, entry)?.is_empty() {
-                        return Err(Error(format!("{id}: 페르소나 검사에 실패하여 자동 승인하지 않는다")));
-                    }
-                    if let Some(reason) = delegated_evidence_problem(&cfg, entry) {
-                        return Err(Error(format!("{id}: 위임 승인에 필요한 근거가 없다({reason})")));
-                    }
-                    format!("{}\n위임 시각: {}\n위임 원문: {}", note, cfg.delegation.granted_at, cfg.delegation.note)
-                } else {
-                    note.clone()
-                };
                 let stage = if *delegated {
-                    registry::approve_delegated(
+                    approval::approve_delegated(
+                        &cfg,
                         entry,
-                        &approval_note,
-                        "controller-delegated",
+                        &note,
                         session.as_deref(),
                         expected_request.as_deref().unwrap_or(""),
-                        cfg.delegation.video_score_exempt,
                     )?
                 } else {
-                    registry::approve(entry, &approval_note, by, session.as_deref())?
+                    registry::approve(entry, &note, by, session.as_deref())?
                 };
                 Ok((entry.clone(), stage))
             })?;
@@ -1122,6 +1169,7 @@ fn run(cli: &Cli) -> Result<u8> {
                 )
             })?;
             emit(json_mode, &record, Some(format!("점수 기록: {id} {}", score_line(&record))))?;
+            delegated_handoff(id, "score");
             Ok(0)
         }
         Command::Submitted { action } => submitted(json_mode, action.as_ref()),
@@ -1318,6 +1366,16 @@ fn run(cli: &Cli) -> Result<u8> {
     }
 }
 
+/// After a command that can complete a submission request: apply the standing delegation
+/// (`handoff::hook`) and tell the caller on stderr what happened. Stdout keeps the command's own
+/// output, and the command's result does not depend on the handoff.
+fn delegated_handoff(id: &str, trigger: &str) {
+    let session = std::env::var(launch::SESSION_ENV).ok();
+    if let Some(result) = handoff::hook(id, trigger, session.as_deref()) {
+        eprintln!("{}", handoff::describe(&result));
+    }
+}
+
 fn mutate_json(
     id: &str,
     path: &std::path::Path,
@@ -1327,22 +1385,6 @@ fn mutate_json(
     registry::write(|reg| change(reg.get_mut(id)?, &raw))
 }
 
-fn delegated_approval(entry: &Entry) -> bool {
-    entry
-        .approvals
-        .iter()
-        .rev()
-        .find(|approval| approval.stage == "submit")
-        .is_some_and(|approval| approval.extra.get("delegated") == Some(&Value::Bool(true)))
-}
-
-fn check_submission_policy(cfg: &config::Config, entry: &Entry) -> Result<()> {
-    if delegated_approval(entry) && !cfg.delegation.covers(&entry.id) {
-        return Err(Error(format!("{}: 제출 위임이 철회됐거나 이 공모전은 위임 범위 밖이다", entry.id)));
-    }
-    Ok(())
-}
-
 fn check_delegation_writer(key: &str) -> Result<()> {
     if (key == "delegation" || key.starts_with("delegation.") || key == "new_work_frozen")
         && std::env::var(launch::SESSION_ENV).is_ok_and(|id| !id.is_empty())
@@ -1350,54 +1392,6 @@ fn check_delegation_writer(key: &str) -> Result<()> {
         return Err(Error("공모전 세션은 사용자 위임 설정을 변경할 수 없다".into()));
     }
     Ok(())
-}
-
-fn approval_status(cfg: &config::Config, entry: &Entry) -> Result<Value> {
-    let covered = cfg.delegation.covers(&entry.id);
-    let mut status = readiness::status(entry, covered && cfg.delegation.video_score_exempt)?;
-    let mut reasons = status["reasons"].as_array().cloned().unwrap_or_default();
-    if !covered {
-        reasons.push(json!("delegation_not_granted"));
-        if delegated_approval(entry) {
-            status["submit_approval_valid"] = json!(false);
-        }
-    }
-    if !persona_findings(cfg, entry)?.is_empty() {
-        reasons.push(json!("persona_findings"));
-    }
-    if covered && let Some(reason) = delegated_evidence_problem(cfg, entry) {
-        reasons.push(json!(reason));
-    }
-    for reason in submission_reasons(entry) {
-        reasons.push(json!(reason));
-    }
-    status["eligible"] = json!(status["eligible"] == true && reasons.is_empty());
-    status["reasons"] = json!(reasons);
-    status["allow_personalization"] = json!(
-        (covered && cfg.delegation.allow_personalization)
-            || (status["submit_approval_valid"] == true && !delegated_approval(entry))
-    );
-    Ok(status)
-}
-
-/// Evidence only delegated (automatic) approval needs; explicit human approvals keep the
-/// historical path but still fail on known pending or invalidating rule changes.
-fn delegated_evidence_problem(cfg: &config::Config, entry: &Entry) -> Option<&'static str> {
-    if rules::status(entry)["tracked"] != true {
-        return Some("rules_untracked");
-    }
-    let video_exempt = cfg.delegation.video_score_exempt && entry.kind.as_deref() == Some("video");
-    if entry.level.unwrap_or(0) >= 2 && !video_exempt {
-        return evaluation::final_problem(entry);
-    }
-    None
-}
-
-fn submission_reasons(entry: &Entry) -> Vec<String> {
-    submission::status(entry)["blockers"]
-        .as_array()
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
-        .unwrap_or_default()
 }
 
 fn ensure_capacity(cfg: &config::Config, running: &std::collections::BTreeMap<u8, usize>, entry: &Entry) -> Result<()> {
@@ -1410,13 +1404,6 @@ fn ensure_capacity(cfg: &config::Config, running: &std::collections::BTreeMap<u8
         )));
     }
     Ok(())
-}
-
-fn persona_findings(cfg: &config::Config, entry: &Entry) -> Result<Vec<guard::Finding>> {
-    match &entry.folder {
-        Some(folder) => guard::scan(std::path::Path::new(folder), &guard::terms(cfg)),
-        None => Ok(Vec::new()),
-    }
 }
 
 /// `시각 단계 총점/목표 판정 · 깎인 기준: 이름 -n, …` (the three largest losses).

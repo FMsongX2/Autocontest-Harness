@@ -3,15 +3,15 @@
 The CLI owns revision, score, artifact, rule, blocker and current-approval checks; readiness is
 never inferred from request prose. Each cycle stores a runtime observation with
 `ach reconcile --apply` (observe and store only: it never recovers, launches or stops work),
-approves eligible `awaiting_approval` requests with the exact request token, notifies the
-existing session, closes sessions of finished contests and cleans submitted folders once the
-core allows it. Warnings are durable alerts, logged only when new, changed or resolved.
+runs the CLI's delegated handoff (`ach handoff <id>`) for every `awaiting_approval` request,
+closes sessions of finished contests and cleans submitted folders once the core allows it.
+The handoff is the CLI's: it approves an eligible request with its exact token and mails the
+recorded session through Orca orchestration, journaled so that nothing is repeated. This
+controller types nothing into a terminal. Warnings are durable alerts, logged only when new,
+changed or resolved.
 """
 import argparse
-import json
-import os
 import subprocess
-import tempfile
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -29,25 +29,10 @@ CLEAN_GRACE = timedelta(minutes=30)
 CLOSE_GRACE = timedelta(minutes=10)
 ERRORS = (AchError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, OSError)
 
-APPROVAL_NOTE = '현재 준비 요청에 대한 사용자 상시 위임 승인. 위임 근거와 범위는 CLI 설정 기록을 따른다.\n'
-
-HANDOFF = (
-    'CLI가 현재 revision·구조화된 준비 요청·점수·파일 해시·공식 규칙 기준·사용자 위임 범위를 다시 검사하여 '
-    '제출 승인을 기록했습니다. ach approval-status로 현재 승인과 personalization 허용 범위를 확인하세요. '
-    '미해결 질문을 임의로 기본값 처리하지 않습니다. 승인된 제출 서식의 개인정보·기존 서명 입력이 허용된 '
-    '경우에만 ach profile show --for로 읽어 별도 최종 사본을 만드세요. 검수한 원본은 보존하고, 변경된 '
-    '최종 사본의 전 페이지를 재렌더·비전 검수한 뒤 ach readiness --file <검수된 요청 파일> --personalized로 '
-    '실제 업로드 파일 해시를 연결합니다. 본문·내용 수정은 running으로 돌아가 재채점·재승인을 받습니다. '
-    '제출은 거래 절차로만 합니다. 공고의 접수 기간·제출처를 확인한 뒤 ach submission intent <id> --file <요청>'
-    '(승인된 공식 제출처와 현재 요청 토큰)으로 의도를 기록하고, 외부 전송 직전에 '
-    'ach submission start <id> --attempt <A>로 dispatching을 남깁니다. 시간 초과·응답 유실처럼 결과가 불확실하면 '
-    '다시 보내지 말고 ach submission unknown <id> --attempt <A> --file <근거>로 기록한 뒤 공식 접수 목록·메일로 '
-    '확인합니다. 접수 증빙(영수·확인 메일·목록 화면)은 .private/에 저장하고 '
-    'ach submit <id> --attempt <A> --file <증빙 JSON>으로 확정합니다. 미제출이 공식 근거로 확인된 경우에만 '
-    'ach submission resolve로 닫고 새 의도를 기록합니다. 확정 직후 본선·발표 등 후속 제작 일정이 있으면 '
-    'followup_pending으로 옮긴 뒤 커밋·push합니다. 결과 발표만 기다리는 경우는 submitted로 둡니다. '
-    '새 계정·결제·새로운 동의나 승인 범위 밖 전송은 이 위임으로 진행하지 않습니다.'
-)
+# `ach handoff` statuses that need nothing from anyone.
+HANDOFF_SETTLED = {'already_handed_off', 'approved_elsewhere', 'not_applicable'}
+# Statuses where the approval or the message itself went wrong and the controller must look.
+HANDOFF_ATTENTION = {'session_unavailable', 'approve_refused', 'send_failed', 'handoff_unknown', 'error'}
 
 
 def elapsed_in_state(entry, now=None):
@@ -81,8 +66,8 @@ def runtime_codes(observation):
 
 
 class ApproveController:
-    def __init__(self, ach, home=None, dry_run=False, sender=subprocess.run, clock=utcnow):
-        self.ach, self.dry_run, self.sender, self.clock = ach, dry_run, sender, clock
+    def __init__(self, ach, home=None, dry_run=False, clock=utcnow):
+        self.ach, self.dry_run, self.clock = ach, dry_run, clock
         home = Path(home) if home else ach.root
         state = home / STATE_DIR
         self.log = EventLog(state / 'events.jsonl', dry_run, clock)
@@ -144,59 +129,40 @@ class ApproveController:
             return
         if state != 'awaiting_approval':
             return
-        status, reasons = self.evaluate(entry)
-        if status is None:
-            if reasons:
-                self.alerts.raise_(entry['id'], 'approval_blocked', reasons, band)
-            return
-        if self.dry_run:
-            self.log.emit('would_approve', contest_id=entry['id'], request_token=status['request_token'])
-        else:
-            self.approve(entry, status)
+        self.handoff(entry, band)
 
     # -- actions --------------------------------------------------------------------------------
 
     def show(self, contest_id):
         return self.ach.json('show', contest_id)
 
-    def evaluate(self, entry):
-        """(status, []) when eligible; (None, []) when already approved; (None, reasons) otherwise."""
-        status = self.ach.json('approval-status', entry['id'])
-        if status.get('submit_approval_valid'):
-            return None, []
-        if not status.get('eligible'):
-            return None, safe_codes(status.get('reasons')) or ['not_eligible']
-        return status, []
+    def handoff(self, entry, band='none'):
+        """Run the CLI's delegated handoff for one waiting request and record what it says.
 
-    def approve(self, entry, status):
-        # The CLI rechecks policy, readiness, rules and this token atomically, not this cached result.
-        fd, path = tempfile.mkstemp(suffix='.txt', prefix='ach-approval-')
-        try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as handle:
-                handle.write(APPROVAL_NOTE)
-            self.ach.run('approve', entry['id'], '--note-file', path, '--by', 'controller-delegated',
-                         '--delegated', '--expected-request', status['request_token'])
-        finally:
-            Path(path).unlink(missing_ok=True)
-        session = self.show(entry['id']).get('session') or {}
-        accepted = self.notify(session)
-        self.log.emit('approved', contest_id=entry['id'], request_token=status['request_token'], handoff=accepted)
-
-    def notify(self, session):
-        handle = session.get('handle')
-        if not handle or session.get('workspace') != 'orca':
-            return False
-        try:
-            sent = self.sender(['orca', 'terminal', 'send', '--terminal', handle, '--text', HANDOFF,
-                                '--enter', '--json'], capture_output=True, text=True, timeout=30)
-        except (subprocess.TimeoutExpired, OSError):
-            return False
-        if sent.returncode:
-            return False
-        try:
-            return bool(json.loads(sent.stdout).get('result', {}).get('send', {}).get('accepted', False))
-        except (ValueError, AttributeError):
-            return False
+        A request that needs the user's own approval (`user_approval_request`) is a different
+        alert from one that waits on a reason, so the two are never reported as the same thing.
+        """
+        args = ['handoff', entry['id'], '--trigger', 'controller']
+        if self.dry_run:
+            args.append('--dry-run')
+        result = self.ach.json(*args)
+        status = result.get('status') if isinstance(result.get('status'), str) else 'error'
+        reasons = safe_codes(result.get('reasons'))
+        token = result.get('request_token')
+        if status == 'handed_off':
+            record = result.get('record') or {}
+            self.log.emit('handed_off', contest_id=entry['id'], request_token=token,
+                          message_id=record.get('message_id'))
+        elif status in ('would_approve_and_hand_off', 'would_hand_off'):
+            self.log.emit(status, contest_id=entry['id'], request_token=token)
+        elif status in HANDOFF_SETTLED:
+            return
+        elif result.get('user_approval_request') is True:
+            self.alerts.raise_(entry['id'], 'user_approval_request', [status] + reasons, band)
+        elif status in HANDOFF_ATTENTION:
+            self.alerts.raise_(entry['id'], 'handoff_attention', [status] + reasons, band)
+        else:
+            self.alerts.raise_(entry['id'], 'approval_blocked', reasons or [status], band)
 
     def clean_submitted(self, entry, band='none', now=None):
         full = self.show(entry['id'])
