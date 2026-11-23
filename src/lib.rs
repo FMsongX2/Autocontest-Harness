@@ -1,6 +1,7 @@
 //! Autocontest-Harness core. The `ach` binary in `main.rs` is a thin CLI over these modules.
 //! Contract: `docs/CONTRACT.md`. Every command keeps the JSON shapes that agents and prompts rely on.
 
+pub mod amend;
 pub mod board;
 pub mod budget;
 pub mod clean;

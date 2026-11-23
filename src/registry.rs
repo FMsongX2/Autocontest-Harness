@@ -350,6 +350,13 @@ fn is_submit_approval(h: &HistoryItem) -> bool {
     h.extra.get("approval").and_then(Value::as_str) == Some("submit")
 }
 
+/// A submission approval was recorded since the entry last entered `awaiting_approval`, whether
+/// or not it still counts.
+pub fn submit_approval_recorded(entry: &Entry) -> bool {
+    let start = entered_awaiting(entry).map_or(0, |i| i + 1);
+    entry.state == "awaiting_approval" && entry.history.iter().skip(start).any(is_submit_approval)
+}
+
 /// Index of the latest real move into `awaiting_approval` (approval markers stay in that state).
 fn entered_awaiting(entry: &Entry) -> Option<usize> {
     entry.history.iter().rposition(|h| h.to == "awaiting_approval" && h.from.as_deref() != Some("awaiting_approval"))
@@ -806,7 +813,7 @@ fn gate_criteria(entry: &Entry) -> Option<Vec<GateCriterion>> {
 /// One Judge row per gate criterion: every row names exactly one gate criterion (round + name; a
 /// row without a round must name a criterion that is unique by name), every gate criterion is
 /// scored, and a published gate weight is the row's weight.
-fn check_gate_criteria(entry: &Entry, criteria: &[Value]) -> Result<()> {
+pub fn check_gate_criteria(entry: &Entry, criteria: &[Value]) -> Result<()> {
     let Some(gate) = gate_criteria(entry) else { return Ok(()) };
     let mut used = vec![false; gate.len()];
     for row in criteria {

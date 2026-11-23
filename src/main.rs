@@ -13,8 +13,8 @@ use harness::error::{Error, Result};
 use harness::ledger;
 use harness::registry::{self, Entry, NewEntry, STATES};
 use harness::{
-    board, budget, clean, collect, config, dedupe, evaluation, guard, install, launch, lifecycle, profile, readiness,
-    route, rules, runners, runtime, schedule, sources, submission, text,
+    amend, board, budget, clean, collect, config, dedupe, evaluation, guard, install, launch, lifecycle, profile,
+    readiness, route, rules, runners, runtime, schedule, sources, submission, text,
 };
 
 const EXIT_DUPLICATE: u8 = 3;
@@ -138,6 +138,23 @@ enum Command {
         id: String,
         #[arg(long)]
         file: PathBuf,
+    },
+    /// Fill in judging criteria that a recorded gate left empty, from the accepted official rules.
+    /// Changes only `gate.criteria`. Refused inside contest sessions (ACH_SESSION set).
+    GateCriteria {
+        id: String,
+        /// The corrected gate.json: the recorded gate with only `criteria` filled in.
+        #[arg(long)]
+        file: PathBuf,
+        /// The work revision the caller reviewed (`ach approval-status`).
+        #[arg(long)]
+        expected_revision: usize,
+        /// The request token the caller reviewed (`ach approval-status`), when the entry has one.
+        #[arg(long)]
+        expected_request: Option<String>,
+        /// Check every condition and show the change without writing anything.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Create the folder, repository and workspace for a gated contest.
     Route {
@@ -842,6 +859,25 @@ fn run(cli: &Cli) -> Result<u8> {
                 Ok(entry.clone())
             })?;
             emit(json_mode, &entry, Some(format!("게이트 기록: {}", line(&entry))))?;
+            Ok(0)
+        }
+        Command::GateCriteria { id, file, expected_revision, expected_request, dry_run } => {
+            let text = read_file(file)?;
+            let session = std::env::var(launch::SESSION_ENV).ok();
+            let request = amend::Request {
+                path: file,
+                text: &text,
+                expected_revision: *expected_revision,
+                expected_request: expected_request.as_deref(),
+                session: session.as_deref(),
+                dry_run: *dry_run,
+            };
+            let result = if *dry_run {
+                registry::read(|reg| amend::gate_criteria(&mut reg.get(id)?.clone(), &request))?
+            } else {
+                registry::write(|reg| amend::gate_criteria(reg.get_mut(id)?, &request))?
+            };
+            emit(json_mode, &result, None)?;
             Ok(0)
         }
         Command::Route { id, folder, no_repo, no_workspace } => {

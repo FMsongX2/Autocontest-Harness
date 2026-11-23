@@ -258,6 +258,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach list [--state S] [--type T]` | 목록(마감 순) |
 | `ach show <id>` | 항목 전체 |
 | `ach gate <id> --file gate.json` | 게이트 결과를 기록한다(`type`, `level`, `priority` 포함). `decision`에 따라 `gate_pass`/`rejected`/`hold`로 옮긴다 |
+| `ach gate-criteria <id> --file <정정 gate.json> --expected-revision N [--expected-request 토큰] [--dry-run]` | 진행 중인 항목의 비어 있는 `gate.criteria`만 수락된 공식 규칙 근거로 채운다(7절 "심사기준 보완"). 조건이 하나라도 어긋나면 아무것도 쓰지 않는다. 공모전 세션 안에서는 거절된다 |
 | `ach route <id> [--folder 이름] [--no-repo] [--no-workspace]` | 폴더(git 초기화·첫 커밋)·저장소·작업 공간·`CONTEST.md`를 만들고 `session`을 기록한 뒤 `routed`로 옮긴다. 쓰기 전에 사전 점검을 한다: `--no-workspace`가 아니면 작업 환경 백엔드(와 `orca_repo_path`가 있는지), `--no-repo`가 아니면 `gh`가 PATH에 있고 `gh auth status`가 성공하는지, git 커밋 신원. 오류는 고치는 법을 알려 준다. `.harness/contest.json` 초안을 `.harness/` 바로 뒤에 쓰므로, 실패한 뒤 다시 돌리면 이어서 한다. 폴더 이름과 같은 GitHub 저장소가 이미 있으면 private이고 비어 있거나 이 공모전의 것(`.harness/contest.json` 또는 `CONTEST.md`의 `\| 하네스 id \| <id> \|` 행)이어야 하고, 원격 `main`의 이력이 다르면 거절한다. 저장소를 만든 뒤 GitHub Actions를 끄고(`gh api -X PUT repos/<full>/actions/permissions -F enabled=false`), 실패하면 경고한다. JSON에 `warnings`가 있다. `existing_contests.md`와 커밋 메시지의 제목은 한 줄이다. 제출 기록부에 같은 공모전이 있으면 거절한다 |
 | `ach launch <id> [--preset 이름] [--dry-run] [--force]` | 설정 러너를 설정 작업 환경에서 `env ACH_SESSION=<id> PATH=<클론>/bin:… <명령>`으로 띄우고 `running`으로 옮긴다. 전체 상한, 그 레벨의 상한, 메모리 예산(메모리 압박 포함) 중 하나라도 여유가 없으면 거절한다(`--force`로만 넘김). 용량 검사와 실행은 `data/launch.lock`으로 직렬화한다. `--preset`은 omp 전용이다. `--dry-run`은 아무것도 쓰지 않고 명령과 지시문만 보여 준다. JSON은 `prompt`(실제 실행이 쓸 지시문 경로), `prompt_text`, `warnings`(PATH에 없는 러너·작업 환경 실행 파일)를 담고, 텍스트에도 경고를 낸다 |
 | `ach peek <id> [--lines N]` | 띄운 세션의 화면(orca, tmux)이나 로그(headless) 끝 N줄(기본 40) |
@@ -295,7 +296,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
 | `ach doctor` | 읽기만 하는 점검. 체크아웃, 버전(바이너리 커밋과 체크아웃 HEAD. 그 사이 커밋이 문서(`README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `CHANGELOG*.md`, `docs/`, `references/`, `LICENSE`)만 바꿨으면 ok, 바이너리 커밋이 클론 이력에 없으면 경고), OS(macOS·Linux), 설정(읽기·검사, 파일이 없으면 경고), 레지스트리·기록부 읽기, `data/` 권한, git 커밋 신원(`git var GIT_AUTHOR_IDENT`), `gh`와 `gh auth status`, 러너 실행 파일과 이 체크아웃용 설치(`installed`, 10절), 작업 환경 실행 파일(orca면 `orca_repo_path`가 Orca 프로젝트인지), `agent_models`(없는 에이전트 이름은 실패, 러너가 적용한 모델이 설정과 다르면 경고·고치는 법 `ach install`, 비어 있으면 ok "기본 역할 모델", 러너가 알려 주지 않으면 ok), `contests_root`, 사용자 정보 파일(있음·0600·예시 자리표시자 없음), 메모리 읽기, 설정 스케줄러의 정기 실행 설치·일치와 다른 스케줄러 중복을 본다. 항목마다 고치는 법을 낸다. 텍스트는 `[ok]`/`[경고]`/`[실패]` 줄과 `실패 n건, 경고 m건`, JSON은 `{"checks":[{name, level: ok\|warn\|fail, detail, fix?}]}`. 실패가 하나라도 있으면 종료 코드 1 |
 | `ach --version` | `<버전> (<12자리 git sha>)` |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.0", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.1", capabilities: [...]}`. 관리 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다(21절) |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트(17절). `--file`이면 기록하고, 없으면 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다(17절). 기본은 읽기 전용이고, `--apply`는 관측 결과만 저장한다(띄우거나 닫지 않는다) |
 | `ach recover <id> --expected-observation <토큰> [--dry-run]` | 모든 복구 조건이 맞을 때만 같은 대화 기록으로 세션을 다시 연다(17절) |
@@ -413,6 +414,19 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 `level`은 정수 1~5다(5절). `pass`에는 `deliverables`나 `criteria`가 있어야 한다. `deadline`은 `YYYY-MM-DD`(`T23:59+09:00`으로 저장) 또는 `YYYY-MM-DDTHH:MM[:SS]+09:00`이다. `24:00`은 23:59로 읽고 `+09:00` 밖의 오프셋은 거절한다(`add --deadline`, `submitted add --date`와 같은 파서). `official_url`을 쓰면 `http://` 또는 `https://` 주소여야 한다. `title`과 `organizer`는 한 줄로 정규화한다(제어·보이지 않는 문자 제거, 공백 압축). `reasons`와 `questions`는 "참가자"를 주어로 하는 중립적인 보고서체로 쓴다. `fail` 사유 예: 지역·소속 한정, 팀 필수, 참가비, 현장 촬영·오프라인 필수, 생성형 AI 금지, 본인 경험 서술이 필수인데 대신 쓸 수 없음, 마감 경과. 이미 제출한 공모전(`dedupe-check`의 `kind: submitted`)은 게이트하지 않고 `duplicate`로 옮긴다(note `이미 제출함: <제목, 날짜>`).
 
 게이트 뒤 공식 원문 보관: `gate.json`의 `official_url`과 원문 첨부는 판정의 근거이므로, 게이트한 쪽(ContestGate)이 그 원문 바이트를 `ach rules capture`로 보관하고 판정에 쓴 규칙을 `ach rules review`로 기록한다(18절). `gate.json`은 요약이고, 규칙 변경 판단은 보관된 원문과 구조화된 규칙의 비교로만 한다.
+
+심사기준 보완(`ach gate-criteria <id> --file F --expected-revision N [--expected-request 토큰] [--dry-run]`, 정본 `src/amend.rs`): 게이트는 라우팅 뒤에는 다시 기록할 수 없다. 게이트 기록의 `criteria`가 비어 있으면 독립 평가 패킷(19절)을 만들 수 없으므로, 메인 세션이나 사용자가 이 명령으로 그 한 필드만 채운다. `F`는 기록된 게이트에서 `criteria`만 채운 `gate.json` 사본이다. 아래 조건을 모두 만족할 때만 쓰고, 하나라도 어긋나면 이유를 내고 아무것도 바꾸지 않는다.
+
+- 공모전 세션 밖에서 실행한다(`ACH_SESSION`이 있으면 거절).
+- 항목이 `running`·`plan_review`·`awaiting_approval`이고, 제출 기록과 해소되지 않은 제출 시도(`intent`·`dispatching`·`unknown`)가 없다.
+- `--expected-revision`과 `--expected-request`가 지금 작업 판·요청 토큰(`ach approval-status`)과 같다. 제출 준비 기록이 없어 토큰이 없는 항목에는 `--expected-request`를 주지 않는다.
+- 기록된 게이트가 `pass`이고 `criteria`가 없거나 빈 배열이다. 정정 파일은 `criteria` 밖의 모든 필드가 기록된 게이트와 같다.
+- 새 기준 행 `{stage?, name, weight?}`(다른 필드 없음, 심사 단계+이름 중복 없음, 배점이 있는 기준 하나 이상)의 집합이 수락된 규칙 판(18절) `criteria` 범주 규칙의 구조화된 행(값이 배열이고 `name`이 있는 원소)과 같다. 그 규칙이 인용한 원문 스냅숏은 보관 때의 해시 그대로여야 한다. 글로만 적은 규칙은 근거가 되지 않는다.
+- 기록된 모든 점수의 기준 행(심사 단계·이름·배점)이 새 기준과 맞는다(`ach score`가 게이트 기준과 대조하는 규칙 그대로).
+- 이번 승인 대기에 제출 승인 기록이 없고(유효 여부와 무관), 독립 평가 패킷·평가 기록이 없다.
+- 폴더의 `.harness/gate.json`이 기록된 게이트(또는 이미 정정된 게이트)와 같다.
+
+쓰는 것은 폴더의 `.harness/gate.json`(임시 파일에 쓴 뒤 이름 바꾸기), 레지스트리 `gate.criteria`, 변경 기록 `extra.gate_amendments[{seq, at, by, field, before, after, weight_total, file: {path, sha256}, evidence: {rules_version, rules: [{key, source, verification}]}, state, revision, request_token, scores_checked, folder_gate: {path, sha256}}]`, 같은 상태의 `history` 표시(`by: "ach gate-criteria"`, `gate_amendment: <seq>`)다. 상태·작업 판·요청 토큰·점수·제출 준비 기록·규칙 묶음은 바뀌지 않는다. 결과는 `{id, dry_run, field, before, after, weight_total, state, revision, request_token, evidence, scores_checked, folder_gate, amendment}`이고, `--dry-run`은 같은 검사를 하고 아무것도 쓰지 않는다(`amendment: null`). 공모전 세션은 바뀐 `.harness/gate.json`을 커밋한다.
 
 ## 8. 에이전트
 

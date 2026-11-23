@@ -60,6 +60,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach dedupe-check --id <id>` / `ach dedupe-check <제목> [--url U] [--org O] [--deadline D]` | 라우팅·등록 전 중복 확인(반드시). `--id`만 주면 제목·URL·주최·마감을 그 항목에서 읽고 자기 자신은 뺀다(가져온 공고는 이 형태로만 확인한다). 제출 기록부(`data/submissions.json`)도 대조하고, `kind: submitted` 결과가 맨 앞에 온다 |
 | `ach list [--state S] [--type T]` / `ach show <id>` | 목록 / 항목 전체 |
 | `ach gate <id> --file gate.json` | 게이트 결과 기록 → `gate_pass`/`rejected`/`hold` |
+| `ach gate-criteria <id> --file <정정 gate.json> --expected-revision N [--expected-request 토큰] [--dry-run]` | 진행 중인 공모전(`running`·`plan_review`·`awaiting_approval`)의 게이트 기록에서 비어 있는 `criteria`만 채운다(빈 `criteria`는 `ach evaluation prepare`가 거절한다). 메인 세션이나 사용자가 실행하고 공모전 세션 안에서는 거절된다. 파일은 기록된 게이트에서 `criteria`만 채운 사본이다. 기준 행이 수락된 규칙 판의 `criteria` 규칙 행, 기록된 점수의 기준과 같아야 하고, 작업 판·요청 토큰(`ach approval-status`)이 넘긴 값과 같아야 하며, 제출 기록·이번 승인 대기의 제출 승인 기록·독립 평가 기록이 없어야 한다. 폴더의 `.harness/gate.json`도 함께 고치고 변경 기록을 남긴다. 공모전 세션은 정정 사본을 `.private/`에 만들어 메인 세션에 요청하고, 반영 뒤 바뀐 `.harness/gate.json`을 커밋한다 |
 | `ach route <id> [--folder 이름] [--no-repo] [--no-workspace]` | 폴더·private 저장소(config `github_org`, 비면 로그인한 사용자 계정)·작업 환경(config `workspace`: orca·tmux·headless)·`CONTEST.md` 생성 → `routed`. 항목의 `session`에 `workspace`·`runner`가 남는다. 제출 기록부에 같은 공모전이 있으면 거절한다 |
 | `ach launch <id> [--preset 이름] [--dry-run] [--force]` | 공모전 폴더에서 config `runner`(러너 어댑터 이름, 코어에는 `omp`뿐)로 세션 시작 → `running`. `--preset`은 프리셋이 있는 러너(omp)만, 그 밖에는 `model_by_level`. 전체·그 레벨의 동시 실행 상한이나 메모리 예산에 여유가 없으면 거절 |
 | `ach peek <id> [--lines N]` | 실행 중인 세션의 화면·로그 끝 확인 |
