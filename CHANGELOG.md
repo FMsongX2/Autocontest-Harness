@@ -4,6 +4,18 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.3 - 2026-11-24
+
+### Added
+- `ach gate-criteria … [--criteria-key K]` fills the gate criteria of one official division or track. When the accepted official rules give separate criteria per division (one `criteria` rule per division, each with its own `key`), the command compared the corrected rows with the rows of all divisions together, so the criteria of the one division an entry competes in were always refused and the entry could not get an independent evaluation packet. With `--criteria-key K` the rows are compared with one rule: exactly one accepted `criteria` rule has the key `K` (letters, digits, `.`, `_`, `-`, at most 100 characters), every element of that rule is a structured row, and the corrected rows are that rule's rows, all of them and no others (same count, stage, name, and weight). Part of a division, rows of several divisions together, a row no rule has, a key that names no rule or more than one, and a rule with an unstructured element are refused. Every other condition of the command applies unchanged (outside contest sessions, no submission record or unresolved attempt, the reviewed work revision and request token, a gate that differs only in `criteria`, snapshots that still hash as captured, recorded scores with the same rows, no submit approval in this approval wait, no evaluation record, a matching folder copy).
+- The result and the `extra.gate_amendments` record carry `criteria_key` (`null` without the option) and cite only the selected rule in `evidence.rules`; the history marker names the key. The rules of the other divisions are neither removed nor changed.
+
+### Changed
+- Without `--criteria-key` the comparison is as before (the rows of all accepted `criteria` rules as one list). When that refuses rows and several keyed `criteria` rules were compared, the reason now lists the keys that can be selected.
+
+### Migration
+- None. Entries change only when the command is run for them.
+
 ## 0.9.2 - 2026-11-24
 
 ### Added

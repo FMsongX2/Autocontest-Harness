@@ -46,26 +46,38 @@ fn score(stage: &str, a: f64, b: f64) -> Value {
     ]})
 }
 
-/// Accept `criteria` as the structured criteria rule of a baseline rule version (v1).
-fn accept_rules(e: &mut Entry, criteria: Value) {
+/// Accept `(key, criteria)` pairs as the criteria rules of a baseline rule version (v1); an empty
+/// key is a rule without one.
+fn accept_rules(e: &mut Entry, criteria: &[(&str, Value)]) {
     let inbox = folder(e).join("inbox");
     fs::create_dir_all(&inbox).unwrap();
     fs::write(inbox.join("notice.html"), NOTICE).unwrap();
     rules::capture(e, &json!({"sources": [{"id": "notice", "url": URL, "path": "inbox/notice.html"}]})).unwrap();
     let sha = readiness::sha256_file(&inbox.join("notice.html")).unwrap();
     let source = json!({"id": "notice", "sha256": sha, "locator": {"quote": "창의성 40점, 실현 가능성 60점"}});
+    let rules: Vec<Value> = criteria
+        .iter()
+        .map(|(key, value)| {
+            let mut rule = json!({"category": "criteria", "value": value, "source": source});
+            if !key.is_empty() {
+                rule["key"] = json!(key);
+            }
+            rule
+        })
+        .collect();
     let out = rules::review(
         e,
         &json!({"version": "v1", "base_version": null, "decision": "accept", "reviewer": "ContestGate",
-            "rules": [{"category": "criteria", "value": criteria, "source": source}]}),
+            "rules": rules}),
     )
     .unwrap();
     assert_eq!(out["status"], "accepted");
 }
 
 /// A level 2 entry waiting for approval: the gate passed with empty criteria, the official
-/// criteria are an accepted rule, two scores used them, and a readiness record gives a token.
-fn entry_with(id: &str, rule_criteria: Value) -> Entry {
+/// criteria are accepted rules, two scores used [`official`], and a readiness record gives a
+/// token.
+fn entry_of(id: &str, rule_criteria: &[(&str, Value)]) -> Entry {
     let mut e = new_entry(NewEntry {
         id,
         title: "제도개선 아이디어 공모",
@@ -101,10 +113,28 @@ fn entry_with(id: &str, rule_criteria: Value) -> Entry {
     e
 }
 
+fn entry_with(id: &str, rule_criteria: Value) -> Entry {
+    entry_of(id, &[("", rule_criteria)])
+}
+
 fn entry(id: &str) -> Entry {
     let mut rule = official();
     rule.as_array_mut().unwrap().push(json!({"note": "1차 서면심사 뒤 국민투표"}));
     entry_with(id, rule)
+}
+
+/// The criteria of a second division, which shares its second row with [`official`].
+fn data_division() -> Value {
+    json!([
+        {"stage": "1차 서면심사", "name": "데이터 활용성", "weight": 40},
+        {"stage": "1차 서면심사", "name": "실현 가능성", "weight": 60}
+    ])
+}
+
+/// An entry whose official rules give criteria per division, one accepted rule each: `data` and
+/// `service` ([`official`], the division the recorded scores used).
+fn divisions(id: &str) -> Entry {
+    entry_of(id, &[("data", data_division()), ("service", official())])
 }
 
 /// The recorded gate with `criteria` replaced.
@@ -123,13 +153,26 @@ struct Call {
     revision: usize,
     token: Option<String>,
     session: Option<&'static str>,
+    key: Option<&'static str>,
     dry_run: bool,
 }
 
 impl Call {
     /// What a main session passes after reviewing `e`: its revision and request token.
     fn reviewed(e: &Entry, gate: &Value) -> Call {
-        Call { text: gate.to_string(), revision: registry::revision(e), token: token(e), session: None, dry_run: false }
+        Call {
+            text: gate.to_string(),
+            revision: registry::revision(e),
+            token: token(e),
+            session: None,
+            key: None,
+            dry_run: false,
+        }
+    }
+
+    /// The same, naming the accepted criteria rule of one division.
+    fn selecting(e: &Entry, gate: &Value, key: &'static str) -> Call {
+        Call { key: Some(key), ..Call::reviewed(e, gate) }
     }
 
     fn run(&self, e: &mut Entry) -> harness::error::Result<Value> {
@@ -140,6 +183,7 @@ impl Call {
                 text: &self.text,
                 expected_revision: self.revision,
                 expected_request: self.token.as_deref(),
+                criteria_key: self.key,
                 session: self.session,
                 dry_run: self.dry_run,
             },
@@ -184,6 +228,7 @@ fn fills_only_the_criteria_and_unblocks_the_evaluation_packet() {
     assert_eq!(out["after"], official());
     assert_eq!(out["weight_total"], 100.0);
     assert_eq!(out["amendment"], 1);
+    assert_eq!(out["criteria_key"], Value::Null);
 
     // Only gate.criteria moved: every other gate field, the state, the revision, the request
     // token, the scores and the readiness record are as they were.
@@ -200,6 +245,7 @@ fn fills_only_the_criteria_and_unblocks_the_evaluation_packet() {
     // The change is on record: one amendment with its evidence, and a same-state history marker.
     let record = &e.extra[amend::KEY][0];
     assert_eq!(record["seq"], 1);
+    assert_eq!(record["criteria_key"], Value::Null);
     assert_eq!(record["before"], json!([]));
     assert_eq!(record["after"], official());
     assert_eq!(record["evidence"]["rules_version"], "v1");
@@ -410,4 +456,178 @@ fn a_folder_copy_that_differs_from_the_recorded_gate_is_not_overwritten() {
     fs::write(folder(&e).join(amend::FOLDER_GATE), fixed.to_string()).unwrap();
     Call::reviewed(&e, &fixed).run(&mut e).unwrap();
     assert_eq!(e.gate, Some(fixed));
+}
+
+#[test]
+fn one_division_is_filled_from_the_rule_its_key_names() {
+    let mut e = divisions("amend-division");
+    let request = packet_request(&e);
+    let before = e.clone();
+    let gate = corrected(&e, official());
+
+    // Without a selection the rules of both divisions are one list of 200 points, which the rows
+    // of one division never equal.
+    let call = Call::reviewed(&e, &gate);
+    assert_refused(&mut e, &call, "--criteria-key로 출품 부문의 규칙 하나를 고른다(key: data, service)");
+
+    let mut call = Call::selecting(&e, &gate, "service");
+    call.dry_run = true;
+    let dry = call.run(&mut e).unwrap();
+    assert_eq!((&dry["criteria_key"], &dry["amendment"]), (&json!("service"), &Value::Null));
+    assert_eq!(serde_json::to_value(&e).unwrap(), serde_json::to_value(&before).unwrap());
+
+    let out = Call::selecting(&e, &gate, "service").run(&mut e).unwrap();
+    assert_eq!(out["criteria_key"], "service");
+    assert_eq!(out["after"], official());
+    assert_eq!(out["weight_total"], 100.0);
+    assert_eq!(e.gate.as_ref().unwrap()["criteria"], official());
+
+    // The evidence on record is the selected rule alone, with the snapshot hash it cites.
+    let sha = readiness::sha256_file(&folder(&e).join("inbox/notice.html")).unwrap();
+    let record = &e.extra[amend::KEY][0];
+    assert_eq!(record["criteria_key"], "service");
+    assert_eq!(record["evidence"], out["evidence"]);
+    assert_eq!(record["evidence"]["rules"].as_array().unwrap().len(), 1);
+    assert_eq!(record["evidence"]["rules"][0]["key"], "service");
+    assert_eq!(record["evidence"]["rules"][0]["source"]["sha256"], json!(sha));
+    assert!(e.history.last().unwrap().note.contains("key service"));
+
+    // Nothing else moved: the rule of the other division is still accepted, and the state, the
+    // revision, the request token, the scores and the readiness record are as they were.
+    assert_eq!(e.extra[rules::KEY], before.extra[rules::KEY]);
+    assert_eq!(e.state, before.state);
+    assert_eq!(registry::revision(&e), registry::revision(&before));
+    assert_eq!(token(&e), token(&before));
+    assert_eq!(e.scores, before.scores);
+    assert_eq!(e.extra[readiness::KEY], before.extra[readiness::KEY]);
+
+    // The independent packet is made with the criteria of that division only.
+    let prepared = evaluation::prepare(&mut e, &request).unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(folder(&e).join(prepared["packet_dir"].as_str().unwrap()).join(evaluation::MANIFEST)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        manifest["criteria"],
+        json!([
+            {"round": "1차 서면심사", "name": "창의성", "weight": 40.0},
+            {"round": "1차 서면심사", "name": "실현 가능성", "weight": 60.0}
+        ])
+    );
+}
+
+#[test]
+fn a_division_is_taken_whole_and_alone() {
+    let mut e = divisions("amend-division-whole");
+    let row = |name: &str, weight: u64| json!({"stage": "1차 서면심사", "name": name, "weight": weight});
+    let differs = "criteria 규칙 service의 행과 다르다";
+    for (key, criteria, needle) in [
+        // Part of the division.
+        ("service", json!([row("창의성", 40)]), differs),
+        // The division plus a row of the other one, and the two divisions mixed.
+        ("service", json!([row("창의성", 40), row("실현 가능성", 60), row("데이터 활용성", 40)]), differs),
+        ("service", json!([row("데이터 활용성", 40), row("실현 가능성", 60)]), differs),
+        // Another weight, another stage, and a row no rule has.
+        ("service", json!([row("창의성", 50), row("실현 가능성", 50)]), differs),
+        ("service", json!([{"name": "창의성", "weight": 40}, {"name": "실현 가능성", "weight": 60}]), differs),
+        ("service", json!([row("창의성", 40), row("완성도", 60)]), differs),
+        // The other division whole is official, but it is not what the recorded scores used.
+        ("data", data_division(), "기록된 점수 1(plan)"),
+        // A key no accepted criteria rule has, and values that are not a rule key.
+        ("idea", official(), "key가 idea인 criteria 규칙이 없다(고를 수 있는 key: data, service)"),
+        ("", official(), "--criteria-key"),
+        ("data service", official(), "--criteria-key"),
+        ("data,service", official(), "--criteria-key"),
+        ("부문", official(), "--criteria-key"),
+    ] {
+        let call = Call::selecting(&e, &corrected(&e, criteria), key);
+        assert_refused(&mut e, &call, needle);
+    }
+}
+
+#[test]
+fn a_key_selects_only_one_whole_structured_rule_with_unaltered_evidence() {
+    // Two accepted rules share the key: neither is the division.
+    let mut twice = entry_of("amend-division-twice", &[("service", official()), ("service", official())]);
+    let call = Call::selecting(&twice, &corrected(&twice, official()), "service");
+    assert_refused(&mut twice, &call, "key가 service인 criteria 규칙이 2개다");
+
+    // An element that is not a structured row: the whole division cannot be checked.
+    let mut noted = official();
+    noted.as_array_mut().unwrap().push(json!({"note": "1차 서면심사 뒤 국민투표"}));
+    let mut loose = entry_of("amend-division-loose", &[("data", data_division()), ("service", noted)]);
+    let call = Call::selecting(&loose, &corrected(&loose, official()), "service");
+    assert_refused(&mut loose, &call, "구조화된 기준 행 [{stage, name, weight}]만으로 돼 있지 않다");
+
+    let mut prose = entry_of("amend-division-prose", &[("service", json!("창의성 40점, 실현 가능성 60점"))]);
+    let call = Call::selecting(&prose, &corrected(&prose, official()), "service");
+    assert_refused(&mut prose, &call, "구조화된 기준 행 [{stage, name, weight}]만으로 돼 있지 않다");
+
+    // The snapshot the rule cites no longer hashes as captured.
+    use std::os::unix::fs::PermissionsExt;
+    let mut altered = divisions("amend-division-tamper");
+    let blob = folder(&altered).join(altered.extra[rules::KEY]["versions"][0]["sources"][0]["blob"].as_str().unwrap());
+    fs::set_permissions(&blob, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(&blob, "<p>창의성 90점</p>").unwrap();
+    let call = Call::selecting(&altered, &corrected(&altered, official()), "service");
+    assert_refused(&mut altered, &call, "변조");
+
+    // The only criteria rule may be named by its key too.
+    let mut single = entry_of("amend-division-single", &[("service", official())]);
+    let out = Call::selecting(&single, &corrected(&single, official()), "service").run(&mut single).unwrap();
+    assert_eq!((&out["criteria_key"], &out["amendment"]), (&json!("service"), &json!(1)));
+}
+
+#[test]
+fn a_selection_passes_every_other_condition_too() {
+    let mut e = divisions("amend-division-cas");
+    let gate = corrected(&e, official());
+
+    let mut call = Call::selecting(&e, &gate, "service");
+    call.session = Some("amend-division-cas");
+    assert_refused(&mut e, &call, "ACH_SESSION");
+
+    let mut call = Call::selecting(&e, &gate, "service");
+    call.revision += 1;
+    assert_refused(&mut e, &call, "작업 판이 다르다");
+
+    let mut call = Call::selecting(&e, &gate, "service");
+    call.token = None;
+    assert_refused(&mut e, &call, "요청 토큰이 다르다");
+
+    let mut changed = gate.clone();
+    changed["level"] = json!(3);
+    let call = Call::selecting(&e, &changed, "service");
+    assert_refused(&mut e, &call, "criteria 밖에서 다르다(level)");
+
+    let mut submitted = divisions("amend-division-submitted");
+    submitted.submissions.push(json!({"at": "t", "method": "email"}));
+    let call = Call::selecting(&submitted, &corrected(&submitted, official()), "service");
+    assert_refused(&mut submitted, &call, "제출 기록이 있는");
+
+    let mut attempt = divisions("amend-division-attempt");
+    attempt.extra.insert(
+        "submission_txn".into(),
+        json!({"next_attempt": 2, "attempts": [{"attempt_id": "a1", "status": "unknown"}]}),
+    );
+    let call = Call::selecting(&attempt, &corrected(&attempt, official()), "service");
+    assert_refused(&mut attempt, &call, "해소되지 않은 제출 시도");
+
+    let mut approved = divisions("amend-division-approved");
+    let mut marker =
+        HistoryItem::new("t".into(), Some("awaiting_approval".into()), "awaiting_approval", "user", "승인");
+    marker.extra.insert("approval".into(), json!("submit"));
+    approved.history.push(marker);
+    let call = Call::selecting(&approved, &corrected(&approved, official()), "service");
+    assert_refused(&mut approved, &call, "제출 승인 기록이 있다");
+
+    let mut assessed = divisions("amend-division-assessed");
+    assessed.extra.insert(evaluation::KEY.into(), json!({"packets": [{"packet_id": "p"}]}));
+    let call = Call::selecting(&assessed, &corrected(&assessed, official()), "service");
+    assert_refused(&mut assessed, &call, "독립 평가 묶음");
+
+    // A gate that already has criteria is not replaced by another division.
+    Call::selecting(&e, &gate, "service").run(&mut e).unwrap();
+    let other = Call::selecting(&e, &corrected(&e, data_division()), "data");
+    assert_refused(&mut e, &other, "이미 있다");
 }
