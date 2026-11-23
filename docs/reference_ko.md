@@ -185,6 +185,7 @@ ach config unset max_running            # 기본값으로 되돌린다
 | `ach list [--state S] [--type T]` | 마감 순으로 목록을 보여 준다 |
 | `ach show <id>` | 레지스트리 항목 하나를 보여 준다 |
 | `ach gate <id> --file gate.json` | 게이트 결과를 기록하고 `gate_pass`·`rejected`·`hold` 가운데 하나로 옮긴다 |
+| `ach gate-criteria <id> --file <정정 gate.json> --expected-revision N [--expected-request 토큰] [--dry-run]` | `running`·`plan_review`·`awaiting_approval` 공모전의 게이트 기록에서 비어 있는 `criteria`만 채운다(이 단계에서는 `ach gate`를 다시 기록할 수 없고, 빈 기준은 `ach evaluation prepare`가 거절한다). 파일은 기록된 게이트에서 `criteria`만 채운 사본이다. 다음 조건을 모두 만족할 때만 쓴다: 공모전 세션 밖에서 실행, 제출 기록과 해소되지 않은 제출 시도 없음, 작업 판과 요청 토큰이 넘긴 값과 같음(토큰이 없는 항목에는 `--expected-request`를 주지 않는다), 기록된 기준이 비어 있고 다른 필드는 같음, 기준 행이 수락된 규칙 판 `criteria` 범주의 구조화된 행 `{stage?, name, weight?}`과 같고 원문 스냅숏 해시가 보관 때와 같음, 기록된 모든 점수가 같은 기준 행을 씀, 이번 승인 대기에 제출 승인 기록 없음, 독립 평가 패킷·평가 기록 없음. `gate.criteria`와 폴더의 `.harness/gate.json`을 고치고 변경 내용을 `extra.gate_amendments`에 더하며 같은 상태의 `history` 표시를 남긴다. 상태·작업 판·요청 토큰은 그대로다. `--dry-run`은 검사만 하고 아무것도 쓰지 않는다 |
 | `ach route <id> [--folder 이름] [--no-repo] [--no-workspace]` | 사전 점검을 거친 뒤 폴더·저장소·작업 공간·`CONTEST.md`를 만들고 `routed`로 옮긴다. 실패한 뒤 다시 실행하면 이어서 한다. 제출 기록부에 있는 공모전은 거절한다. [라우팅과 실행](#라우팅과-실행) 참고 |
 | `ach launch <id> [--preset 이름] [--dry-run] [--force]` | 설정한 러너를 설정한 작업 환경에서 레벨 지시문으로 띄우고 `running`으로 옮긴다. 그 레벨에 빈 자리나 메모리가 없으면 거절한다(`--force`로만 넘긴다). `--preset`은 omp 전용이다. `--dry-run`은 아무것도 쓰지 않고 명령과, 러너·작업 환경 실행 파일이 없을 때의 경고를 보여 준다. JSON에는 `prompt`(실제 실행이 쓸 경로), `prompt_text`, `warnings`가 있다 |
 | `ach peek <id> [--lines N]` | 세션 화면이나 로그의 마지막 N줄(기본 40)을 보여 준다 |
@@ -216,7 +217,7 @@ ach config unset max_running            # 기본값으로 되돌린다
 | `ach capacity` | 지금 띄울 수 있는 세션 수를 보여 준다. JSON 필드: `slots`, `slots_by_level`, `recommended_workers`, `running`, `running_by_level`, `ram`(`basis`, `available_gb`, `reserve_gb`, `budget_gb`, `pressure`, `warning`), `limits`, `providers` |
 | `ach board` | 저장된 기록만으로(네트워크·백엔드 호출 없음) 할 일 중심 `BOARD.md`를 쓴다([보드](#보드) 참고) |
 | `ach tick [--no-collect] [--auto-launch]` | 제어 루프를 한 번 돈다: 수집하고, 게이트 대기 목록을 내고, 선택하면 용량 안에서 라우팅·실행하고, `BOARD.md`를 갱신한다. `new_work_frozen`이면 수집도 실행도 하지 않는다. 정기 실행이 JSON을 읽을 수 있게 종료 코드는 0이다. 텍스트는 오류 건수로 시작하고, JSON에는 `warnings`와 `scout`(지금 현지 시각이 `schedule.scout_hours` 안인지)가 더해진다 |
-| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.0", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
+| `ach contract [--json]` | 이 바이너리의 인터페이스 계약 `{protocol: 2, version: "0.9.1", capabilities: [...]}`. 컨트롤러는 무엇이든 쓰기 전에 `protocol == 2`를 확인한다 |
 | `ach checkpoint <id> [--file F]` | 단계 체크포인트를 기록하거나, `--file` 없이 마지막 체크포인트를 보여 준다 |
 | `ach reconcile [<id>] [--apply]` | 기록된 세션과 작업 공간을 관측한다. 기본은 읽기 전용, `--apply`는 관측만 저장한다 |
 | `ach recover <id> --expected-observation TOKEN [--dry-run]` | 복구 조건을 모두 만족할 때만 사라진 세션을 저장된 대화로 다시 연다 |

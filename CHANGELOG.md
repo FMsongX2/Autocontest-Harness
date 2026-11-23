@@ -4,6 +4,14 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.1 - 2026-11-24
+
+### Added
+- `ach gate-criteria <id> --file <corrected gate.json> --expected-revision N [--expected-request TOKEN] [--dry-run]` fills in the judging criteria that a recorded gate left empty, for a contest already in progress (`running`, `plan_review`, `awaiting_approval`). A gate recorded with `criteria: []` cannot be recorded again after routing, and `ach evaluation prepare` refuses such an entry, so it could never get the independent final assessment a delegated approval needs. The file is the recorded gate with only `criteria` filled in. The command writes only when every condition holds: it runs outside contest sessions; the entry has no submission record and no unresolved submission attempt; the work revision and request token equal the ones given; the recorded criteria are empty and the file differs from the recorded gate in no other field; the rows equal the structured `{stage?, name, weight?}` rows of the accepted rules' `criteria` category, whose snapshots still hash as captured; every recorded score used the same rows; no submit approval was recorded in this approval wait; and no evaluation packet or assessment exists. It updates `gate.criteria`, the folder copy `.harness/gate.json`, appends the change to `extra.gate_amendments` (before, after, evidence, file hash, revision, request token), and adds a same-state history marker. State, work revision, request token, scores and the readiness record stay as they were. `--dry-run` runs the same checks and writes nothing.
+
+### Migration
+- None. Entries change only when the command is run for them. The contest session commits the updated `.harness/gate.json`.
+
 ## 0.9.0 - 2026-11-13
 
 ### Changed

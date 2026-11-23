@@ -104,6 +104,11 @@ fn assessments_of<'a>(entry: &'a Entry, packet: &'a str) -> impl Iterator<Item =
     section(entry, "assessments").iter().filter(move |a| a["packet_id"] == packet)
 }
 
+/// Some packet or assessment has been recorded for the entry (current or stale).
+pub fn recorded(entry: &Entry) -> bool {
+    !section(entry, "packets").is_empty() || !section(entry, "assessments").is_empty()
+}
+
 // ---------------------------------------------------------------- small validators
 
 fn strict_keys(raw: &Value, allowed: &[&str], what: &str) -> Result<()> {

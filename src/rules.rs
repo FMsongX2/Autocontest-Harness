@@ -1205,6 +1205,28 @@ pub fn tracked(entry: &Entry) -> bool {
     load(entry).map(|s| s.accepted.is_some()).unwrap_or(false)
 }
 
+/// The accepted version and its `criteria` rules as `[{key, value, source: {id, sha256, locator},
+/// verification}]`; `None` when no version is accepted. Each cited snapshot must be a source of the
+/// accepted version and still hash as captured, so a gate correction never rests on altered bytes.
+pub fn accepted_criteria(entry: &Entry) -> Result<Option<(String, Vec<Value>)>> {
+    let state = load(entry)?;
+    let Some(accepted) = &state.accepted else { return Ok(None) };
+    let Some(version) = state.accepted_version() else {
+        bail!("{}: 수락된 규칙 판 {}의 스냅샷 기록이 없다", entry.id, accepted.version)
+    };
+    let mut rules = Vec::new();
+    for rule in accepted.rules.iter().filter(|r| r.category == "criteria") {
+        let snapshot = version.sources.iter().find(|s| s.id == rule.source.id && s.sha256 == rule.source.sha256);
+        let Some(snapshot) = snapshot else {
+            bail!("{}: criteria 규칙이 인용한 원문 {}이(가) 수락된 규칙 판에 없다", entry.id, rule.source.id)
+        };
+        verify_existing(&blob_path(entry, snapshot)?, &snapshot.sha256)?;
+        rules.push(json!({"key": rule.key, "value": rule.value, "source": rule.source,
+            "verification": rule.verification}));
+    }
+    Ok(Some((accepted.version.clone(), rules)))
+}
+
 /// The current accepted epochs `{gate, plan, final, submission}`; all zero when untracked.
 pub fn binding(entry: &Entry) -> Value {
     load(entry).map(|s| s.epochs.json()).unwrap_or_else(|_| Epochs::default().json())

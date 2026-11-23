@@ -1,0 +1,368 @@
+//! A narrow correction of a recorded gate: fill in the judging criteria a gate record left empty
+//! (`ach gate-criteria <id> --file F --expected-revision N [--expected-request T] [--dry-run]`).
+//!
+//! `ach gate` cannot be recorded again once a contest is routed, and an entry whose
+//! `gate.criteria` is empty never gets an independent evaluation packet
+//! ([`crate::evaluation::prepare`]). This command changes that one field and nothing else, and
+//! only when every condition below holds; otherwise nothing is written.
+//!
+//! - It runs outside contest sessions (`ACH_SESSION` unset), like `ach approve`.
+//! - The entry is in progress (`running`, `plan_review`, `awaiting_approval`) with no submission
+//!   record and no unresolved submission attempt.
+//! - `--expected-revision` and `--expected-request` equal the current work revision and request
+//!   token: a compare-and-set against what the caller reviewed.
+//! - The recorded gate passed and its `criteria` are empty; the corrected gate file equals the
+//!   recorded gate in every other field.
+//! - The new rows equal the structured `{stage?, name, weight?}` rows of the accepted official
+//!   rules' `criteria` category, whose snapshots still hash as captured.
+//! - Every recorded score already uses exactly these criteria (round, name, weight).
+//! - No submission approval was recorded since the entry entered `awaiting_approval` and no
+//!   evaluation packet or assessment exists, so nothing reviewed against the old gate carries over.
+//! - The folder copy `.harness/gate.json` equals the recorded gate (or already the corrected one).
+//!
+//! The folder copy is replaced first (temp file + rename); the entry then gets the new criteria,
+//! an `extra.gate_amendments` record and a same-state history marker, saved by the registry's
+//! atomic write. Contract: `docs/CONTRACT.md` section 7.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+use crate::bail;
+use crate::error::{Error, Result};
+use crate::evaluation;
+use crate::readiness;
+use crate::registry::{self, Entry, HistoryItem};
+use crate::rules;
+use crate::submission;
+use crate::text::now;
+
+/// `Entry.extra` key: the append-only list of gate corrections.
+pub const KEY: &str = "gate_amendments";
+/// Who the history marker and the amendment record name.
+pub const BY: &str = "ach gate-criteria";
+/// Folder-relative copy of the gate that sessions and agents read.
+pub const FOLDER_GATE: &str = ".harness/gate.json";
+
+const STATES: &[&str] = &["running", "plan_review", "awaiting_approval"];
+const ROW_KEYS: &[&str] = &["stage", "name", "weight"];
+
+/// One `ach gate-criteria` call.
+pub struct Request<'a> {
+    /// The corrected gate file as given, and its text.
+    pub path: &'a Path,
+    pub text: &'a str,
+    pub expected_revision: usize,
+    pub expected_request: Option<&'a str>,
+    /// `ACH_SESSION` as the caller read it.
+    pub session: Option<&'a str>,
+    pub dry_run: bool,
+}
+
+/// `(stage, name, weight)`.
+type Row = (Option<String>, String, Option<f64>);
+
+fn sorted_keys(rows: &[Row]) -> Vec<(String, String, String)> {
+    let mut keys: Vec<_> = rows
+        .iter()
+        .map(|(stage, name, weight)| (stage.clone().unwrap_or_default(), name.clone(), format!("{weight:?}")))
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+fn labels(rows: &[Row]) -> String {
+    let label = |(stage, name, weight): &Row| {
+        let stage = stage.as_ref().map(|s| format!("{s} ")).unwrap_or_default();
+        let weight = weight.map(registry::points).unwrap_or_else(|| "-".into());
+        format!("{stage}{name}({weight})")
+    };
+    rows.iter().map(label).collect::<Vec<_>>().join(", ")
+}
+
+/// The corrected file's `criteria`, strictly: a non-empty array of `{stage?, name, weight?}` with
+/// no other field, no repeated stage + name and at least one criterion that carries points.
+fn corrected_rows(value: Option<&Value>) -> Result<Vec<Row>> {
+    let Some(items) = value.and_then(Value::as_array).filter(|a| !a.is_empty()) else {
+        bail!("정정 파일의 criteria는 비어 있지 않은 [{{stage, name, weight}}] 배열이어야 한다")
+    };
+    let mut rows: Vec<Row> = Vec::with_capacity(items.len());
+    for (i, item) in items.iter().enumerate() {
+        let Some(object) = item.as_object() else { bail!("criteria[{i}]는 객체여야 한다") };
+        if let Some(key) = object.keys().find(|k| !ROW_KEYS.contains(&k.as_str())) {
+            bail!("criteria[{i}]: 알 수 없는 필드 {key}(허용: {})", ROW_KEYS.join(", "));
+        }
+        let text = |key: &str| -> Result<Option<String>> {
+            match object.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(s)) if !s.is_empty() && s.trim() == s && !s.chars().any(char::is_control) => {
+                    Ok(Some(s.clone()))
+                }
+                Some(_) => bail!("criteria[{i}].{key}는 앞뒤 공백과 제어 문자가 없는 비어 있지 않은 문자열이어야 한다"),
+            }
+        };
+        let Some(name) = text("name")? else { bail!("criteria[{i}].name이 없다") };
+        let stage = text("stage")?;
+        let weight = match object.get("weight") {
+            None | Some(Value::Null) => None,
+            Some(value) => match value.as_f64().filter(|w| w.is_finite() && *w >= 0.0) {
+                Some(weight) => Some(weight),
+                None => bail!("criteria[{i}]({name}).weight는 0 이상의 숫자여야 한다"),
+            },
+        };
+        if rows.iter().any(|(s, n, _)| *s == stage && *n == name) {
+            bail!("criteria[{i}]({name}) 기준이 두 번 나온다");
+        }
+        rows.push((stage, name, weight));
+    }
+    if rows.iter().all(|(_, _, weight)| *weight == Some(0.0)) {
+        bail!("정정 파일의 criteria에 배점이 있는 기준이 없다");
+    }
+    Ok(rows)
+}
+
+/// The structured rows of the accepted `criteria` rules (array elements that are objects with a
+/// `name`), and `{key, source, verification}` of each rule that contributed one.
+fn official_rows(accepted: &[Value]) -> (Vec<Row>, Vec<Value>) {
+    let (mut rows, mut cited) = (Vec::new(), Vec::new());
+    for rule in accepted {
+        let before = rows.len();
+        for item in rule["value"].as_array().into_iter().flatten() {
+            let text = |key: &str| item.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+            let Some(name) = text("name") else { continue };
+            let weight = item.get("weight").and_then(Value::as_f64).filter(|w| w.is_finite());
+            rows.push((text("stage").map(str::to_string), name.to_string(), weight));
+        }
+        if rows.len() > before {
+            cited.push(json!({"key": rule["key"], "source": rule["source"], "verification": rule["verification"]}));
+        }
+    }
+    (rows, cited)
+}
+
+/// The folder copy of the gate: a regular file inside the contest folder.
+fn folder_gate(entry: &Entry) -> Result<PathBuf> {
+    let Some(folder) = entry.folder.as_deref().filter(|f| !f.is_empty()) else {
+        bail!("{}: 공모전 폴더가 기록돼 있지 않다", entry.id)
+    };
+    let root = Path::new(folder).canonicalize().map_err(|err| Error(format!("{folder}: {err}")))?;
+    let path = root.join(FOLDER_GATE);
+    let inside = path.parent().and_then(|dir| dir.canonicalize().ok()).is_some_and(|dir| dir.starts_with(&root));
+    if !inside || !fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file()) {
+        bail!("{}: {} 이(가) 공모전 폴더 안의 일반 파일이 아니다", entry.id, path.display());
+    }
+    Ok(path)
+}
+
+/// Replace `path` with `bytes` through a temp file in the same directory and a rename, keeping
+/// the file's mode.
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let at = |err: std::io::Error| Error(format!("{}: {err}", path.display()));
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let permissions = fs::metadata(path).map_err(at)?.permissions();
+    let tmp = dir.join(format!(".gate-{}.json", std::process::id()));
+    let _ = fs::remove_file(&tmp);
+    let written = (|| -> std::io::Result<()> {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        file.set_permissions(permissions)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)
+    })();
+    if let Err(err) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(at(err));
+    }
+    if let Ok(handle) = File::open(dir) {
+        let _ = handle.sync_all();
+    }
+    Ok(())
+}
+
+fn next_seq(entry: &Entry) -> Result<u64> {
+    match entry.extra.get(KEY) {
+        None => Ok(1),
+        Some(Value::Array(items)) => {
+            Ok(items.iter().filter_map(|a| a.get("seq").and_then(Value::as_u64)).max().unwrap_or(0) + 1)
+        }
+        Some(_) => bail!("{}: extra.{KEY}가 배열이 아니다. 손으로 고친 기록은 덮어쓰지 않는다", entry.id),
+    }
+}
+
+/// Fill in the empty `gate.criteria` of `entry` from the corrected gate file. See the module docs
+/// for the conditions. Returns `{id, dry_run, field, before, after, weight_total, state, revision,
+/// request_token, evidence: {rules_version, rules}, scores_checked, folder_gate: {path, sha256},
+/// amendment}`; `amendment` is the record's sequence number, `null` for a dry run.
+pub fn gate_criteria(entry: &mut Entry, request: &Request<'_>) -> Result<Value> {
+    let id = entry.id.clone();
+    if let Some(session) = request.session.filter(|s| !s.is_empty()) {
+        bail!(
+            "{id}: 공모전 세션 안(ACH_SESSION={session})에서는 게이트 심사기준을 보완할 수 없다. 메인 세션이나 사용자 터미널에서 실행한다"
+        );
+    }
+    if !STATES.contains(&entry.state.as_str()) {
+        bail!("{id}: 게이트 심사기준 보완은 running·plan_review·awaiting_approval에서만 한다(지금 {})", entry.state);
+    }
+    if !entry.submissions.is_empty() {
+        bail!("{id}: 제출 기록이 있는 공모전의 게이트는 고치지 않는다");
+    }
+    if submission::unresolved(entry) {
+        bail!("{id}: 해소되지 않은 제출 시도가 있다. ach submission status {id}로 확인한다");
+    }
+    let revision = registry::revision(entry);
+    if revision != request.expected_revision {
+        bail!(
+            "{id}: 작업 판이 다르다(기대 {}, 지금 {revision}). ach approval-status {id}로 다시 확인한다",
+            request.expected_revision
+        );
+    }
+    let token = readiness::evaluate(entry, false, false).token;
+    if token.as_deref() != request.expected_request {
+        bail!(
+            "{id}: 요청 토큰이 다르다(기대 {}, 지금 {}). ach approval-status {id}로 다시 확인한다",
+            request.expected_request.unwrap_or("-"),
+            token.as_deref().unwrap_or("-")
+        );
+    }
+
+    let Some(gate) = entry.gate.as_ref().and_then(Value::as_object) else { bail!("{id}: 게이트 기록이 없다") };
+    if gate.get("decision").and_then(Value::as_str) != Some("pass") {
+        bail!("{id}: pass로 기록된 게이트만 보완한다");
+    }
+    let before = gate.get("criteria").cloned().unwrap_or(Value::Null);
+    if !(before.is_null() || before.as_array().is_some_and(Vec::is_empty)) {
+        bail!("{id}: gate.criteria가 이미 있다. 이 명령은 비어 있는 criteria만 채운다");
+    }
+    let corrected: Value =
+        serde_json::from_str(request.text).map_err(|err| Error(format!("{}: {err}", request.path.display())))?;
+    let Some(fixed) = corrected.as_object() else { bail!("정정 파일은 gate.json 객체여야 한다") };
+    let mut differing: Vec<&str> = gate
+        .keys()
+        .chain(fixed.keys())
+        .map(String::as_str)
+        .filter(|key| *key != "criteria" && gate.get(*key) != fixed.get(*key))
+        .collect();
+    differing.sort_unstable();
+    differing.dedup();
+    if !differing.is_empty() {
+        bail!(
+            "{id}: 정정 파일이 기록된 게이트와 criteria 밖에서 다르다({}). criteria만 채운 사본이어야 한다",
+            differing.join(", ")
+        );
+    }
+    let rows = corrected_rows(fixed.get("criteria"))?;
+    let after = fixed["criteria"].clone();
+
+    let pending = rules::approval_problems(entry);
+    if !pending.is_empty() {
+        bail!("{id}: 공고 변경 검토가 끝나지 않았다({})", pending.join(", "));
+    }
+    let Some((version, accepted)) = rules::accepted_criteria(entry)? else {
+        bail!("{id}: 수락된 공식 규칙 판이 없다. ach rules capture·review로 원문과 criteria 규칙을 먼저 남긴다")
+    };
+    let (official, cited) = official_rows(&accepted);
+    if official.is_empty() {
+        bail!("{id}: 수락된 규칙 판 {version}의 criteria 규칙에 구조화된 기준 행 [{{stage, name, weight}}]이 없다");
+    }
+    if sorted_keys(&rows) != sorted_keys(&official) {
+        bail!(
+            "{id}: 정정 criteria가 수락된 규칙 판 {version}의 criteria와 다르다(정정: {}; 공식: {})",
+            labels(&rows),
+            labels(&official)
+        );
+    }
+
+    if registry::submit_approval_recorded(entry) {
+        bail!(
+            "{id}: 이번 승인 대기에 제출 승인 기록이 있다. 승인받은 요청의 게이트는 고치지 않는다(수정 요청으로 running에 돌아간 새 작업 판에서 한다)"
+        );
+    }
+    if evaluation::recorded(entry) {
+        bail!("{id}: 독립 평가 묶음이나 평가 기록이 이미 있다. 비어 있는 criteria로는 생길 수 없는 기록이다");
+    }
+
+    let mut gate_after = gate.clone();
+    gate_after.insert("criteria".into(), after.clone());
+    let (gate_before, gate_after) = (Value::Object(gate.clone()), Value::Object(gate_after));
+    let mut work = entry.clone();
+    work.gate = Some(gate_after.clone());
+    for (i, score) in entry.scores.iter().enumerate() {
+        let scored = score.get("criteria").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        registry::check_gate_criteria(&work, scored).map_err(|err| {
+            let stage = score.get("stage").and_then(Value::as_str).unwrap_or("-");
+            Error(format!("{id}: 기록된 점수 {}({stage})이(가) 정정 criteria와 맞지 않는다: {}", i + 1, err.0))
+        })?;
+    }
+
+    let folder_path = folder_gate(entry)?;
+    let on_disk: Value = fs::read(&folder_path)
+        .map_err(Error::from)
+        .and_then(|bytes| Ok(serde_json::from_slice(&bytes)?))
+        .map_err(|err| Error(format!("{}: {}", folder_path.display(), err.0)))?;
+    if on_disk != gate_before && on_disk != gate_after {
+        bail!("{id}: 폴더의 {FOLDER_GATE}이(가) 기록된 게이트와 다르다. 폴더 사본을 먼저 확인한다");
+    }
+    let mut bytes = serde_json::to_vec_pretty(&gate_after)?;
+    bytes.push(b'\n');
+
+    let weight_total: f64 = rows.iter().filter_map(|(_, _, weight)| *weight).sum();
+    let evidence = json!({"rules_version": version, "rules": cited});
+    let folder_record = json!({"path": FOLDER_GATE, "sha256": format!("{:x}", Sha256::digest(&bytes))});
+    let mut result = json!({
+        "id": id,
+        "dry_run": request.dry_run,
+        "field": "criteria",
+        "before": before,
+        "after": after,
+        "weight_total": weight_total,
+        "state": entry.state,
+        "revision": revision,
+        "request_token": token,
+        "evidence": evidence,
+        "scores_checked": entry.scores.len(),
+        "folder_gate": folder_record,
+        "amendment": null,
+    });
+    if request.dry_run {
+        return Ok(result);
+    }
+
+    let seq = next_seq(entry)?;
+    replace_file(&folder_path, &bytes)?;
+    let at = now();
+    let file = request.path.canonicalize().unwrap_or_else(|_| request.path.to_path_buf()).display().to_string();
+    let record = json!({
+        "seq": seq,
+        "at": at,
+        "by": BY,
+        "field": "criteria",
+        "before": result["before"],
+        "after": result["after"],
+        "weight_total": weight_total,
+        "file": {"path": file, "sha256": format!("{:x}", Sha256::digest(request.text.as_bytes()))},
+        "evidence": result["evidence"],
+        "state": entry.state,
+        "revision": revision,
+        "request_token": result["request_token"],
+        "scores_checked": entry.scores.len(),
+        "folder_gate": result["folder_gate"],
+    });
+    entry.gate = Some(gate_after);
+    let list = entry.extra.entry(KEY.to_string()).or_insert_with(|| Value::Array(Vec::new()));
+    list.as_array_mut().expect("next_seq accepts only an absent or array-valued record").push(record);
+    let note = format!(
+        "게이트 심사기준 보완 #{seq}: 비어 있던 criteria에 {}건(배점 합 {}), 근거 규칙 판 {version}",
+        rows.len(),
+        registry::points(weight_total)
+    );
+    let state = entry.state.clone();
+    let mut marker = HistoryItem::new(at, Some(state.clone()), &state, BY, &note);
+    marker.extra.insert("gate_amendment".into(), json!(seq));
+    entry.history.push(marker);
+    result["amendment"] = json!(seq);
+    Ok(result)
+}
