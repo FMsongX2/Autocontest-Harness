@@ -36,6 +36,7 @@ Autocontest-Harness는 접수 중인 공모전을 찾고 참가 자격을 확인
 - 공식 규칙 증거. `ach rules capture`가 공식 공고·첨부의 실제 바이트를 불변 파일로 보관하고, 원문이 바뀌면 검토 대기가 된다. `ach rules review`로 구조화한 규칙의 값이 실제로 바뀐 범주만 게이트·기획·최종·제출 승인 근거를 무효로 만든다.
 - 독립 최종 평가와 결과 기록. 위임 승인에 쓰는 최종 점수는 이전 점수·이력·작성자 정보가 빠진 블라인드 패킷(`ach evaluation prepare`)을 본 독립 평가와 일치해야 한다. 공식 결과는 `ach evaluation outcome`으로 남기고, 내부 점수와 결과는 관측 표본 수와 함께 비교할 뿐 수상 확률을 만들지 않는다.
 - 제출 트랜잭션. 의도(`ach submission intent`) → 외부 행동 전에 저장하는 시작(`submission start`) → 실제 제출 → 접수 증빙 확인(`ach submit --attempt`). 결과를 모르는 제출은 실패가 아니며 자동으로 다시 내지 않는다.
+- 위임 인계. 상시 위임이 켜져 있으면 준비 요청이 `awaiting_approval`에서 자격을 갖추는 순간(상태 전이가 먼저든 제출 준비 기록이 먼저든) CLI가 승인을 기록하고 기록된 공모전 세션에 Orca orchestration 메시지로 알린다(`ach handoff`). 요청마다 기록을 남겨 이벤트가 겹치거나 다시 시작하거나 중간에 실패해도 두 번 승인·인계하지 않는다. 위임이 꺼져 있으면 멈추고, 그 요청이 사용자 승인을 기다리는지 다른 이유로 대기하는지 알려 준다.
 - 관리 컨트롤러(`controllers/`, `ach controller approve|queue|briefs|preset`). 계약 버전 확인, 수명 동안의 잠금, 새 작업 동결(`new_work_frozen`), 재시작 뒤에도 되풀이하지 않는 알림.
 
 ## 동작 방식

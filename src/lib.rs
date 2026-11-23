@@ -2,6 +2,7 @@
 //! Contract: `docs/CONTRACT.md`. Every command keeps the JSON shapes that agents and prompts rely on.
 
 pub mod amend;
+pub mod approval;
 pub mod board;
 pub mod budget;
 pub mod clean;
@@ -12,6 +13,7 @@ pub mod doctor;
 pub mod error;
 pub mod evaluation;
 pub mod guard;
+pub mod handoff;
 pub mod http;
 pub mod init;
 pub mod install;

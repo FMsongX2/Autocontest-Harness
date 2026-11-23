@@ -4,6 +4,20 @@
 
 주요 변경 기록이다. 버전은 [Semantic Versioning](https://semver.org/)을 따른다. 1.0 전에는 마이너 버전이 CLI나 파일 형식을 바꿀 수 있고, 그때는 항목에 무엇을 어떻게 옮기는지 적는다.
 
+## 0.9.2 - 2026-11-24
+
+- **추가**:
+  - 위임 인계(`ach handoff [<id>] [--dry-run] [--resend-request 토큰]`, `src/handoff.rs`). 상시 위임(`delegation`)이 켜져 있으면 준비 요청이 `awaiting_approval`에서 자격을 갖추는 순간 사람의 추가 지시 없이 CLI가 승인을 기록하고 기록된 공모전 세션에 알린다. `ach transition … awaiting_approval`, `ach readiness --file`, `ach score --file`, `ach rules review`·`acknowledge`가 성공한 직후 그 항목에 한 번 실행되므로 상태 전이와 제출 준비 기록의 순서와 관계없이 동작한다. 메인 세션과 위임 승인 컨트롤러는 `ach handoff`로 실행한다. 승인은 기존 위임 승인 그대로다. `approval-status`가 `eligible`이어야 하고, 쓰기 직전에 레지스트리 잠금 안에서 위임 범위, 페르소나 검사, 위임 승인 근거, 핵심 조건, 요청 토큰을 다시 대조한다. 세션에는 `orca orchestration send --type handoff`로 알리고 터미널에는 입력하지 않는다.
+  - 멈추는 조건은 `{status, reasons}`의 안정된 코드로 나온다. 위임이 꺼져 있거나 그 공모전이 범위 밖(남은 인계도 멈춘다), 제출 기록이 있거나 `intent`·`dispatching`·`unknown`·`confirmed` 시도가 있거나 지금 작업 판의 시도가 있음, 다른 곳에서 기록한 유효한 승인이 있음, 마감이 지남, 기록된 Orca 작업 공간의 살아 있는 omp 터미널로 확인되지 않는 세션.
+  - 요청마다 기록 `data/handoff/<id>--<request_token>.json`(`claimed → approved → sending → sent | send_failed | unknown`)을 두고, 한 잠금 아래에서 다음 단계로 가기 전에 저장한다. `sent`인 요청은 다시 보내지 않는다. 보내는 도중 끊긴 실행은 `unknown`으로 읽고 자동으로 다시 보내지 않는다(컨트롤이 세션에 도착하지 않았음을 확인한 뒤 `--resend-request <토큰>`). Orca가 거절을 답한 경우는 다음 실행이 세 번까지 다시 보낸다. 끊기기 전에 기록된 승인은 다시 기록하지 않는다.
+  - 결과의 `user_approval_request`가 사용자 자신의 승인이 필요한 요청(위임이 꺼짐·범위 밖, 또는 `--score-ok` 예외이고 사용자 승인 조건은 모두 맞음)과 사유가 풀려야 하는 대기를 구별한다. 위임 승인 컨트롤러는 둘을 다른 알림(`user_approval_request`, `approval_blocked`)으로 남기고, 승인·인계 자체가 어긋나면 `handoff_attention`을 남긴다.
+  - `ach contract`의 `capabilities`에 `delegated_handoff`가 생겼다.
+- **바뀜**:
+  - `ach controller approve`는 직접 승인하고 알리지 않고 승인 대기 공모전마다 `ach handoff <id> --trigger controller`를 실행한다. 예전에는 세션 터미널에 알림 글을 입력했는데(`orca terminal send`) 그 경로를 없앴다. 기록 이름 `approved`·`would_approve`는 `handed_off`·`would_approve_and_hand_off`·`would_hand_off`가 됐다.
+  - 승인 정책 함수를 실행 파일에서 `src/approval.rs`로 옮겨 `ach approval-status`, `ach approve --delegated`, 위임 인계가 같은 코드로 판단한다. 두 명령의 동작은 그대로다.
+- **옮기는 법**:
+  - 데이터는 옮길 것이 없다. `delegation.enabled: true`이면 이 버전부터 공모전 세션이 준비를 마치는 즉시 승인·인계된다. 손으로 승인하려면 끈다(`ach config set delegation.enabled false`). 위임 승인 컨트롤러는 이 버전의 CLI(`ach handoff`)가 필요하다.
+
 ## 0.9.1 - 2026-11-24
 
 - **추가**:
