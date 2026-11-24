@@ -609,8 +609,8 @@ pub fn prepare(entry: &mut Entry, raw: &Value) -> Result<Value> {
 /// official rules publish no criteria) gets one independent final evaluation of the files it would
 /// submit, per work revision. The packet is `independent_final`; the request is ready but for that
 /// evaluation (a current readiness record whose files hash as recorded and a current passing
-/// `final` that reviewed them); the candidate's sources are exactly the request's files; and no
-/// other `independent_final` packet exists for the revision.
+/// `final` that reviewed them, or one [`corrected_after_final`]); the candidate's sources are
+/// exactly the request's files; and no other `independent_final` packet exists for the revision.
 fn check_assumed_packet(entry: &Entry, purpose: &str, declared: &[Declared]) -> Result<()> {
     let id = &entry.id;
     if purpose != "independent_final" {
@@ -626,16 +626,6 @@ fn check_assumed_packet(entry: &Entry, purpose: &str, declared: &[Declared]) -> 
             packet["packet_id"].as_str().unwrap_or("-")
         );
     }
-    let reviewed = readiness::evaluate(entry, false, false);
-    if !reviewed.reasons.is_empty() || reviewed.basis != "score" {
-        let why = match reviewed.reasons.is_empty() {
-            true => "점수 관문이 없는 요청".to_string(),
-            false => reviewed.reasons.join(", "),
-        };
-        bail!(
-            "{id}: 가정 기준 공모전의 독립 평가는 제출 파일과 최종 채점까지 확인된 승인 대기 요청에만 한다({why}). ach approval-status {id}로 확인한다"
-        );
-    }
     let content = readiness::request_content(entry).unwrap_or(Value::Null);
     let mut request: Vec<(String, String)> = content["artifacts"]
         .as_array()
@@ -644,6 +634,17 @@ fn check_assumed_packet(entry: &Entry, purpose: &str, declared: &[Declared]) -> 
         .map(|a| (a["path"].as_str().unwrap_or("").to_string(), a["sha256"].as_str().unwrap_or("").to_string()))
         .collect();
     request.sort();
+    let reviewed = readiness::evaluate(entry, false, false);
+    let checked = reviewed.reasons.is_empty() || corrected_after_final(entry, &reviewed.reasons, &request);
+    if !checked || reviewed.basis != "score" {
+        let why = match reviewed.reasons.is_empty() {
+            true => "점수 관문이 없는 요청".to_string(),
+            false => reviewed.reasons.join(", "),
+        };
+        bail!(
+            "{id}: 가정 기준 공모전의 독립 평가는 제출 파일과 최종 채점까지 확인된 승인 대기 요청에만 한다({why}). ach approval-status {id}로 확인한다"
+        );
+    }
     let mut sources = declared.first().map(|d| d.sources.clone()).unwrap_or_default();
     sources.sort();
     if sources != request {
@@ -653,6 +654,25 @@ fn check_assumed_packet(entry: &Entry, purpose: &str, declared: &[Declared]) -> 
         );
     }
     Ok(())
+}
+
+/// The one approval reason an assumed-criteria packet tolerates: the latest `final` is current and
+/// `ready` and the only thing wrong is that files it reviewed changed since (a correction after
+/// the improvement loop, such as the required Korean polish), and every changed file is one the
+/// request submits, now at the content the readiness record holds. Every request file was reviewed
+/// by that `final` and every other file it reviewed is unchanged. The independent assessment of the
+/// request files then gives the final verdict; it is no improvement round
+/// ([`registry::improvement_rounds`]).
+fn corrected_after_final(entry: &Entry, reasons: &[&str], request: &[(String, String)]) -> bool {
+    if reasons != [registry::FINAL_ARTIFACT_CHANGED].as_slice() || request.is_empty() {
+        return false;
+    }
+    let final_files =
+        registry::latest_score(entry, Some("final")).and_then(|s| s.get("artifacts")).and_then(Value::as_array);
+    let Some(final_files) = final_files else { return false };
+    let submitted = |file: &Value| request.iter().any(|(path, _)| file["path"].as_str() == Some(path.as_str()));
+    request.iter().all(|(path, _)| final_files.iter().any(|f| f["path"].as_str() == Some(path.as_str())))
+        && final_files.iter().all(|f| submitted(f) || readiness::check_artifacts(entry, &json!([f])).is_ok())
 }
 
 type Built = (Vec<Value>, Option<Value>, Vec<Value>);

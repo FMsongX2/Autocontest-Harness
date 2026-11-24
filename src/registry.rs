@@ -996,6 +996,9 @@ pub struct ScoreProblem {
     pub message: String,
 }
 
+/// The [`ScoreProblem`] code for a latest `final` whose reviewed files no longer hash as recorded.
+pub const FINAL_ARTIFACT_CHANGED: &str = "final_artifact_changed";
+
 /// Why the scores do not let a level 2-5 submission through: a `plan` score is required (any
 /// revision: the plan stays valid across revise cycles), and the latest `final` must be stamped
 /// with the current work revision, judged `ready`, and its reviewed files must still hash as
@@ -1062,7 +1065,7 @@ fn score_problems_checked(entry: &Entry, hash_files: bool) -> Vec<ScoreProblem> 
         }
         Some(list) => {
             if hash_files && let Err(err) = readiness::check_artifacts(entry, list) {
-                add("final_artifact_changed", format!("최근 final 검토 파일이 지금 파일과 다르다: {err}"));
+                add(FINAL_ARTIFACT_CHANGED, format!("최근 final 검토 파일이 지금 파일과 다르다: {err}"));
             }
         }
     }
@@ -1073,15 +1076,22 @@ fn score_problems_checked(entry: &Entry, hash_files: bool) -> Vec<ScoreProblem> 
 /// `artifacts` hold at least one file content (SHA-256) that no earlier such record reviewed. A
 /// re-score of the same files, a renamed or re-listed copy, a return to earlier content, a `plan`
 /// score, a record without reviewed files and a work-revision change add nothing; a revision
-/// change resets nothing either, since the count follows file content, not revisions.
+/// change resets nothing either, since the count follows file content, not revisions. On an entry
+/// whose gate criteria are an assumption ([`crate::amend::criteria_assumed`]), a `final` bound to
+/// an independent assessment (`independent_assessment`) is that entry's one independent
+/// evaluation, not an improvement round: it neither counts nor marks its contents as seen.
 pub fn improvement_rounds(entry: &Entry) -> u64 {
     let Some(last) = entry.scores.iter().rposition(|s| s.get("stage").and_then(Value::as_str) == Some("final")) else {
         return 0;
     };
+    let assumed = crate::amend::criteria_assumed(entry);
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut rounds = 0;
     for score in &entry.scores[..=last] {
         if !matches!(score.get("stage").and_then(Value::as_str), Some("draft" | "final")) {
+            continue;
+        }
+        if assumed && score.get(crate::evaluation::SCORE_KEY).is_some_and(Value::is_object) {
             continue;
         }
         let Some(files) = score.get("artifacts").and_then(Value::as_array) else { continue };

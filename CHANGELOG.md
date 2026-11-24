@@ -4,6 +4,20 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.9 - 2026-11-25
+
+Built on 0.9.7. It does not contain 0.9.8 (required writing-model evidence, selective archive sync), which is not released yet and will be renumbered when it lands.
+
+### Fixed
+- A contest whose criteria were filled in as an assumption (`ach gate-criteria --assumed-criteria`) could not get its independent final evaluation after the submitted files were corrected past the last improvement `final`. The required Korean polish changed one PDF after the fifth and last `final` (`final_rounds` 5), so `ach evaluation prepare` refused with `final_artifact_changed`, and the only ways out were a sixth plain `final`, re-scoring, or restoring the uncorrected file.
+
+### Changed
+- `ach evaluation prepare` for such a contest also accepts a request whose only approval reason is `final_artifact_changed`, when every readiness file was reviewed by the latest `final` (same path, now at the hash the readiness record holds) and every other file that `final` reviewed is unchanged. Any other reason (blockers, a question for the user, a stale or changed readiness file, a `final` that is not `ready` or of an older revision, stale rules, a state other than `awaiting_approval`), a request file that `final` never reviewed, or another reviewed file that changed still refuses the packet. The packet alone approves nothing: until the `final` bound to its assessment is recorded the request keeps `final_artifact_changed` and `independent_final_missing`, a file changed after the packet makes `ach evaluation record` refuse with `source_changed`, and a failed assessment bound as the `final` keeps `final_not_ready`.
+- On such a contest, a `final` bound to an independent assessment (`independent_assessment`) is not a scoring-and-revision round and its file contents are not marked as seen. Contests with official criteria count as before.
+
+### Migration
+- None. Existing records are read under the new rule; no record is rewritten.
+
 ## 0.9.7 - 2026-11-25
 
 ### Fixed
