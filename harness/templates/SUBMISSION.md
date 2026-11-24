@@ -68,7 +68,7 @@
 
 - [ ] `ach check <id>` 깨끗함(결과물·커밋 메시지에 페르소나 흔적 없음): [시각]
 - [ ] `.private/readiness.json`에 다섯 필드(`submission_ready`, `needs_user_input`, `blockers`, `artifacts[{path, sha256}]`, `followup_required`)와 `destination`(위 제출처와 같은 값)을 쓰고 `ach readiness <id> --file .private/readiness.json` 실행. 레벨 2 이상은 `artifacts`가 최근 `final` 점수의 `artifacts` 안에 있다: [시각]
-- [ ] 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt` 실행(레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 최근 `final` 점수 필요. 목표 미만이면 그 작업 판의 `final`이 `final_rounds`회에 이르러야 한다): [시각]
+- [ ] 요약을 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt` 실행(레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 최근 `final` 점수 필요. 목표 미만이면 채점·개선 회차가 `final_rounds`회에 이르러야 한다): [시각]
 - [ ] `ach approval-status <id>`의 `eligible`·`reasons` 확인: [시각 · request_token]
 - 승인(`ach approval-status <id>`의 `submit_approval_valid`와 `ach show <id> --json`의 기록에서 옮긴다): [사용자 승인 원문 또는 위임 승인 기록] — [YYYY-MM-DD HH:MM] · 승인 방식: [사용자 / 위임]
 - [ ] 승인 뒤 개인 항목·기존 서명 채움(해당 시): 원본은 덮어쓰지 않고 `.private/approved/`에 별도 사본을 만들어 전 페이지 재검수 뒤, `personalization_of`(승인된 request_token)와 항목마다 승인 원본 경로 `source`를 더한(바꾸지 않는 원본은 원본 그대로, `followup_required`는 승인 때와 같게) `.private/readiness.json`으로 `ach readiness <id> --file .private/readiness.json --personalized` 실행. 내용 수정은 하지 않았다: [시각]

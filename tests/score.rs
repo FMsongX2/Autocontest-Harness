@@ -278,7 +278,7 @@ fn awaiting_approval_needs_plan_and_a_passing_current_final_from_level_2() {
     add(&mut e, "final", 27.0, 65.0, "ready");
     assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
     add(&mut e, "final", 25.0, 63.0, "ready");
-    assert!(refused(&e).contains("88/90 목표 미달(이번 작업 판 final 2/3회)"), "{}", refused(&e));
+    assert!(refused(&e).contains("88/90 목표 미달(채점·개선 1/3회"), "{}", refused(&e));
     add(&mut e, "final", 28.0, 67.0, "revise");
     assert!(refused(&e).contains("판정 revise"));
     let note = score_gate(&e, "awaiting_approval", Some("마감 2시간 전")).unwrap().unwrap();
@@ -295,15 +295,20 @@ fn awaiting_approval_needs_plan_and_a_passing_current_final_from_level_2() {
 }
 
 #[test]
-fn a_ready_final_below_target_passes_once_the_final_rounds_are_used() {
+fn a_ready_final_below_target_passes_once_the_improvement_rounds_are_used() {
     let mut e = entry("x-rounds", 2);
     let refused = |e: &Entry| score_gate(e, "awaiting_approval", None).unwrap_err().to_string();
     let codes = |e: &Entry| registry::score_problems(e).iter().map(|p| p.code).collect::<Vec<_>>();
+    let out = folder(&e).join("out.md");
     add(&mut e, "plan", 25.0, 60.0, "revise");
-    // Below the limit a ready final under target still blocks, naming the finals used.
+    // Below the limit a ready final under target still blocks, naming the rounds used.
     add(&mut e, "final", 25.0, 61.0, "ready");
-    assert!(refused(&e).contains("86/90 목표 미달(이번 작업 판 final 1/3회)"), "{}", refused(&e));
+    assert!(refused(&e).contains("86/90 목표 미달(채점·개선 1/3회"), "{}", refused(&e));
+    // Re-scoring the same file samples Judge noise: no round.
+    add(&mut e, "final", 25.0, 62.0, "ready");
+    assert!(refused(&e).contains("채점·개선 1/3회"), "{}", refused(&e));
     // A final_rounds key in the Judge output is ignored: the configured limit is stamped.
+    fs::write(&out, "x-rounds 결과물 2판\n").unwrap();
     let mut j = judge(25.0, 62.0, "ready");
     j["artifacts"] = artifacts(&e);
     j["final_rounds"] = json!(1);
@@ -311,24 +316,85 @@ fn a_ready_final_below_target_passes_once_the_final_rounds_are_used() {
     assert_eq!(r["final_rounds"], json!(3));
     assert_eq!(codes(&e), ["final_below_target"]);
     assert!(refused(&e).contains("2/3회"), "{}", refused(&e));
-    // The third ready final uses the budget: below target, it passes.
+    // Going back to scored content is no new candidate, and plan scores are no round.
+    fs::write(&out, "x-rounds 결과물\n").unwrap();
+    add(&mut e, "plan", 26.0, 60.0, "revise");
     add(&mut e, "final", 25.0, 63.0, "ready");
+    assert!(refused(&e).contains("2/3회"), "{}", refused(&e));
+    // A third distinct candidate uses the budget: below target, a ready final passes.
+    fs::write(&out, "x-rounds 결과물 3판\n").unwrap();
+    add(&mut e, "final", 25.0, 63.0, "ready");
+    assert_eq!(registry::improvement_rounds(&e), 3);
     assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
-    // A revise final still blocks however many finals were taken.
+    // A revise final still blocks however many rounds were taken.
     add(&mut e, "final", 25.0, 64.0, "revise");
     assert_eq!(codes(&e), ["final_not_ready"]);
 
-    // Finals of an earlier work revision do not count toward the current one.
+    // A revise cycle neither resets the rounds nor adds one: the new revision still needs its own
+    // ready final, and the rounds on record count toward it.
     transition(&mut e, "awaiting_approval", "t", "").unwrap();
     transition(&mut e, "running", "t", "고친다").unwrap();
+    assert_eq!(registry::improvement_rounds(&e), 3);
+    assert_eq!(codes(&e), ["final_not_ready", "final_stale_revision"]);
     add(&mut e, "final", 25.0, 63.0, "ready");
-    assert!(refused(&e).contains("88/90 목표 미달(이번 작업 판 final 1/3회)"), "{}", refused(&e));
+    assert_eq!(registry::improvement_rounds(&e), 3);
+    assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
 
     // The limit stamped on the latest final applies (a changed config counts from the next final).
     let mut j = judge(25.0, 63.0, "ready");
     j["artifacts"] = artifacts(&e);
-    record_score(&mut e, &j, "final", "f", "", 2).unwrap();
+    record_score(&mut e, &j, "final", "f", "", 4).unwrap();
+    assert!(refused(&e).contains("3/4회"), "{}", refused(&e));
+}
+
+#[test]
+fn draft_and_final_candidates_with_new_content_are_the_rounds() {
+    // The Smartcity case: draft-1 and final-1..4 each reviewed new content (final-4 kept the
+    // manuscript of final-3 but changed the attachment and a figure); the limit is 5.
+    let mut e = entry("x-five", 2);
+    let dir = folder(&e);
+    add(&mut e, "plan", 25.0, 55.0, "revise");
+    add(&mut e, "plan", 25.0, 55.0, "revise");
+    let round = |e: &mut Entry, stage: &str, files: &[(&str, &str)], verdict: &str| {
+        for (path, text) in files {
+            fs::write(dir.join(path), text).unwrap();
+        }
+        let list: Vec<Value> = files
+            .iter()
+            .map(|(path, _)| json!({"path": path, "sha256": readiness::sha256_file(&dir.join(path)).unwrap()}))
+            .collect();
+        let mut j = judge(25.0, 57.0, verdict);
+        j["artifacts"] = Value::Array(list);
+        record_score(e, &j, stage, "f", "", 5).unwrap();
+    };
+    round(&mut e, "draft", &[("draft.md", "초안"), ("att.pdf", "첨부 0"), ("fig.png", "그림 0")], "reject");
+    round(&mut e, "final", &[("draft.md", "초안 2"), ("att.pdf", "첨부 1"), ("fig.png", "그림 1")], "revise");
+    round(&mut e, "final", &[("input.md", "원고 1"), ("att.pdf", "첨부 2"), ("fig.png", "그림 1")], "ready");
+    round(&mut e, "final", &[("input.md", "원고 2"), ("att.pdf", "첨부 3"), ("fig.png", "그림 2")], "ready");
+    assert!(score_gate(&e, "awaiting_approval", None).unwrap_err().to_string().contains("4/5회"));
+    // A move let through by hand at 4/5 is marked; the marker still decides while 4/5 holds.
+    let note = score_gate(&e, "awaiting_approval", Some("운영 규칙상 한도 도달")).unwrap().unwrap();
+    transition(&mut e, "awaiting_approval", "agent", &note).unwrap();
+    let rev = registry::revision(&e);
+    let moved = e.history.last_mut().unwrap();
+    moved.extra.insert("score_override".into(), json!(true));
+    moved.extra.insert("score_override_revision".into(), json!(rev));
+    assert!(registry::score_override_recorded(&e));
+    assert!(registry::score_override_needed(&e, true) && registry::score_override_needed(&e, false));
+
+    round(&mut e, "final", &[("input.md", "원고 2"), ("att.pdf", "첨부 4"), ("fig.png", "그림 3")], "ready");
+    assert_eq!(registry::improvement_rounds(&e), 5);
     assert_eq!(score_gate(&e, "awaiting_approval", None).unwrap(), None);
+    // Now the scores pass on their own: the override reserves nothing for the user.
+    assert!(registry::score_override_recorded(&e));
+    assert!(!registry::score_override_needed(&e, true) && !registry::score_override_needed(&e, false));
+    // Changed reviewed files make the override decide again (hashing reads the files).
+    fs::write(dir.join("att.pdf"), "첨부 5").unwrap();
+    assert!(registry::score_override_needed(&e, true));
+    fs::write(dir.join("att.pdf"), "첨부 4").unwrap();
+    // A draft scored after the latest final is not counted for it.
+    round(&mut e, "draft", &[("input.md", "원고 3")], "revise");
+    assert_eq!(registry::improvement_rounds(&e), 5);
 }
 
 #[test]

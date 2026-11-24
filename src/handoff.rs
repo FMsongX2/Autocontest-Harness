@@ -511,10 +511,11 @@ pub fn stored_display(cfg: &Config, entry: &Entry, at: DateTime<FixedOffset>) ->
     if deadline_passed(entry, at) {
         return display_json("deadline_passed", None);
     }
-    // A score gate passed by hand is the user's to approve, unless the delegation exempts the
-    // contest from scores anyway (a video with `video_score_exempt`).
+    // A score gate passed by hand is the user's to approve while the override is still what lets it
+    // through, unless the delegation exempts the contest from scores anyway (a video with
+    // `video_score_exempt`).
     let exempt = cfg.delegation.video_score_exempt && entry.kind.as_deref() == Some("video");
-    if !cfg.delegation.covers(&entry.id) || (registry::score_override_recorded(entry) && !exempt) {
+    if !cfg.delegation.covers(&entry.id) || (registry::score_override_needed(entry, false) && !exempt) {
         return display_json("user_approval_pending", None);
     }
     display_json(if journal.is_some() { "handoff_attention" } else { "auto_approval_pending" }, None)
@@ -692,7 +693,7 @@ fn run_locked(cfg: &Config, entry: &Entry, status: &Value, options: &Options<'_>
 
     if fresh && status["eligible"] != true {
         let mut reasons = reason_codes(&status_reasons(status));
-        let override_only = registry::score_override_recorded(entry);
+        let override_only = registry::score_override_needed(entry, true);
         if override_only {
             reasons.push("score_override_requires_user".into());
         }

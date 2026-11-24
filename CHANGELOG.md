@@ -4,6 +4,18 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.7 - 2026-11-25
+
+### Fixed
+- A `ready` final below the target stayed blocked after the improvement loop had run its full budget, because only `final` records of the current work revision were counted. A contest scored at `draft` once and at `final` four times, each on new files, with `final_rounds` 5 read "final 4/5회" and could only move on with `--score-ok`, which then reserved the approval for the user and stopped the delegated handoff.
+
+### Changed
+- The score gate counts scoring-and-revision rounds (`final_below_target`, message `채점·개선 n/m회`): up to the latest `final`, every `draft` or `final` record whose reviewed `artifacts` hold at least one file content (SHA-256) that no earlier `draft` or `final` reviewed. Re-scoring the same files, a renamed or re-listed copy, going back to content scored before, `plan` scores, records without reviewed files and a new work revision add no round; a new work revision resets none either. The latest `final` must still be of the current work revision, `ready`, with unchanged files, and the limit is still the `final_rounds` stamped on it.
+- A `--score-ok` marker on the move into `awaiting_approval` reserves the approval for the user only while the scores alone would not pass the gate. Once they do (a later `ready` final, the round budget used), the marker grants nothing and no longer shows the request as the user's or adds `score_override_requires_user`; the delegated approval checks run unchanged. The board reads this from stored records without hashing files; `ach handoff` checks the files.
+
+### Migration
+- None. Existing records are counted under the new rule on the next read; no record is rewritten.
+
 ## 0.9.6 - 2026-11-24
 
 ### Fixed

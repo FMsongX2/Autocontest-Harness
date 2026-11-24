@@ -140,7 +140,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 
 - CLI는 파일 내용을 저장하지 않고 상대 경로와 해시만 지금 작업 판과 순번(sequence)과 함께 남긴다. `running`·`awaiting_approval`에서만 기록되고, 새로 기록하면 이전 기록에 대한 제출 승인은 효력을 잃는다. 승인 판단은 노트 문구를 해석하지 않고 이 기록만 쓴다. 판단이 모호한 예전(0.7.0 이전) 기록은 자격이 없다.
 - 승인 뒤 개인 항목 채우기(`ach readiness <id> --file F --personalized`): `awaiting_approval`에서 지금 작업 판의 유효한 제출 승인이 있을 때만 되고, 파일은 `submission_ready: true`·`needs_user_input: false`·`blockers: []`이며 `followup_required`와 `destination`이 승인된 원래 기록과 같아야 한다(바꾸려면 일반 `ach readiness`로 새로 기록하고 새 승인을 받는다). 다섯 필드·`destination`과 함께 `personalization_of`(승인된 `request_token`)를 적고, `artifacts`의 항목마다 `path`·`sha256`과 `source`(그 항목이 바탕으로 한 승인 원본의 상대 경로)를 적는다. 예: `{"submission_ready": true, "needs_user_input": false, "blockers": [], "artifacts": [{"path": ".private/approved/application.pdf", "sha256": "<사본 해시>", "source": "submission/application.pdf"}, {"path": "submission/proposal.pdf", "sha256": "<원본 해시>"}], "followup_required": false, "destination": "https://contest.example.org/apply", "personalization_of": "<승인된 request_token>"}`. 승인 원본마다 정확히 한 항목이 대응해야 하고, 사본은 원본을 덮어쓸 수 없다(원본 경로를 다른 원본의 사본으로 쓸 수 없고, 바꾸지 않는 원본은 `source` 없이 원본 자신의 경로·해시 그대로 적는다). 사본은 `.private/approved/` 등에 만든 별도 최종 파일로, 승인 범위 안의 기존 개인 항목과 기존 서명만 넣고 전 페이지를 다시 검수한 것이다. 요청 토큰은 바뀌지 않아 원래 승인이 이어지고, 점수는 채점한 원본 해시에 연결된 채로 남는다. 사용자 승인에는 이 명시 기록으로 되고, 위임 승인에는 설정 `delegation.allow_personalization`도 켜져 있어야 한다. 내용 수정은 이 경로로 할 수 없고 수정 요청 절차(`running`)를 밟는다.
-- `ach approval-status <id>`: `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final}`와 페르소나·위임 정책 검사를 낸다. `eligible`은 `awaiting_approval`이고, 지금 작업 판의 제출 준비 기록이 `submission_ready: true`·`needs_user_input: false`·`blockers: []`이며, 기록된 파일 해시가 지금 파일과 같고, 점수 조건(레벨 1은 점수 불필요. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 `final` 점수, 목표 미만이면 그 작업 판의 `final`이 `final_rounds`회에 이름. 아래 점수 관문)이 맞고, 규칙 검토 대기·무효(18절)와 풀리지 않은 제출 시도(20절)가 없을 때만 `true`다. 위임 승인은 여기에 9절의 추가 조건(`rules_untracked`, 독립 평가)을 더 본다. `eligible`이 아니면 이유가 `reasons`에 안정된 코드로 있다. `--score-ok`로 넘긴 점수 미달은 사용자 승인에서만 받아들이고 위임 승인에서는 받아들이지 않는다. 예외로 영상(`type: video`)은 설정 `delegation.video_score_exempt`가 켜졌을 때만 위임 승인에서도 점수 조건을 면제한다. `request_token`은 작업 판·제출 준비 기록 순번·점수 기록 수·공식 규칙의 제출 단계 기준을 묶은 값으로, 하나라도 바뀌면 달라진다.
+- `ach approval-status <id>`: `{id, revision, request_token, submit_approval_valid, eligible, reasons, readiness, latest_final}`와 페르소나·위임 정책 검사를 낸다. `eligible`은 `awaiting_approval`이고, 지금 작업 판의 제출 준비 기록이 `submission_ready: true`·`needs_user_input: false`·`blockers: []`이며, 기록된 파일 해시가 지금 파일과 같고, 점수 조건(레벨 1은 점수 불필요. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 `final` 점수, 목표 미만이면 채점·개선 회차가 `final_rounds`회에 이름. 아래 점수 관문)이 맞고, 규칙 검토 대기·무효(18절)와 풀리지 않은 제출 시도(20절)가 없을 때만 `true`다. 위임 승인은 여기에 9절의 추가 조건(`rules_untracked`, 독립 평가)을 더 본다. `eligible`이 아니면 이유가 `reasons`에 안정된 코드로 있다. `--score-ok`로 넘긴 점수 미달은 사용자 승인에서만 받아들이고 위임 승인에서는 받아들이지 않는다. 다만 그 뒤 점수만으로 관문을 넘게 되면(새 `ready` 최종 점수, 회차 예산 소진) 그 표시는 아무것도 넘기지 않으므로 위임 승인을 막지 않는다. 예외로 영상(`type: video`)은 설정 `delegation.video_score_exempt`가 켜졌을 때만 위임 승인에서도 점수 조건을 면제한다. `request_token`은 작업 판·제출 준비 기록 순번·점수 기록 수·공식 규칙의 제출 단계 기준을 묶은 값으로, 하나라도 바뀌면 달라진다.
 
 레벨 5 규칙:
 
@@ -151,7 +151,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 
 점수 관문(레벨 2 이상, 15절):
 
-- `→ awaiting_approval`은 `plan` 점수가 하나 이상 있고, 지금 작업 판의 가장 최근 `final` 점수가 있으며, 그 점수가 `verdict == ready`이고 검토 파일이 그대로여야 된다. `total < target`이면 지금 작업 판의 `final` 기록이 `final_rounds`회(6절, 기본 3)에 이를 때까지만 막는다(15절). 아니면 CLI가 거절한다(종료 코드 1).
+- `→ awaiting_approval`은 `plan` 점수가 하나 이상 있고, 지금 작업 판의 가장 최근 `final` 점수가 있으며, 그 점수가 `verdict == ready`이고 검토 파일이 그대로여야 된다. `total < target`이면 채점·개선 회차(새 파일 내용을 검토한 `draft`·`final` 채점 수, 15절)가 `final_rounds`회(6절, 기본 3)에 이를 때까지만 막는다(15절). 아니면 CLI가 거절한다(종료 코드 1).
 - 마감 등으로 이 조건을 넘지 못한 채 내야 하면 `--score-ok "<사유>"`로 넘긴다. 사유와 그때의 점수가 `history`에 구조화된 점수 예외 표시와 `note`로 남는다. 이 예외는 그 작업 판의 사용자 승인에서만 통하고, note에 예외라고 적은 글로는 점수 조건을 넘을 수 없다.
 - 레벨 1은 점수 관문이 없다.
 
@@ -226,7 +226,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `collect_skip` | `[]` | `collect --source all`과 `tick`에서 끌 출처 이름 목록 |
 | `auto_launch` | `false` | `true`면 `tick`이 `--auto-launch` 없이도 라우팅·실행한다 |
 | `gate_batch` | `16` | 정기 실행 한 번에 병렬로 게이트하는 `discovered` 항목 수의 상한(`maxing` 전부, `steady` 절반, `conserve` 4, `throttle` 0) |
-| `final_rounds` | `3` | 작업 판마다 `final` 채점 예산(1 이상). 이만큼 `final`을 기록한 뒤에는 `ready`인 최근 `final`이 목표 미만이어도 점수 관문을 넘는다(15절). `ach score --stage final`이 기록 때의 값을 함께 남기므로 바꾸면 다음 `final`부터 적용된다 |
+| `final_rounds` | `3` | 채점·개선 회차 예산(1 이상). 새 파일 내용을 검토한 `draft`·`final` 채점이 이만큼 쌓이면 `ready`인 최근 `final`이 목표 미만이어도 점수 관문을 넘는다(15절). `ach score --stage final`이 기록 때의 값을 함께 남기므로 바꾸면 다음 `final`부터 적용된다 |
 | `main_model` | `null` | 메인 인터페이스 세션(`ach chat`)의 모델(러너의 모델 지정 문법). `null`이면 러너 기본값. 공모전 세션과 정기 실행에는 쓰지 않는다 |
 | `persona.enabled` | `false` | 메인 세션(`ach chat`)에 운영자 페르소나 파일(`persona.file`)을 넣을지. 공모전 세션에는 이 값과 관계없이 넣지 않는다 |
 | `persona.file` | `"data/persona.md"` | 운영자 페르소나 파일(git 제외, 예시 `data/persona.example.md`) |
@@ -674,7 +674,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 2. 기획 채점(stage `plan`): 콘셉트 후보 2~3개(또는 SPEC·PLAN 초안)를 ContestJudge가 점수표로 예측 채점한다. 회차마다 새 ContestJudge 실행을 한 번 부르고 그 회차의 후보 전부를 넘긴다. Judge는 같은 근거·같은 채점표로 후보를 하나씩 채점해 함께 낸다. 그래야 후보를 비교할 수 있다. 같은 묶음을 다시 채점하면 총점이 크게 흔들려(26개 공모전 421회 채점에서 중앙값 9점 차) 따로 받은 점수끼리는 비교가 되지 않는다. 가장 높은 후보를 고르고 기준별 부족분을 기획에 반영해 다음 회차에 다시 채점한다. 회차는 최대 3회이고, 고른 후보의 예측 총점이 목표 이상이 되거나 남은 `plan_changes`의 예상 가산점이 그 흔들림보다 작으면 일찍 멈춘 뒤 만든다. 호출 세션은 매번 채점 근거 절에 문서화한 이 공모전의 주최·주관 기관, 개최 목적, 심사기준에 근거해 채점하라고 지시하고, 이전 실행을 이어 쓰지 않는다. Judge는 근거 절을 공고 원문과 대조하고, 다르면 공고 원문으로 채점하며 차이를 발견 사항으로 낸다. 세션은 출력(최상위 값은 총점이 가장 높은 후보)을 `ach score --stage plan`으로 한 번 기록하고, 후보마다의 총점을 `RUBRIC.md` 추이 표에 같은 회차 번호로 한 행씩 적는다.
 3. 중간 채점(stage `draft`): 결과물 초안이 나오면 체크포인트마다 Judge를 한 번 부르고, 배점이 큰 기준의 감점부터 고친다. 고친 것을 확인하려고 같은 체크포인트를 다시 채점하지 않는다. 고친 결과는 다음 체크포인트나 `final`에서 본다.
 4. 최종 채점(stage `final`): 제출 직전. 개선 채점이 끝나 내용이 확정된 제출 후보에만 ContestEditor 다듬기(평가표가 있을 때)와 그 뒤 호출 세션의 한글 윤문(`skills/contest-harness/SKILL.md` "한글 윤문 단계")을 한 번 하고, 그 파일을 채점한다. 초안·중간 단계와 개선 반복 중에는 ContestEditor와 윤문을 돌리지 않으며, Judge는 다듬기를 마친 제출 후보의 `final`에서만 윤문 기록을 본다. 호출 세션은 제출할 파일 목록, 전 페이지 비전 검수 기록, 한글 윤문 기록 위치를 Judge에 넘긴다.
-   - 반복 한도: 작업 판마다 `final` Judge 실행은 설정 `final_rounds`(기본 3)회를 예산으로 한다. 실행마다 CRITICAL·HIGH부터, 그다음 배점이 큰 기준의 큰 감점부터 고친다. 최근 `final`이 `ready`이고 총점이 목표 이상이거나 예산을 다 썼으면 멈춘다.
+   - 반복 한도: 채점·개선 회차는 설정 `final_rounds`(기본 3)회를 예산으로 한다. 회차는 새 파일 내용(앞선 `draft`·`final`이 검토하지 않은 SHA-256)을 검토한 `draft`·`final` 채점 하나다. 실행마다 CRITICAL·HIGH부터, 그다음 배점이 큰 기준의 큰 감점부터 고친다. 최근 `final`이 `ready`이고 총점이 목표 이상이거나 예산을 다 썼으면 멈춘다.
    - 고치지 않은 파일을 더 높은 점수를 바라고 다시 채점하지 않는다. 같은 파일을 다시 채점하면 총점이 몇 점씩 흔들리므로(같은 묶음 재채점 총점 차 중앙값 9점) 바뀌지 않은 파일에서 나온 더 높은 숫자는 개선이 아니다. `final` 뒤에 제출 파일이 바뀌면 그 `final`은 해시가 맞지 않아 무효이므로 예산과 관계없이 다시 받는다.
    - 예산을 다 썼는데 최근 `final`이 `revise`·`reject`면 반복을 멈추고 남은 CRITICAL·HIGH를 사용자에게 알린다. 그대로 낼지는 사용자가 정하고, 승인을 받으면 `--score-ok "<사유>"`로 관문을 넘는다.
 5. 점수는 매번 `ach score`로 레지스트리에 남긴다. 기준별 점수와 총점 추이가 남아야 무엇이 점수를 올렸는지 안다.
@@ -700,13 +700,13 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 | `revision` | 정수(0.7.0부터) | 기록할 때의 작업 판(4절) |
 | `artifacts` | `[{path, sha256}]`(0.7.0부터 `final`만) | Judge가 검토한 파일과 해시. 기록할 때 지금 파일과 같아야 한다 |
 | `basis`, `evaluator` | 객체(0.8.1부터 `plan`만) | 채점 근거(주최·주관, 개최 목적, 심사기준 출처, 0.8.2부터 `document {path, sha256}`: 채점에 쓴 `RUBRIC.md` 채점 근거 절)와 채점한 Judge 실행 `{id, model, run_id}` |
-| `final_rounds` | 정수(0.9.0부터 `final`만) | 기록할 때의 설정 `final_rounds`. Judge 출력에 같은 키가 있어도 쓰지 않는다. 관문은 최근 `final`의 이 값을 쓰므로 설정을 바꾸면 다음 `final` 기록부터 적용된다. 없으면(이전 기록) 3 |
+| `final_rounds` | 정수(0.9.0부터 `final`만) | 기록할 때의 설정 `final_rounds`. Judge 출력에 같은 키가 있어도 쓰지 않는다. 관문은 최근 `final`의 이 값을 채점·개선 회차 한도로 쓰므로 설정을 바꾸면 다음 `final` 기록부터 적용된다. 없으면(이전 기록) 3 |
 
 <p>표 14. 점수 기록</p>
 
 관문(레벨 2 이상, 4절):
 
-- `→ awaiting_approval`: `plan` 점수가 하나 이상 있고, 지금 작업 판의 가장 최근 `final` 점수가 있으며, 그 점수가 `verdict == ready`이고 검토 파일 해시가 지금 파일과 같아야 한다. `total < target`이면 지금 작업 판이 찍힌 `final` 기록 수가 최근 `final`의 `final_rounds`보다 적은 동안만 거절한다(`final_below_target`, 메시지 예 `최근 final 86/90 목표 미달(이번 작업 판 final 2/3회)`). 그 수에 이르면 목표 미만이어도 `ready`인 `final`로 통과한다. 점수 기록은 이 한도 때문에 거절되지 않는다. 그 밖에 넘지 못한 채 마감 등으로 내야 하면 `--score-ok "<사유>"`로 넘기고, 사유와 점수가 `history` note에 남는다(이 경우 위임 승인은 받을 수 없다).
+- `→ awaiting_approval`: `plan` 점수가 하나 이상 있고, 지금 작업 판의 가장 최근 `final` 점수가 있으며, 그 점수가 `verdict == ready`이고 검토 파일 해시가 지금 파일과 같아야 한다. `total < target`이면 채점·개선 회차가 최근 `final`의 `final_rounds`보다 적은 동안만 거절한다(`final_below_target`, 메시지 예 `최근 final 86/90 목표 미달(채점·개선 2/3회: 새 파일 내용이 있는 draft·final 채점만 센다)`). 회차는 최근 `final`까지의 `draft`·`final` 기록 가운데 `artifacts`에 앞선 `draft`·`final`이 검토하지 않은 파일 내용(SHA-256)이 하나 이상 있는 기록의 수다(0.9.7부터). 같은 파일의 재채점, 이름만 바꾸거나 목록만 바꾼 사본, 앞서 채점한 내용으로 되돌린 원고, `plan` 채점, `artifacts` 없는 기록, 작업 판 변경은 회차를 늘리지 않고, 작업 판이 바뀌어도 회차는 초기화되지 않는다(최근 `final`이 지금 작업 판의 것이어야 하는 조건은 그대로다). 그 수에 이르면 목표 미만이어도 `ready`인 `final`로 통과한다. 점수 기록은 이 한도 때문에 거절되지 않는다. 그 밖에 넘지 못한 채 마감 등으로 내야 하면 `--score-ok "<사유>"`로 넘기고, 사유와 점수가 `history` note에 남는다(그 표시가 관문을 넘기는 동안 위임 승인은 받을 수 없다. 나중에 점수만으로 관문을 넘으면 표시는 위임을 막지 않는다).
 - 레벨 5 `→ plan_review`: `plan` 점수가 있어야 한다.
 
 보드: 진행 중·승인 대기 행의 유형·레벨 칸에 최근 점수 `총점/목표`를 붙인다(예: `idea / L2 · 88/90`).

@@ -384,6 +384,15 @@ pub fn score_override_recorded(entry: &Entry) -> bool {
         && item.extra.get("score_override_revision").and_then(Value::as_u64) == Some(revision(entry) as u64)
 }
 
+/// The recorded override ([`score_override_recorded`]) is still what lets the current
+/// `awaiting_approval` through: the scores alone would not pass the gate now. Once the scores pass
+/// on their own (a later ready final, the improvement-round budget used) the marker grants
+/// nothing, so it no longer reserves the approval for the user. `hash_files` false judges from
+/// stored records only, without hashing the reviewed files.
+pub fn score_override_needed(entry: &Entry, hash_files: bool) -> bool {
+    score_override_recorded(entry) && !score_problems_checked(entry, hash_files).is_empty()
+}
+
 /// The submission is approved for the work as it is now: the latest `submit` approval recorded
 /// after the latest move into `awaiting_approval` is bound to the current work revision and the
 /// current request token (revision, readiness sequence, score count), and the readiness record,
@@ -990,12 +999,18 @@ pub struct ScoreProblem {
 /// Why the scores do not let a level 2-5 submission through: a `plan` score is required (any
 /// revision: the plan stays valid across revise cycles), and the latest `final` must be stamped
 /// with the current work revision, judged `ready`, and its reviewed files must still hash as
-/// recorded. `total >= target` is required only while fewer finals than the limit stamped on the
-/// latest final (`final_rounds`, [`DEFAULT_FINAL_ROUNDS`] when absent) carry the current work
-/// revision: re-scoring unchanged files only samples Judge noise, so the loop is bounded and a
-/// `ready` final passes once the budget is used. Older unstamped finals stay readable but never
-/// pass.
+/// recorded. `total >= target` is required only while fewer [`improvement_rounds`] than the limit
+/// stamped on the latest final (`final_rounds`, [`DEFAULT_FINAL_ROUNDS`] when absent) are on
+/// record: re-scoring unchanged files only samples Judge noise, so the loop is bounded by real
+/// candidate changes and a `ready` final passes once the budget is used. Older unstamped finals
+/// stay readable but never pass.
 pub fn score_problems(entry: &Entry) -> Vec<ScoreProblem> {
+    score_problems_checked(entry, true)
+}
+
+/// [`score_problems`]; with `hash_files` false the reviewed files are not hashed (stored records
+/// only, for display).
+fn score_problems_checked(entry: &Entry, hash_files: bool) -> Vec<ScoreProblem> {
     let mut problems = Vec::new();
     let mut add = |code: &'static str, message: String| problems.push(ScoreProblem { code, message });
     if latest_score(entry, Some("plan")).is_none() {
@@ -1023,16 +1038,14 @@ pub fn score_problems(entry: &Entry) -> Vec<ScoreProblem> {
     if total < target {
         let limit =
             score.get("final_rounds").and_then(Value::as_u64).filter(|n| *n >= 1).unwrap_or(DEFAULT_FINAL_ROUNDS);
-        let used = entry
-            .scores
-            .iter()
-            .filter(|s| s.get("stage").and_then(Value::as_str) == Some("final"))
-            .filter(|s| s.get("revision").and_then(Value::as_u64) == Some(current))
-            .count() as u64;
+        let used = improvement_rounds(entry);
         if used < limit {
             add(
                 "final_below_target",
-                format!("최근 final {} 목표 미달(이번 작업 판 final {used}/{limit}회)", score_label(score)),
+                format!(
+                    "최근 final {} 목표 미달(채점·개선 {used}/{limit}회: 새 파일 내용이 있는 draft·final 채점만 센다)",
+                    score_label(score)
+                ),
             );
         }
     }
@@ -1048,12 +1061,39 @@ pub fn score_problems(entry: &Entry) -> Vec<ScoreProblem> {
             add("final_artifacts_missing", "최근 final에 검토 파일(artifacts) 기록이 없다".to_string())
         }
         Some(list) => {
-            if let Err(err) = readiness::check_artifacts(entry, list) {
+            if hash_files && let Err(err) = readiness::check_artifacts(entry, list) {
                 add("final_artifact_changed", format!("최근 final 검토 파일이 지금 파일과 다르다: {err}"));
             }
         }
     }
     problems
+}
+
+/// Scored improvement rounds up to the latest `final`: `draft` and `final` records whose reviewed
+/// `artifacts` hold at least one file content (SHA-256) that no earlier such record reviewed. A
+/// re-score of the same files, a renamed or re-listed copy, a return to earlier content, a `plan`
+/// score, a record without reviewed files and a work-revision change add nothing; a revision
+/// change resets nothing either, since the count follows file content, not revisions.
+pub fn improvement_rounds(entry: &Entry) -> u64 {
+    let Some(last) = entry.scores.iter().rposition(|s| s.get("stage").and_then(Value::as_str) == Some("final")) else {
+        return 0;
+    };
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut rounds = 0;
+    for score in &entry.scores[..=last] {
+        if !matches!(score.get("stage").and_then(Value::as_str), Some("draft" | "final")) {
+            continue;
+        }
+        let Some(files) = score.get("artifacts").and_then(Value::as_array) else { continue };
+        let mut new_content = false;
+        for sha in files.iter().filter_map(|f| f.get("sha256").and_then(Value::as_str)) {
+            new_content |= seen.insert(sha);
+        }
+        if new_content {
+            rounds += 1;
+        }
+    }
+    rounds
 }
 
 /// The score gate for levels 2-5. `→ awaiting_approval` needs [`score_problems`] to be empty;
