@@ -57,7 +57,7 @@ fn now_at() -> DateTime<FixedOffset> {
 }
 
 /// RFC 3339, or the harness's own `YYYY-MM-DDTHH:MM+09:00`.
-fn parse_time(text: &str) -> Option<DateTime<FixedOffset>> {
+pub(crate) fn parse_time(text: &str) -> Option<DateTime<FixedOffset>> {
     let text = text.trim();
     DateTime::parse_from_rfc3339(text).ok().or_else(|| DateTime::parse_from_str(text, "%Y-%m-%dT%H:%M%:z").ok())
 }

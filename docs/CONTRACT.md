@@ -293,7 +293,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach budget` | `omp usage --json`으로 공급자별 남은 한도와 pace를 계산해 권장 병렬 수를 낸다 |
 | `ach capacity` | 한도·메모리·진행 중 세션 수를 합쳐 지금 새로 띄울 수 있는 세션 수를 낸다(필드는 아래) |
 | `ach board` | 할 일 중심 보드 `BOARD.md`를 쓴다(22절). 네트워크·세션 백엔드·공모전 폴더를 건드리지 않고 저장된 관측·기록(레지스트리, 설정, 위임 인계 기록)만 읽는다 |
-| `ach tick [--no-collect] [--auto-launch]` | 승인 대기 전체에 위임 인계를 한 번 돌리고(23절. 접수가 열린 요청, 끊긴 인계가 여기서 이어진다. `new_work_frozen`이어도 하고, 공모전 세션 안에서는 하지 않는다), 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). `new_work_frozen`이면 수집과 새 실행을 하지 않는다. 끝에 `BOARD.md`를 갱신한다. 오류가 있어도 종료 코드는 0이다(정기 실행이 JSON을 읽는다). 텍스트는 오류 건수로 시작한다. JSON은 `collect`, `scout`, `needs_gate`, `launched`, `waiting`, `errors`, `warnings`, `handoff`(위임 인계 결과 배열)다. `scout`는 수집했을 때 지금 현지 시가 `schedule.scout_hours` 안이면 `true`(수집하지 않으면 `false`), 텍스트 출력은 `웹 검색(ContestScout) 이번 회차: 실행\|안 함` 줄이다 |
+| `ach tick [--no-collect] [--auto-launch]` | 승인 대기 전체에 위임 인계를 한 번 돌리고(23절. 접수가 열린 요청, 끊긴 인계가 여기서 이어진다. `new_work_frozen`이어도 하고, 공모전 세션 안에서는 하지 않는다), 끝난 공모전의 정리 순회를 한 번 돌리고(16절. 같은 조건), 수집하고(`--no-collect`면 건너뜀), 게이트가 필요한 항목을 출력하고, `--auto-launch`이거나 설정 `auto_launch`가 `true`면 `gate_pass`·`routed` 항목을 우선순위 순으로 전체·레벨별 개수와 메모리 예산 안에서만 라우팅·실행한다(나머지는 `waiting`). `new_work_frozen`이면 수집과 새 실행을 하지 않는다. 끝에 `BOARD.md`를 갱신한다. 오류가 있어도 종료 코드는 0이다(정기 실행이 JSON을 읽는다). 텍스트는 오류 건수로 시작한다. JSON은 `collect`, `scout`, `needs_gate`, `launched`, `waiting`, `errors`, `warnings`, `handoff`(위임 인계 결과 배열), `cleanup`(정리 순회 `{recovered, cleaned, sessions_closed, refused}`, 공모전 세션 안이면 `null`)다. `scout`는 수집했을 때 지금 현지 시가 `schedule.scout_hours` 안이면 `true`(수집하지 않으면 `false`), 텍스트 출력은 `웹 검색(ContestScout) 이번 회차: 실행\|안 함` 줄이다 |
 | `ach install [--runner R ...] [--all]` | 러너에 에이전트·스킬·확장을 설치한다(10절). 기본은 설정 `runner`, `--runner`는 여러 번 줄 수 있고, `--all`은 코어에 들어 있는 어댑터 중 실행 파일이 PATH에 있는 것 전부. 이어서 설정 러너에만 `agent_models`를 적용한다(`apply_agent_models`, 모델 지정은 설정 러너의 문법이므로). `agent_models`에 `agents/`에 없는 이름이 있으면 아무것도 하기 전에 거절한다 |
 | `ach chat [--runner R] [--workspace terminal\|orca\|tmux]` | 저장소 루트에서 메인 인터페이스 세션을 연다(12절). 기본 러너는 설정 `runner`, 기본 작업 환경은 `terminal` |
 | `ach autorun` | 설정 러너의 한 번 실행 명령으로 `harness/prompts/automation.md`를 한 번 수행하고 `data/logs/autorun-<시각>.log`에 남긴다. launchd·cron 작업이 이 명령을 돈다 |
@@ -737,25 +737,31 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 
 1. 상태가 `submitted` 또는 `closed`다.
 2. 제출 기록부(13절)에 이 공모전 기록이 있다.
-3. 폴더가 git 저장소이고 원격 upstream이 있으며, 작업 트리가 깨끗하고(`git status --porcelain`이 비어 있음, 무시되지 않은 untracked 파일 없음), push 안 된 커밋이 없다(먼저 `git fetch`, `git rev-list @{u}..HEAD`가 비어 있음).
+3. 폴더가 git 저장소이고 원격 upstream이 있으며, 작업 트리가 깨끗하고(`git status --porcelain`이 비어 있음, 무시되지 않은 untracked 파일 없음), push 안 된 커밋이 없다(먼저 `git fetch`, `git rev-list @{u}..HEAD`가 비어 있음). 예외는 하나다: 커밋된 `CONTEST.md` 위에 하네스가 브리프를 덧붙인 변경(작업 트리의 `CONTEST.md`가 커밋된 본문 앞에 글을 더한 것뿐이고, 더한 글에서 끝의 `---` 구분선을 뺀 부분이 그 폴더의 `.private/controller-brief.md`에 그대로 들어 있음)은 막지 않고 아래 2단계에서 그 작업 트리 사본을 보관한다. 본문을 고쳤거나 브리프에 없는 글이거나 다른 파일이 바뀌었으면 그대로 막는다.
 4. 레지스트리 `submissions[].files`에 적힌 파일이 git이나 폴더에 있다. git이 추적하지 않는 제출본(서명본 등)은 문제가 아니고 아래 2단계에서 보관된다. git에도 폴더에도 없으면 지우지 않는다.
 5. 풀리지 않은 제출 시도(`intent`·`dispatching`·`unknown`, 20절)가 없다. 결과를 모르는 제출의 증거가 담긴 폴더는 어떤 플래그로도 지우지 않는다.
 
 동작(`git fetch`와 조건 검사는 레지스트리 읽기 잠금 아래에서 하고, 그 뒤 항목마다 쓰기 잠금 아래에서 다시 확인하고 정리한다. `--all`에서 한 항목이 실패하면 그 항목은 실패 결과가 되고 다른 항목은 그대로 저장된다):
 
-1. 세션 닫기: `session`의 작업 환경으로 handle을 닫는다(Orca 터미널 닫기, tmux 창 종료, headless 프로세스 종료). 작업 공간이 있으면 제거한다(Orca worktree). 작업 공간 제거가 실패해도 폴더 정리는 계속하고 경고를 낸다.
-2. 보관: git이 추적하지 않는 제출본과 공모전 폴더의 `.private/` 안 파일(접수 증빙, 폼 수정 링크, 개인정보가 든 사본)을 `data/archive/<id>/`(git 제외, 권한 0700)로 복사한다. `..`, 절대 경로, 폴더 밖을 가리키는 심볼릭 링크는 복사하지 않는다. 그 밖의 git 제외 파일(렌더, 캐시, 가상 환경)은 개수와 용량만 `actions`에 적고 폴더와 함께 보낸다.
+1. 세션 닫기: `session`의 작업 환경으로 handle을 닫는다(Orca 터미널 닫기, tmux 창 종료, headless 프로세스 종료). 작업 공간이 있으면 제거한다(Orca worktree). 작업 공간 제거는 그 안에 기록되지 않은 터미널이 남아 있지 않을 때만 한다. 하네스가 그 공모전용으로 만든 Orca 폴더 작업 공간(주석 `harness <id>`)에서 Orca가 스스로 연 빈 셸만 기록 없이 닫는다: 연결되어 있고, 제목이 Orca 기본값(`Terminal <번호>`)이며, 에이전트가 아니고, `terminal read`의 출력 전체(잘리지 않음)가 같은 프롬프트 줄뿐이고 입력창에 글이 없어야 한다. 명령을 친 흔적이나 출력이 있거나, 이름을 붙였거나, 다른 공모전·사용자의 작업 공간이면 닫지 않고 정리를 멈춘다. 세션을 닫지 못하면 폴더를 그대로 두고 세션 기록도 남긴다.
+2. 보관: git이 추적하지 않는 제출본, 공모전 폴더의 `.private/` 안 파일(접수 증빙, 폼 수정 링크, 개인정보가 든 사본), 위 3번 예외에 해당하는 `CONTEST.md`의 작업 트리 사본을 `data/archive/<id>/`(git 제외, 권한 0700)로 복사한다. `..`, 절대 경로, 폴더 밖을 가리키는 심볼릭 링크는 복사하지 않는다. 그 밖의 git 제외 파일(렌더, 캐시, 가상 환경)은 개수와 용량만 `actions`에 적고 폴더와 함께 보낸다.
 3. 제출 기록부: 폴더를 옮기기 전에 해당 항목에 `repo`(원격 URL), `folder_removed_at`, `archive`(보관 경로)를 기록한다. 폴더 이동이 실패하면 기록부를 되돌린다.
 4. 폴더 삭제: 기본은 휴지통으로 옮긴다(macOS `~/.Trash/<이름>-<시각>`, Linux XDG 휴지통 `$XDG_DATA_HOME/Trash/files`(기본 `~/.local/share/Trash/files`)에 `.trashinfo`와 함께, 휴지통이 없으면 저장소 `data/trash/`). `--purge`면 완전히 지운다.
-5. 레지스트리: `session`을 `null`로, 새 필드 `folder_removed_at`에 시각을 쓴다. `folder`는 그대로 둔다. 상태는 바꾸지 않고 `history`에 같은 상태로 note `로컬 폴더 정리: <휴지통 경로 또는 삭제> / 보관: <경로>`를 남긴다.
+5. 레지스트리: `session`을 `null`로, 새 필드 `folder_removed_at`에 시각을 쓴다. `folder`는 그대로 둔다. 상태는 바꾸지 않고 `history`에 같은 상태로 note `로컬 폴더 정리: <휴지통 경로 또는 삭제> / 보관: <경로>`를 남긴다. 자기 세션 안에서 정리했으면 닫아야 할 세션을 `pending_close {workspace, handle, workspace_id, since}`로 함께 저장하고, 그 뒤 맨 마지막에 세션을 닫는다. 이 기록은 닫기가 확인되면 지운다.
 6. `<contests_root>/.shared/existing_contests.md`의 줄은 지우지 않는다(중복 대조용).
 
 출력 JSON: `{id, ok, problems: [...], actions: [...], trash: <경로 또는 null>, archive: <경로 또는 null>}`. `--all`이면 이 객체의 배열이다.
 
+중간에 멈춘 정리: 폴더를 옮긴 뒤 레지스트리를 저장하기 전에 멈췄으면(제출 기록부에는 `folder_removed_at`이 있고 폴더는 없으며 레지스트리에는 없음) 다음 `ach clean`은 아무것도 다시 옮기지 않고 레지스트리 기록만 마친다(`folder_removed_at`은 제출 기록부의 값, note `중단된 정리 마무리: …`). 남아 있던 세션 기록은 `pending_close`로 옮겨 다음 정리 순회가 닫는다.
+
 흐름:
 
 - 공모전 세션은 `ach submit` 뒤 제출 준비 기록의 `followup_required`로 정리 방식을 정한다. `false`면 `ach clean <id>`를 실행한다. 세션 안(`ACH_SESSION`이 그 id)에서 실행하면 보관·폴더 이동·기록 저장을 모두 끝낸 뒤 맨 마지막에 그 세션(과 작업 공간)을 닫으므로, 이 명령이 세션의 마지막 동작이다. 보관 위치에 같은 내용의 파일이 이미 있으면(중간에 멈춘 정리의 재실행) 건너뛰고, 내용이 다르면 정리를 멈춘다. `true`(본선·발표 등 미래 일정)면 할 일을 기록하고 `ach transition <id> followup_pending`으로 옮겨 폴더와 접수 증빙을 보존하면서 실행 슬롯을 반환한다. 실제 후속 작업은 `ach resume <id>`로만 다시 시작한다(10절 "세션 다시 열기와 닫기").
-- 정기 실행은 끝에 `ach clean --all`을 돌린다. 메인(컨트롤) 세션의 자동 정리는 제출 준비 기록의 `followup_required`가 `false`로 기록된 공모전만 정리하고, `true`이거나 구조화된 기록이 없는(0.7.0 이전) 공모전은 사용자가 요청할 때만 `ach clean`한다. 끝난 공모전의 남은 세션은 `ach session-close`로 닫는다.
+- 정리 순회(`ach tick`, `new_work_frozen`이어도 하고 공모전 세션 안에서는 하지 않는다. 결과는 JSON `cleanup {recovered, cleaned, sessions_closed, refused}`): 세션이 스스로 정리하지 못했거나 그 뒤 멈춘 공모전을 이어서 정리한다. 남은 일만 하므로 재시작 뒤 같은 순회가 멈춘 곳에서 이어 간다.
+  1. `pending_close`가 있는 항목의 세션을 닫고(위 1단계의 빈 셸 규칙 그대로), 닫기가 확인되면 기록을 지운다. 확인되지 않으면 기록을 두고 다음 순회가 다시 한다.
+  2. `submitted` 항목 중 접수가 확정되고(`ach submit`으로 `confirmed`된 시도가 있고 그 확인에 `review_needed`가 없으며, `intent`·`dispatching`·`unknown` 시도가 없음), 최근 제출 준비 기록의 `followup_required`가 `false`이고, 폴더가 남아 있고, `submitted`가 된 지 30분이 지난 것을 `ach clean <id>`와 같은 검사로 정리한다(`--force`·`--purge` 없음). 원격 보존(커밋·push)을 포함한 위 조건이 어긋나면 지우지 않고 `refused`에 이유를 남긴다. `legacy-` 항목, 제출 트랜잭션이 없는 항목, `followup_required`가 `true`이거나 없는 항목은 정리하지 않는다.
+  3. 그 밖의 끝난 공모전(`submitted`·`followup_pending`·`closed`·`skipped`·`duplicate`)은 그 상태가 된 지 10분이 지나고 세션 기록(handle·작업 공간)이 남아 있으면 `ach session-close`와 같은 검사로 세션만 닫는다. 폴더는 지우지 않는다. 풀리지 않은 제출 시도가 있으면 세션도 닫지 않는다.
+- 정기 실행은 끝에 `ach clean --all`도 돌린다. 메인(컨트롤) 세션의 자동 정리는 제출 준비 기록의 `followup_required`가 `false`로 기록된 공모전만 정리하고, `true`이거나 구조화된 기록이 없는(0.7.0 이전) 공모전은 사용자가 요청할 때만 `ach clean`한다. 끝난 공모전의 남은 세션은 `ach session-close`로 닫는다(빈 셸 규칙은 위 1단계와 같다).
 - 메인 세션은 정리 결과(지운 폴더, 막힌 이유)를 사용자에게 알린다.
 
 ## 17. 런타임 체크포인트·재조정·복구

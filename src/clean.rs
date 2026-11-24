@@ -23,6 +23,23 @@ const CLEANABLE: &[&str] = &["submitted", "closed"];
 /// links, copies with personal details). `ach clean` archives it.
 pub const PRIVATE_DIR: &str = ".private";
 
+/// The controller brief (`controllers briefs`): harness-written, git-ignored.
+const BRIEF: &str = ".private/controller-brief.md";
+const CONTEST_MD: &str = "CONTEST.md";
+
+/// Registry field for a recorded session whose close is still owed: a clean from inside that very
+/// session records it before stopping itself, so a later sweep finishes the close after a restart.
+pub const PENDING_CLOSE: &str = "pending_close";
+
+/// How long a contest stays `submitted` before the sweep cleans it, and how long any finished state
+/// waits before the sweep closes its session: the session's own last steps (commit, push, report)
+/// come first.
+pub const CLEAN_GRACE_MINUTES: i64 = 30;
+pub const CLOSE_GRACE_MINUTES: i64 = 10;
+
+/// Finished states whose session the sweep closes (the folder stays; only `ach clean` moves it).
+const FINISHED: &[&str] = &["submitted", "followup_pending", "closed", "skipped", "duplicate"];
+
 /// What `clean` keeps and what it leaves behind with the folder.
 #[derive(Debug, Default, PartialEq)]
 pub struct ArchivePlan {
@@ -48,12 +65,30 @@ pub struct Outcome {
 }
 
 /// The recorded session of a contest cleaned from inside that session (`ACH_SESSION` = its id).
-/// Closing it stops the calling process, so it must be the very last step.
+/// Closing it stops the calling process, so it must be the very last step. It is also stored as
+/// [`PENDING_CLOSE`] until a close is confirmed, so an interrupted close is finished later.
 #[derive(Debug)]
 struct DeferredClose {
+    id: String,
     workspace: String,
     handle: Option<String>,
     workspace_id: Option<String>,
+}
+
+impl DeferredClose {
+    fn record(&self, since: &str) -> Value {
+        json!({"workspace": self.workspace, "handle": self.handle, "workspace_id": self.workspace_id, "since": since})
+    }
+
+    fn from_record(id: &str, record: &Value) -> Option<Self> {
+        let text = |key: &str| record[key].as_str().filter(|v| !v.is_empty()).map(str::to_string);
+        Some(DeferredClose {
+            id: id.to_string(),
+            workspace: text("workspace")?,
+            handle: text("handle"),
+            workspace_id: text("workspace_id"),
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +142,38 @@ fn git(folder: &Path, args: &[&str]) -> Result<String> {
     } else {
         Err(Error(String::from_utf8_lossy(&out.stderr).trim().to_string()))
     }
+}
+
+/// Whether the only edit to the committed `CONTEST.md` is text the harness put above it: the
+/// working file is the committed file with a block prepended, and that block (without a trailing
+/// `---` separator) appears verbatim in the harness's own controller brief. Such a change is kept
+/// in the archive instead of blocking a clean; any other edit, even one line, still blocks.
+pub fn harness_brief_change(folder: &Path) -> bool {
+    if !fs::symlink_metadata(folder.join(CONTEST_MD)).is_ok_and(|m| m.is_file()) {
+        return false;
+    }
+    let (Ok(committed), Ok(work), Ok(brief)) = (
+        git(folder, &["show", &format!("HEAD:{CONTEST_MD}")]),
+        fs::read_to_string(folder.join(CONTEST_MD)),
+        fs::read_to_string(folder.join(BRIEF)),
+    ) else {
+        return false;
+    };
+    let Some(added) = work.strip_suffix(committed.as_str()) else { return false };
+    let added = added.trim_end();
+    let added = added.strip_suffix("---").unwrap_or(added).trim();
+    !added.is_empty() && brief.contains(added)
+}
+
+/// `git status --porcelain` lines that block a clean: all of them except the harness's own brief
+/// in `CONTEST.md` ([`harness_brief_change`]), which is archived instead.
+fn blocking_changes(folder: &Path, status: &str) -> Vec<String> {
+    let owned = format!(" M {CONTEST_MD}");
+    let lines: Vec<String> = status.lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect();
+    if lines.contains(&owned) && harness_brief_change(folder) {
+        return lines.into_iter().filter(|l| *l != owned).collect();
+    }
+    lines
 }
 
 /// `file` (absolute, or relative to `folder`) as a folder-relative path made only of normal
@@ -194,13 +261,14 @@ pub fn problems(entry: &Entry, ledger: &Ledger) -> Vec<String> {
         }
     }
     match git(folder, &["status", "--porcelain"]) {
-        Ok(status) if !status.trim().is_empty() => {
-            let lines: Vec<&str> = status.lines().collect();
-            let shown: Vec<&str> = lines.iter().take(5).map(|l| l.trim()).collect();
-            out.push(format!("커밋 안 된 변경이 {}개 있다: {}", lines.len(), shown.join(", ")));
+        Ok(status) => {
+            let lines = blocking_changes(folder, &status);
+            if !lines.is_empty() {
+                let shown: Vec<&str> = lines.iter().take(5).map(|l| l.trim()).collect();
+                out.push(format!("커밋 안 된 변경이 {}개 있다: {}", lines.len(), shown.join(", ")));
+            }
         }
         Err(err) => out.push(format!("git status 실패: {err}")),
-        Ok(_) => {}
     }
     for file in submission_files(entry, folder) {
         if !tracked(folder, &file) && !folder.join(&file).is_file() {
@@ -214,8 +282,9 @@ fn tracked(folder: &Path, file: &str) -> bool {
     git(folder, &["ls-files", "--error-unmatch", "--", file]).is_ok()
 }
 
-/// Untracked submission files (they are what was sent) plus everything in `.private/`. Other ignored
-/// files are rebuildable byproducts and only counted.
+/// Untracked submission files (they are what was sent), everything in `.private/`, and a
+/// `CONTEST.md` that carries the harness's brief on top of the committed text (git holds only the
+/// committed text). Other ignored files are rebuildable byproducts and only counted.
 pub fn archive_plan(entry: &Entry, folder: &Path) -> Result<ArchivePlan> {
     let mut plan = ArchivePlan {
         keep: submission_files(entry, folder)
@@ -235,6 +304,9 @@ pub fn archive_plan(entry: &Entry, folder: &Path) -> Result<ArchivePlan> {
             plan.dropped += 1;
             plan.dropped_bytes += meta.len();
         }
+    }
+    if harness_brief_change(folder) {
+        plan.keep.push(CONTEST_MD.to_string());
     }
     // A symlink (or a `..` that slipped through) must not copy something from outside the folder.
     plan.keep.retain(|f| folder_relative(folder, f).is_some() && resolves_inside(folder, f));
@@ -361,6 +433,9 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
         );
         return Ok(outcome);
     }
+    if finish_interrupted(entry, &ledger, opts, &mut outcome) {
+        return Ok(outcome);
+    }
     if !outcome.problems.is_empty() && !opts.force {
         return Ok(outcome);
     }
@@ -384,6 +459,12 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     }
     if let (Some(ws), Some(id)) = (backend, workspace_id) {
         outcome.actions.push(format!("작업 공간 제거{when}: {} {id}", ws.name()));
+        if opts.dry_run
+            && let Ok(shells) = ws.idle_shells(id, &entry.id)
+            && !shells.is_empty()
+        {
+            outcome.actions.push(format!("기록 없는 빈 셸 닫기: {}", shells.join(", ")));
+        }
     }
     let plan = archive_plan(entry, &folder)?;
     let archive = (!plan.keep.is_empty()).then(|| archive_target(entry, opts.archive_dir.as_deref()));
@@ -419,24 +500,33 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     if let Some(ws) = backend
         && (handle.is_some() || workspace_id.is_some())
     {
-        let closed = if own {
-            // Only this session may be left in its workspace; it is stopped in `run`.
-            workspaces::ensure_no_other_terminals(ws, workspace_id, handle).map(|()| {
-                outcome.deferred_close = Some(DeferredClose {
-                    workspace: ws.name().to_string(),
-                    handle: handle.map(str::to_string),
-                    workspace_id: workspace_id.map(str::to_string),
-                });
-            })
-        } else {
-            workspaces::close_recorded(ws, handle, workspace_id, workspaces::CLOSE_WAIT).and_then(|()| {
-                // Removing a workspace stops every terminal in it: never while an unrecorded one is left.
-                match workspace_id {
-                    Some(id) => workspaces::ensure_no_other_terminals(ws, Some(id), handle)
-                        .and_then(|()| ws.remove_workspace(id)),
-                    None => Ok(()),
+        let closed = match workspaces::close_idle_shells(ws, workspace_id, handle, &entry.id) {
+            Err(err) => Err(err),
+            Ok(shells) => {
+                if !shells.is_empty() {
+                    outcome.actions.push(format!("기록 없는 빈 셸 닫음: {}", shells.join(", ")));
                 }
-            })
+                if own {
+                    // Only this session may be left in its workspace; it is stopped in `run`.
+                    workspaces::ensure_no_other_terminals(ws, workspace_id, handle).map(|()| {
+                        outcome.deferred_close = Some(DeferredClose {
+                            id: entry.id.clone(),
+                            workspace: ws.name().to_string(),
+                            handle: handle.map(str::to_string),
+                            workspace_id: workspace_id.map(str::to_string),
+                        });
+                    })
+                } else {
+                    workspaces::close_recorded(ws, handle, workspace_id, workspaces::CLOSE_WAIT).and_then(|()| {
+                        // Removing a workspace stops every terminal in it: never while an unrecorded one is left.
+                        match workspace_id {
+                            Some(id) => workspaces::ensure_no_other_terminals(ws, Some(id), handle)
+                                .and_then(|()| ws.remove_workspace(id)),
+                            None => Ok(()),
+                        }
+                    })
+                }
+            }
         };
         if let Err(err) = closed {
             outcome.problems.push(format!("세션을 닫지 못해 폴더를 그대로 두었다(세션 기록 유지): {err}"));
@@ -483,6 +573,9 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
 
     entry.session = None;
     entry.extra.insert("folder_removed_at".into(), json!(at));
+    if let Some(close) = &outcome.deferred_close {
+        entry.extra.insert(PENDING_CLOSE.into(), close.record(&at));
+    }
     let mut note = format!("로컬 폴더 정리: {}", outcome.trash.as_deref().unwrap_or("완전히 삭제"));
     if let Some(a) = &outcome.archive {
         note.push_str(&format!(" / 보관: {a}"));
@@ -491,6 +584,46 @@ pub fn clean(entry: &mut Entry, ledger_path: &Path, opts: &Options) -> Result<Ou
     entry.history.push(HistoryItem::new(at, Some(state.clone()), &state, "ach clean", &note));
     outcome.ok = true;
     Ok(outcome)
+}
+
+/// A clean that stopped after the folder moved and before the registry was saved: the ledger
+/// already records when the folder went, the folder is gone, and the registry does not know yet.
+/// Finish only the registry record (a session still recorded becomes a [`PENDING_CLOSE`] for the
+/// sweep); nothing is copied or moved again. Returns whether this was such a case.
+fn finish_interrupted(entry: &mut Entry, ledger: &Ledger, opts: &Options, outcome: &mut Outcome) -> bool {
+    let Some(item) = ledger.get(&entry.id) else { return false };
+    let Some(at) = item.extra.get("folder_removed_at").and_then(Value::as_str).map(str::to_string) else {
+        return false;
+    };
+    if !CLEANABLE.contains(&entry.state.as_str())
+        || entry.extra.contains_key("folder_removed_at")
+        || entry.folder.as_deref().is_none_or(|f| Path::new(f).exists())
+    {
+        return false;
+    }
+    outcome.problems.clear();
+    outcome.archive = item.extra.get("archive").and_then(Value::as_str).map(str::to_string);
+    outcome.actions.push(format!("중단된 정리 마무리: 폴더는 이미 옮겨졌다(제출 기록부 정리 시각 {at})"));
+    let session = entry.session.clone().unwrap_or(Value::Null);
+    let open = ["handle", "workspace_id"].iter().any(|k| session[*k].as_str().is_some_and(|v| !v.is_empty()));
+    let pending =
+        open.then(|| DeferredClose::from_record(&entry.id, &session)).flatten().map(|close| close.record(&now()));
+    if pending.is_some() {
+        outcome.actions.push("남은 세션 기록은 다음 정리 순회에서 닫는다".into());
+    }
+    outcome.ok = true;
+    if opts.dry_run {
+        return true;
+    }
+    if let Some(record) = pending {
+        entry.extra.insert(PENDING_CLOSE.into(), record);
+    }
+    entry.session = None;
+    entry.extra.insert("folder_removed_at".into(), json!(at));
+    let state = entry.state.clone();
+    let note = format!("중단된 정리 마무리: 폴더는 {at}에 이미 옮겨졌다(제출 기록부 기준)");
+    entry.history.push(HistoryItem::new(now(), Some(state.clone()), &state, "ach clean", &note));
+    true
 }
 
 /// A failed outcome for an entry whose cleaning stopped with an error.
@@ -533,24 +666,162 @@ pub fn run(registry_path: &Path, ledger_path: &Path, id: Option<&str>, opts: &Op
         Ok(outcomes)
     })?;
     // The caller's own session goes last, with everything above already saved: stopping it ends
-    // this process, and a failure is reported but changes no record.
+    // this process, and a failure is reported but changes no record ([`PENDING_CLOSE`] stays for
+    // the sweep). A close that returns (it did not stop this process) clears the record.
     for outcome in &mut outcomes {
-        if let Some(close) = outcome.deferred_close.take()
-            && let Err(err) = close_deferred(&close)
-        {
-            outcome.problems.push(format!("정리는 끝났지만 이 세션을 닫지 못했다: {err}"));
+        if let Some(close) = outcome.deferred_close.take() {
+            match finish_close(&close, true) {
+                Ok(()) => {
+                    if let Err(err) = clear_pending(registry_path, &close.id) {
+                        outcome.problems.push(format!("세션은 닫았지만 정리 대기 기록을 지우지 못했다: {err}"));
+                    }
+                }
+                Err(err) => outcome.problems.push(format!("정리는 끝났지만 이 세션을 닫지 못했다: {err}")),
+            }
         }
     }
     Ok(outcomes)
 }
 
-fn close_deferred(close: &DeferredClose) -> Result<()> {
+/// Close what a clean left of a session: proven idle shells first, then the recorded terminal and
+/// the workspace, which is removed only once no unrecorded terminal is left in it. `own`: the
+/// recorded terminal is the calling process, so it is never closed before the workspace removal
+/// (or its own close) stops it.
+fn finish_close(close: &DeferredClose, own: bool) -> Result<()> {
     let ws = workspaces::get(&close.workspace)?;
-    match (close.workspace_id.as_deref(), close.handle.as_deref()) {
-        (Some(id), handle) => {
-            workspaces::ensure_no_other_terminals(ws, Some(id), handle).and_then(|()| ws.remove_workspace(id))
-        }
-        (None, Some(handle)) => workspaces::close_recorded(ws, Some(handle), None, workspaces::CLOSE_WAIT),
-        (None, None) => Ok(()),
+    let (workspace_id, handle) = (close.workspace_id.as_deref(), close.handle.as_deref());
+    workspaces::close_idle_shells(ws, workspace_id, handle, &close.id)?;
+    if !own || workspace_id.is_none() {
+        workspaces::close_recorded(ws, handle, workspace_id, workspaces::CLOSE_WAIT)?;
     }
+    match workspace_id {
+        Some(id) => workspaces::ensure_no_other_terminals(ws, Some(id), handle).and_then(|()| ws.remove_workspace(id)),
+        None => Ok(()),
+    }
+}
+
+fn clear_pending(registry_path: &Path, id: &str) -> Result<()> {
+    registry::write_at(registry_path, |reg| {
+        reg.get_mut(id)?.extra.remove(PENDING_CLOSE);
+        Ok(())
+    })
+}
+
+/// Finish every session close a clean left owed ([`PENDING_CLOSE`]): after a restart (or a close
+/// that failed) only these are touched, nothing that was finished. A close that cannot be
+/// confirmed keeps its record for the next sweep.
+pub fn recover_pending(registry_path: &Path) -> Result<Vec<Value>> {
+    let pending: Vec<(String, Value)> = registry::read_at(registry_path, |reg| {
+        Ok(reg
+            .contests
+            .values()
+            .filter_map(|e| e.extra.get(PENDING_CLOSE).map(|r| (e.id.clone(), r.clone())))
+            .collect())
+    })?;
+    let mut out = Vec::new();
+    for (id, record) in pending {
+        let closed = match DeferredClose::from_record(&id, &record) {
+            Some(close) => finish_close(&close, false).and_then(|()| clear_pending(registry_path, &id)),
+            None => Err(Error(format!("정리 대기 세션 기록을 읽지 못했다: {record}"))),
+        };
+        out.push(match closed {
+            Ok(()) => json!({"id": id, "closed": true}),
+            Err(err) => json!({"id": id, "closed": false, "error": err.0}),
+        });
+    }
+    Ok(out)
+}
+
+/// When `entry` entered its current state (the last history item that moved into it).
+fn entered_at(entry: &Entry) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    entry
+        .history
+        .iter()
+        .rev()
+        .find(|h| h.to == entry.state && h.from.as_deref() != Some(entry.state.as_str()))
+        .and_then(|h| crate::runtime::parse_time(&h.at))
+}
+
+/// `entry` has been in its state for at least `minutes` (an unreadable time never has).
+fn waited(entry: &Entry, now: chrono::DateTime<chrono::FixedOffset>, minutes: i64) -> bool {
+    entered_at(entry).is_some_and(|at| now - at >= chrono::Duration::minutes(minutes))
+}
+
+/// Why the sweep does not clean `entry` by itself (`None`: it does). Only a confirmed receipt
+/// (a `confirmed` attempt that needs no review, no unfinished attempt), a structured readiness
+/// record that says no follow-up (`followup_required: false`), a folder still there and the grace
+/// period passed. `ach clean` then checks everything else (ledger, committed and pushed).
+fn sweep_hold(entry: &Entry, now: chrono::DateTime<chrono::FixedOffset>) -> Option<&'static str> {
+    if entry.state != "submitted" || entry.id.starts_with("legacy") {
+        return Some("state");
+    }
+    if entry.extra.contains_key("folder_removed_at") || entry.folder.as_deref().is_none_or(|f| !Path::new(f).is_dir()) {
+        return Some("no_folder");
+    }
+    if crate::readiness::latest(entry).and_then(|r| r.get("followup_required")).and_then(Value::as_bool) != Some(false)
+    {
+        return Some("followup_not_ruled_out");
+    }
+    if crate::submission::unresolved(entry) || !crate::submission::receipt_confirmed(entry) {
+        return Some("receipt_not_confirmed");
+    }
+    (!waited(entry, now, CLEAN_GRACE_MINUTES)).then_some("grace")
+}
+
+/// What the scheduled sweep (`ach tick`) does for finished contests, outside any contest session:
+/// 1. finish the session closes a clean left owed ([`recover_pending`]);
+/// 2. clean each `submitted` contest [`sweep_hold`] lets through, with every check of `ach clean`
+///    (never `--force` or `--purge`);
+/// 3. close the remaining session of every other finished contest (`followup_pending` and the
+///    rest keep their folder) through `ach session-close`'s own checks.
+///
+/// Only what is still unfinished is touched, so a restart in the middle resumes where it stopped.
+pub fn sweep(now: chrono::DateTime<chrono::FixedOffset>) -> Result<Value> {
+    let registry_path = paths::registry();
+    let ledger_path = ledger::path();
+    let recovered = recover_pending(&registry_path)?;
+    let entries: Vec<Entry> = registry::read_at(&registry_path, |reg| {
+        Ok(reg.contests.values().filter(|e| FINISHED.contains(&e.state.as_str())).cloned().collect())
+    })?;
+    let (mut cleaned, mut closed, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+    for entry in &entries {
+        if sweep_hold(entry, now).is_some() {
+            continue;
+        }
+        let outcome = run(&registry_path, &ledger_path, Some(&entry.id), &Options::default())?
+            .pop()
+            .unwrap_or_else(|| failed(&entry.id, Error("정리 결과가 없다".into())));
+        if outcome.ok {
+            cleaned.push(
+                json!({"id": entry.id, "actions": outcome.actions, "archive": outcome.archive, "trash": outcome.trash}),
+            );
+        } else {
+            refused.push(json!({"id": entry.id, "step": "clean", "problems": outcome.problems}));
+        }
+    }
+    let open: Vec<Entry> = registry::read_at(&registry_path, |reg| {
+        Ok(reg
+            .contests
+            .values()
+            .filter(|e| FINISHED.contains(&e.state.as_str()) && !e.id.starts_with("legacy"))
+            // A submission whose outcome is open keeps everything, its session included.
+            .filter(|e| !crate::submission::unresolved(e))
+            .filter(|e| {
+                let session = e.session.as_ref();
+                ["handle", "workspace_id"]
+                    .iter()
+                    .any(|k| session.and_then(|s| s[*k].as_str()).is_some_and(|v| !v.is_empty()))
+            })
+            .filter(|e| waited(e, now, CLOSE_GRACE_MINUTES))
+            .cloned()
+            .collect())
+    })?;
+    for entry in &open {
+        match crate::lifecycle::close_idle(&entry.id, &entry.state, entry.history.len(), false) {
+            Ok(result) if result["closed"] == true => closed.push(json!({"id": entry.id, "state": entry.state})),
+            Ok(_) => {}
+            Err(err) => refused.push(json!({"id": entry.id, "step": "session_close", "problems": [err.0]})),
+        }
+    }
+    Ok(json!({"recovered": recovered, "cleaned": cleaned, "sessions_closed": closed, "refused": refused}))
 }

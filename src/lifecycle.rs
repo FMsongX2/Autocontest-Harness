@@ -622,14 +622,22 @@ pub fn close_idle(id: &str, expected_state: &str, expected_history: usize, dry_r
             attempts = attempt;
             // A stale handle with another live terminal in the workspace is refused (it may be the
             // same agent reconnected), and removing the workspace, which stops every terminal in
-            // it, waits until no unrecorded terminal is left.
-            let closed =
-                workspaces::close_recorded(backend, handle.as_deref(), workspace_id.as_deref(), workspaces::CLOSE_WAIT)
-                    .and_then(|()| match workspace_id.as_deref() {
-                        Some(w) => workspaces::ensure_no_other_terminals(backend, Some(w), handle.as_deref())
-                            .and_then(|()| backend.remove_workspace(w)),
-                        None => Ok(()),
-                    });
+            // it, waits until no unrecorded terminal is left. Only shells proven untouched in the
+            // contest's own workspace (Orca's `Terminal 1`) are closed without a record.
+            let closed = workspaces::close_idle_shells(backend, workspace_id.as_deref(), handle.as_deref(), id)
+                .and_then(|_| {
+                    workspaces::close_recorded(
+                        backend,
+                        handle.as_deref(),
+                        workspace_id.as_deref(),
+                        workspaces::CLOSE_WAIT,
+                    )
+                })
+                .and_then(|()| match workspace_id.as_deref() {
+                    Some(w) => workspaces::ensure_no_other_terminals(backend, Some(w), handle.as_deref())
+                        .and_then(|()| backend.remove_workspace(w)),
+                    None => Ok(()),
+                });
             match closed {
                 Ok(()) => {
                     error = None;
