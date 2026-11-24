@@ -497,6 +497,24 @@ class QueueTests(Home):
         codes = [e['code'] for e in events(self.state / 'events.jsonl') if e['event'] == 'alert']
         self.assertEqual(codes, ['contest_error'])
 
+    def test_a_failed_archive_note_after_a_launch_neither_fails_nor_repeats_the_launch(self):
+        ach = self.ach()
+        failed = {'state': 'error', 'reason': 'archive_enqueue_failed'}
+        with patch('controllers.queue.archive.enqueue', return_value=failed) as noted:
+            self.controller(ach).cycle()
+        self.assertEqual(self.launched(ach), ['c1'])
+        self.assertEqual([call.args[1:] for call in noted.call_args_list], [('c1', 'assignment')])
+        logged = events(self.state / 'events.jsonl')
+        self.assertNotIn('launch_unverified', [e.get('code') for e in logged])
+        self.assertTrue(any(e['event'] == 'archive_sync_followup' and e['state'] == 'error' for e in logged))
+
+    def test_without_the_archive_setting_a_launch_leaves_no_archive_note(self):
+        ach = self.ach()
+        self.controller(ach).cycle()
+        self.assertEqual(self.launched(ach), ['c1'])
+        self.assertFalse((self.home / 'data' / 'archive-sync').exists())
+        self.assertNotIn('archive_sync_followup', [e['event'] for e in events(self.state / 'events.jsonl')])
+
 
 class OldPathsTests(unittest.TestCase):
     def test_no_executable_controller_remains_under_data(self):

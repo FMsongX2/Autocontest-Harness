@@ -644,7 +644,7 @@ fn run(cli: &Cli) -> Result<u8> {
                     "version": env!("CARGO_PKG_VERSION"),
                     "capabilities": ["readiness", "reconcile", "checkpoint", "recover", "rules", "evaluation",
                         "submission_transactions", "managed_controllers", "new_work_freeze", "delegated_handoff",
-                        "finished_cleanup"]
+                        "finished_cleanup", "workflow_evidence"]
                 }),
                 None,
             )?;

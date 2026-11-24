@@ -92,6 +92,7 @@ output:
    - `deadline`: 접수 마감 KST ISO 8601. "24:00" 표기는 `T24:00+09:00`으로 옮긴다.
    - `type`: `video`, `image`, `music`, `idea`, `paper`, `report`, `model`, `data`, `software`, `essay`, `design`, `research`, `other` 중 주 산출물 하나. `research`는 실험·모델 개발로 결과를 내고 보고하는 연구형(리더보드 반복 제출이 없거나 적음, 예: 서버 실험 며칠 + 예선 1회 제출 + 본선 발표), `model`은 리더보드에 반복 제출하는 대회다.
    - `eligibility`: 모든 키를 채운다. `ai_policy`는 `허용`, `표기 조건부 허용`, `금지`, `불명` 중 하나. `original_work_oath`는 직접 창작 서약 문구 요약 또는 `null`.
+   - `writing_models`·`required_evidence`(선택, 계약 7절·24절): 운영자 규칙(`data/local-rules.md`)이나 호출자가 초안·다듬기를 맡을 모델을 정해 두었을 때만 `writing_models`의 `draft`·`edit`에 그 `provider/model` 패턴을 옮기고 `required_evidence`에 `draft_execution`·`editor_execution`을 넣는다. 공고·서식이 요구하는 서약·확인서처럼 파일로 증명할 것이 있으면 그 코드도 넣는다. 모델 이름을 추측해 채우지 않고, 정해진 것이 없으면 두 필드를 쓰지 않는다.
    - `deliverables`: 제출물마다 `{name, format, limits}`. 분량·해상도·길이·용량·파일명 규칙은 `limits`에 원문 그대로.
    - `criteria`: 단계(서류/예비/본선/발표 등)별 `{stage, name, weight}`. 배점이 공개되지 않았으면 같은 단계 안에서 균등 배분하고 `reasons`에 "[가정] 배점 미공개, 균등 배분"을 적는다.
    - `submission`: `{method, where, files, notes}`. 방법은 `폼`, `메일`, `사이트`, `우편` 중 하나.

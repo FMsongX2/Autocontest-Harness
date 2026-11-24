@@ -4,6 +4,21 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.8 - 2026-11-25
+
+### Added
+- Required workflow evidence, checked apart from quality scores (`src/evidence.rs`). A gate may carry `required_evidence` (codes that need proof) and `writing_models` (`draft` and `edit`: the `provider/model` patterns allowed for each role); the readiness record carries the proof as `evidence`, a map from code to `[{path, sha256}]`. While a required code has no files, a file changed, or an execution code is not proven, `ach approval-status` reports `required_evidence_missing`, `required_evidence_changed`, or `required_execution_unverified` (`required_evidence_ambiguous` for an unreadable declaration) and neither a user approval nor a delegated one is recorded, whatever the latest final says and with or without `--score-ok`. Stored-record views (the board) show such a request as "제출 준비 중". `ach gate` refuses a malformed declaration. `ach contract` lists `workflow_evidence`.
+- `python3 -B -m controllers.writing run|check`: one prose run by one exact model with evidence of the model that answered. Selectors of the provider `agy` run on the Antigravity CLI, all others on omp. The run has no tools, no retry on another model, no fallback and no context promotion; inputs travel in files or on stdin; the source file is never changed and the candidate is never adopted by the tool. It passes only when the runner's own events name the requested model, hold exactly one completed answer and no tool call. A run id is never run twice, a timeout is `execution_unknown`, and provider blocks are reported as `pricing_required` or `insufficient_credits` without trying anything else. `check` rereads the events and hashes and prints the file list for `evidence.draft_execution` or `evidence.editor_execution`; the core accepts those codes only for complete runs of this contest and work revision by a model the gate allows, and reads the events again itself.
+- On omp, `--no-tools` leaves the tools of configured MCP servers in the request (several hundred thousand tokens on a machine with a few servers, and callable). The writing run loads a small extension that offers the model no tool and refuses any call, and a short system instruction of its own.
+- `python3 -B -m controllers.archive prepare|publish|verify|abandon|enqueue`: selective archive sync. Only the selected contests (in progress, never submitted) and the files listed with their hash and a privacy-review mark are written to an existing archive repository; every other tree, index row (rows without an id and unknown fields included) and the README text stay as they are. Hidden, private and build folders, signature, identity and form file names, symlinks, non-text files, large files and content shaped like personal data or secrets refuse the whole selection. The candidate is a direct child of the observed remote commit, built in a clone of one commit without file contents; the push carries a lease on that commit and is made once. A lost reply is followed by `verify`, never by another push: `verified`, `superseded`, `not_published`, or `unknown`, and an unknown run holds back later runs for the same contests until it is verified or abandoned. Identical content yields `unchanged` instead of a commit.
+- Optional archive notes: with `{"enabled": true}` in `data/archive-sync/config.json`, the queue controller records a pending note after each successful launch (`archive_sync_followup`); `enqueue` does the same for a direct assignment or a checkpoint. A failed note never fails or repeats the launch.
+
+### Changed
+- The `JUDGE.md` template has a "글 실행 기록" section, ContestGate may declare `writing_models` and `required_evidence` when the operator defined them, and the skill and launch prompt tell sessions how to produce and attach the evidence. Contests whose gate has neither field behave as before, and `scripts/agy-polish.sh` is unchanged (its in-place edits leave no execution evidence).
+
+### Migration
+- None. Existing gates and readiness records carry neither field and are not rewritten. The evidence is local-record consistency, not an attestation by the model provider.
+
 ## 0.9.7 - 2026-11-25
 
 ### Fixed

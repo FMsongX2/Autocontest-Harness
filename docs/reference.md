@@ -376,6 +376,45 @@ The result is `{id, status, reasons, request_token, user_approval_request, displ
 
 The board and `runtime` summaries derive the same states from stored records without reading contest files, so a request inside the delegation that is not approved yet shows as `auto_approval_pending` there; `ach handoff <id> --dry-run` gives the exact reasons.
 
+### Required evidence and writing runs
+
+A quality score says what a reviewer thought of the files; it does not show that a required step was carried out. A gate can declare both (optional fields of `gate.json`):
+
+```json
+{"writing_models": {"draft": ["anthropic/claude-*"], "edit": ["agy/gemini-*"]}, "required_evidence": ["draft_execution", "editor_execution"]}
+```
+
+`writing_models` lists, per role, the `provider/model` patterns allowed to draft and to edit the prose; the operator chooses them and the harness has no default. `required_evidence` lists codes that must be proven with files in the readiness record (`evidence`, a map from code to `[{path, sha256}]`) before any submission approval, by the user or delegated. Until then `ach approval-status` reports `required_evidence_missing`, `required_evidence_changed`, or `required_execution_unverified`, whatever the latest final says, and a score override does not remove them.
+
+For `draft_execution` and `editor_execution` the files are the evidence of a writing run:
+
+```bash
+python3 -B -m controllers.writing run --id <id> --file <contest>/.private/<request>.json
+python3 -B -m controllers.writing check --dir <contest>/.private/writing/<run_id>
+```
+
+The request names a new `run_id` (UUID), the `stage` (`draft` or `edit`), one exact `model` selector that the gate's patterns allow, and `source` and `instructions` files inside the contest folder. A selector of the provider `agy` runs on the Antigravity CLI, any other on omp. The tool asks that model once, with no tools (on omp also the tools of configured MCP servers are withheld), no retry on another model and no fallback, and writes the candidate and everything the runner printed to `.private/writing/<run_id>/`. A run counts only when the runner's own events name the requested model, show one completed answer and no tool call; what the text says about its author, a model list, or the requested name alone is not evidence. Provider blocks are reported as `pricing_required` or `insufficient_credits`; nothing else is tried and a run id is never run twice. `check` reads the evidence again and prints the file list to put under `evidence`. The candidate is never adopted by the tool: the session reviews it against the source before using it.
+
+This is a consistency check of local records, not an attestation by the provider. Details: contract section 24.
+
+### Selective archive sync
+
+`controllers.archive` adds or updates selected contests in an existing archive repository (`index.json` with a `contests` list, one tree per contest under `contests/`) and leaves every other tree and row as it is.
+
+```bash
+python3 -B -m controllers.archive prepare --file <request.json>   # candidate commit in data/archive-sync/<run_id>/, nothing pushed
+python3 -B -m controllers.archive publish --run-id <uuid>         # one push that only lands on the observed base, then verify
+python3 -B -m controllers.archive verify --run-id <uuid>          # look for the commit, rows and trees on the remote
+python3 -B -m controllers.archive abandon --run-id <uuid>         # give up a push whose outcome stayed unknown
+```
+
+- The request lists each contest id with the files to publish, each with its SHA-256 and `"privacy_reviewed": true`, the remote and branch, and `"private_remote_confirmed": true` (Git cannot tell whether a remote is private; you check). Only contests in progress without a submission record are accepted; rows the archive already marks as submitted are never rewritten.
+- Hidden, private and build folders, signature, identity and form file names, symlinks, non-text extensions, files over 1.5 MiB, and content that looks like an email address, phone number, resident number, key or token refuse the whole selection. The filter does not replace your review of each file.
+- The push carries a lease on the exact commit that was observed, so it never rewrites history and is refused when someone else pushed first. A lost reply is never answered with a second push: `verify` reports `verified`, `superseded`, `not_published`, or `unknown`, and an `unknown` run holds back later runs for the same contests until it is verified or abandoned.
+- With `{"enabled": true}` in `data/archive-sync/config.json`, the queue controller leaves a note in `data/archive-sync/pending/` after each successful launch (`enqueue`); the main session does the same after a direct assignment or a checkpoint. A note publishes nothing, and a failed note never fails or repeats the launch.
+
+Details: contract section 25.
+
 ### Managed controllers
 
 Long-running automation lives in the `controllers/` package; `data/` holds only state and logs.

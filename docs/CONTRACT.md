@@ -133,6 +133,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 - `followup_required`(bool): 접수 뒤 같은 폴더로 할 미래 일정(본선·발표·추가 제출)이 남는가. 제출 뒤 정리(`followup_pending`이냐 `ach clean`이냐)를 이 값으로 정한다.
 - `destination`(문자열, 0.8.0부터 새 제출에 필수): 승인받을 실제 제출처. 공식 접수 URL(http(s)) 또는 메일 주소를 그대로 적는다. 제출 의도(20절)의 `destination`과 정확히 같아야 하고, 이 값이 없는 기록으로 받은 승인은 새 제출 의도를 허가하지 않는다. 개인 항목 사본 기록(`--personalized`)은 이 값을 바꿀 수 없다.
 - `submission_opens_at`(문자열, 선택, 0.9.4): 공고의 접수 개시 일시. 제출물은 준비됐는데 접수가 아직 열리지 않았을 때만 적는다(`YYYY-MM-DD`는 그날 00:00, 또는 `YYYY-MM-DDTHH:MM+09:00`). 이미 접수 중이면 뺀다. 이 시각 전에는 위임 인계가 승인도 인계도 하지 않고(23절), 사람에게는 "접수 기간 전(개시 …)"으로 보인다. 접수 개시 전이라는 사정을 `blockers` 문구로 적으면 기계가 개시일을 읽지 못하므로 이 필드를 쓴다. 개인 항목 사본 기록은 이 값을 바꾸지 않는다.
+- `evidence`(객체, 선택, 0.9.8): 게이트가 요구한 증거(`required_evidence`, 7절·24절)의 파일. 코드마다 `[{path, sha256}]`를 적고, `artifacts`와 같은 검사(폴더 안의 일반 파일, 지금 파일과 같은 해시)를 거쳐 경로와 해시만 저장한다. 요구된 코드의 파일이 없거나 바뀌면 점수와 관계없이 승인 자격이 없다. 개인 항목 사본 기록에는 넣지 않으며 원래 기록의 것을 쓴다.
 
 ```json
 {"submission_ready": true, "needs_user_input": false, "blockers": [], "artifacts": [{"path": "submission/proposal.pdf", "sha256": "<64자리 소문자 16진수>"}], "followup_required": false, "destination": "https://contest.example.org/apply"}
@@ -412,6 +413,12 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
   "reasons": ["판정 근거 문장(레벨 근거 포함)"],
   "questions": ["사용자에게 물어야 할 것(최대 3개)"]
 }
+```
+
+선택 필드 `writing_models`와 `required_evidence`(0.9.8, 24절): 품질 점수와 따로 지켜야 하는 작업 증거를 게이트에 선언한다. `writing_models`는 `{"draft": [...], "edit": [...]}`로, 초안과 다듬기를 맡길 수 있는 모델을 `provider/model` 패턴(`*`는 임의의 문자열)의 비어 있지 않은 배열로 적는다. `required_evidence`는 제출 승인 전에 파일로 증명해야 하는 코드(영문 소문자·숫자·밑줄, 64자 이하, 중복 없음)의 배열이다. `draft_execution`·`editor_execution`은 각각 `writing_models.draft`·`writing_models.edit`이 있어야 선언할 수 있다. 형식이 어긋난 게이트는 `ach gate`가 거절한다. 어느 모델을 쓸지는 운영자가 정하고(운영 규칙이나 호출자의 지시), 하네스에는 기본값이 없다. 두 필드가 없는 게이트는 전과 같이 동작한다.
+
+```json
+{"writing_models": {"draft": ["anthropic/claude-*"], "edit": ["agy/gemini-*"]}, "required_evidence": ["draft_execution", "editor_execution"]}
 ```
 
 `level`은 정수 1~5다(5절). `pass`에는 `deliverables`나 `criteria`가 있어야 한다. `deadline`은 `YYYY-MM-DD`(`T23:59+09:00`으로 저장) 또는 `YYYY-MM-DDTHH:MM[:SS]+09:00`이다. `24:00`은 23:59로 읽고 `+09:00` 밖의 오프셋은 거절한다(`add --deadline`, `submitted add --date`와 같은 파서). `official_url`을 쓰면 `http://` 또는 `https://` 주소여야 한다. `title`과 `organizer`는 한 줄로 정규화한다(제어·보이지 않는 문자 제거, 공백 압축). `reasons`와 `questions`는 "참가자"를 주어로 하는 중립적인 보고서체로 쓴다. `fail` 사유 예: 지역·소속 한정, 팀 필수, 참가비, 현장 촬영·오프라인 필수, 생성형 AI 금지, 본인 경험 서술이 필수인데 대신 쓸 수 없음, 마감 경과. 이미 제출한 공모전(`dedupe-check`의 `kind: submitted`)은 게이트하지 않고 `duplicate`로 옮긴다(note `이미 제출함: <제목, 날짜>`).
@@ -1074,3 +1081,101 @@ claimed → approved → sending → sent
 `ach handoff`와 `ach approval-status`의 `display`는 파일 해시까지 읽은 정확한 판단이다(`approval-status`는 세션 생존을 묻지 않아서, 세션 확인만 남은 요청은 `auto_approval_pending`으로 보인다). 보드와 `runtime::summary`는 저장된 기록(레지스트리, 설정, 인계 기록)만 읽는 `handoff::stored_display`를 쓴다: 제출 시도, 제출 준비 기록의 필드, 지금 토큰에 묶인 승인 표시와 인계 기록, 접수 개시 일시, 마감, 위임 범위와 점수 관문 예외로 정한다. 파일을 읽지 않으므로 세션이 채울 조건이 남았는지는 가리지 못하고, 위임 범위 안에서 승인이 아직 없는 요청은 `auto_approval_pending`으로 보인다. 정확한 사유는 `ach handoff <id> --dry-run`이 낸다.
 
 확인 기준: 위임이 꺼져 있으면 승인도 메시지도 없다. 같은 요청에 이벤트·실행이 여러 번 겹쳐도 승인 1건, 메시지 1건이다. 같은 제출물을 다시 기록하거나 점수를 더해도 메시지는 1건이고, 파일이나 제출처가 바뀌면 새 메시지가 나간다. 접수 개시 일시 전에는 승인도 메시지도 없고, 지난 뒤 `ach tick`이나 `ach handoff`가 승인·인계한다. 자격이 없는 요청, 제출 시도가 있는 요청, 확인되지 않은 세션에는 승인이 기록되지 않는다. 결과 불명 인계는 다시 보내지 않는다. "사용자 승인 대기"는 `user_approval_request`가 `true`인 요청에만 보인다. 테스트는 `orca`를 대역으로 쓰고 실제 사이트에 아무것도 보내지 않는다(`tests/handoff.rs`).
+
+## 24. 필수 증거와 글 실행 증거
+
+품질 점수는 평가자가 본 파일에 대한 판정이고, 정해진 작업이 실제로 수행됐다는 증거가 아니다. 게이트가 `required_evidence`로 코드를 선언하면(7절) 그 코드마다 제출 준비 기록의 `evidence`에 파일이 있어야 승인 자격이 생긴다(4절). 정본은 `src/evidence.rs`, 글 실행 도구는 `controllers/writing.py`다. `ach contract`의 `capabilities`에 `workflow_evidence`가 있다.
+
+승인 판단(`ach approval-status`의 `reasons`, 사용자 승인과 위임 승인 모두)에 더해지는 코드:
+
+| 코드 | 뜻 |
+|---|---|
+| `required_evidence_ambiguous` | 게이트의 `required_evidence`·`writing_models`를 읽을 수 없다 |
+| `required_evidence_missing` | 요구된 코드 가운데 `evidence`에 파일이 없는 것이 있다 |
+| `required_evidence_changed` | 증거 파일이 없어졌거나 해시가 기록과 다르다 |
+| `required_execution_unverified` | `draft_execution`·`editor_execution`의 파일이 허용된 모델의 실행 증거로 확인되지 않는다 |
+
+<p>표 18. 필수 증거의 승인 대기 사유</p>
+
+이 사유는 최신 `final` 판정이 `ready`여도, `--score-ok`로 점수 관문을 넘겨도 남는다. 개인 항목 사본 기록 뒤에는 원래 요청 기록의 `evidence`로 판단한다. 저장된 기록만 보는 판정(보드, 23절 `stored_display`)은 `required_evidence_ambiguous`와 `required_evidence_missing`까지만 가린다. 사람에게는 "제출 준비 중"으로 보인다.
+
+`draft_execution`과 `editor_execution`이 아닌 코드(서약, 필수 확인서 등)는 파일의 존재와 해시만 본다. 그 내용의 검토는 해당 코드를 요구한 쪽의 일이다.
+
+### 글 실행 도구(`python3 -B -m controllers.writing run|check`)
+
+한 모델에게 한 번 글을 맡기고, 러너가 실제로 내놓은 기록으로 어느 모델이 답했는지를 남긴다. 하네스 루트에서 실행하며 `ACH_HOME`·`ACH_BIN`은 컨트롤러와 같다(21절). 레지스트리를 쓰지 않고, 원고를 고치지 않고, 다른 모델로 바꿔 시도하지 않고, 같은 실행을 되풀이하지 않는다.
+
+요청 파일(공모전 폴더의 `.private/` 아래에 둔다):
+
+```json
+{"run_id": "<새 UUID>", "stage": "draft | edit", "model": "<provider>/<model>", "source": "docs/manuscript.md", "instructions": ".private/editor-instructions.md", "thinking": "high"}
+```
+
+- `model`은 정확한 `provider/model` 선택자이고, 게이트의 `writing_models.<stage>` 패턴 가운데 하나와 맞아야 한다. 별칭·역할 이름·`*`는 받지 않는다. 정책이 없는 공모전에서는 실행하지 않는다.
+- 러너는 선택자의 provider로 정한다. `agy/<모델>`은 Antigravity CLI(`agy`)로, 그 밖은 omp로 실행한다. 세션 러너와 무관하다.
+- `source`와 `instructions`는 공모전 폴더 안의 UTF-8 일반 파일(2 MB 이하)이고 심볼릭 링크를 거치지 않아야 한다. 초안의 `source`는 확인된 자료·개요, 다듬기의 `source`는 검토된 기준본이다. `thinking`(omp만, 기본 `high`)은 `off`·`minimal`·`low`·`medium`·`high`·`xhigh`·`max` 가운데 하나다.
+- `running`이고 제출 기록이 없는 공모전에만 실행한다. 이미 낸 공모전에는 소급해 실행하지 않는다.
+
+`run --id <id> --file <요청>`의 순서:
+
+1. `ach contract`(protocol 2), `ach show`, `ach approval-status`(작업 판)를 읽는다.
+2. `<공모전>/.private/writing/<run_id>/`(0700)를 새로 만들고 입력 사본(`input.md`), 지시와 입력을 합친 `prompt.md`, 허용 패턴(`writing-models.json`), 러너 설정(`runner-policy.json`), `code: dispatching`인 `receipt.json`을 저장한다. 이미 있는 폴더는 `run_already_started`로 거절한다. 호출 전에 저장하므로 시작한 실행은 결과가 무엇이든 다시 시작하지 않는다.
+3. 러너를 한 번 부른다(셸 없이 인자 배열로, 본문은 파일이나 표준 입력으로만 전달, 제한 시간 30분).
+   - omp: `--mode json -p --no-tools --no-extensions --no-skills --no-rules --no-context-files --no-lsp --no-title --no-session --no-prewalk`, 이번 호출에만 적용하는 설정(`retry.enabled`, `retry.modelFallback`, `retry.usageAwareFallback`, `contextPromotion.enabled`를 모두 끔), 짧은 시스템 지시(`system.md`), 그리고 도구를 하나도 내주지 않고 도구 호출을 거절하는 확장(`runner-guard.ts`)을 쓴다. `--no-tools`만으로는 설정된 MCP 서버의 도구가 요청에 남기 때문이다. 전역 설정은 바꾸지 않는다.
+   - agy: `--input-format stream-json --output-format stream-json --disable-slash-commands`, 이번 호출에만 적용하는 설정(모든 도구 권한 거부)을 쓴다.
+4. 러너의 출력(`stdout.jsonl`, `stderr.log`)을 그대로 저장하고 판정한다. 통과 조건은 종료 코드 0이고, 정상 종료한 응답이 정확히 하나이며, 그 응답의 모델이 요청한 선택자와 같고, 도구 호출이 없고, 본문이 비어 있지 않은 것이다. omp는 assistant `message_end`의 `provider`·`model`·`stopReason`과 `agent_end`를, agy는 `init`의 `model`, `step_update`의 `step_type`(사용자 입력과 응답뿐), `result`의 `status`·`num_turns`·`finished_reason`을 본다. agy는 응답마다가 아니라 세션의 모델을 알려 주므로 그 값을 비교한다. 본문에 적힌 모델 이름, 요청 인자, 모델 목록은 증거로 쓰지 않는다.
+5. 통과한 본문만 `candidate.md`로 저장한다. 실행 중 `source`가 바뀌었으면 후보를 만들지 않는다(`source_changed`). `receipt.json`에 요청·관측 모델, 작업 판, 종료 코드, 모든 파일의 SHA-256(`files`)을 남긴다. `adopted`는 항상 `false`, `review_required`는 `true`다.
+
+`code`: `candidate_generated`, `unexpected_model`, `unexpected_tool_call`, `completion_unverified`, `output_empty`, `output_invalid`, `model_evidence_missing`, `model_evidence_invalid`, `evidence_invalid`, `source_changed`, `execution_failed`, `pricing_required`(공급자가 가격 승인을 요구), `insufficient_credits`, `execution_unknown`(시간 초과·중단), `runner_unavailable`. `availability`는 `succeeded_for_recorded_run`(그 한 번의 실행에 한함), `blocked`(가격 승인·크레딧), `unverified`다. 막혔을 때 다른 모델·공급자·CLI로 바꾸거나 결제하지 않는다. 표준 출력에는 코드와 모델 이름만 내고 본문·경로·공급자 오류 원문은 `.private`의 0600 파일에만 둔다. 종료 코드는 후보 생성 0, 그 밖의 실행 결과 1, 요청 거절 2다.
+
+`check --dir <.private/writing/<run_id>>`는 영수증의 말을 믿지 않고 파일 해시와 러너 출력을 다시 읽어 `{verified, code, stage, runner, observed_models, evidence}`를 낸다. `evidence`는 그 실행의 파일 전체(`receipt.json` 포함)의 `[{path, sha256}]`이고, 이것을 그대로 제출 준비 기록의 `evidence.draft_execution`이나 `evidence.editor_execution`에 넣는다. 여러 번 실행했으면(절마다 등) 목록을 이어 붙인다.
+
+`ach`가 실행 증거로 인정하는 조건(`required_execution_unverified`가 아닌 경우): 코드의 파일이 실행 폴더 하나 이상을 이루고, 폴더마다 영수증이 이 공모전·지금 작업 판·해당 단계(`draft`·`edit`)의 `candidate_generated`이며, 요청 모델이 지금 게이트의 패턴과 맞고, 영수증의 파일 목록 전부가 같은 해시로 `evidence`에 들어 있고, 러너 설정이 위의 값과 같고, 러너 출력을 다시 읽은 모델과 본문이 요청 모델·`candidate.md`와 같다. 일부 파일만 넣거나 후보를 손으로 고치면 통과하지 못한다.
+
+이 검사는 로컬 기록끼리의 일관성 검사다. 공급자가 서명한 증명이 아니고, 글의 품질이나 후보가 최종 원고에 반영됐는지를 말하지 않는다. 후보는 호출 세션이 수치·인용·서식을 대조한 뒤에만 원고에 반영하고, 반영 여부와 실행 폴더를 `JUDGE.md`에 적는다. 지정 모델이 실제로 실행됐지만 후보를 채택하지 않은 경우와, 지정 모델을 실행하지 못한 경우는 구분해 적는다.
+
+확인 기준: 요구 증거가 없으면 `ready` 판정에도 승인되지 않는다. 다른 모델이 답한 실행, 잘린 응답, 두 번 시도한 실행, 도구 호출이 있는 실행, 재시도·fallback을 켠 실행, 다른 공모전·작업 판의 실행, 고친 후보는 증거가 되지 않는다. 같은 `run_id`는 다시 실행되지 않는다(`tests/readiness.rs`, `tests/test_writing.py`).
+
+## 25. 선택적 아카이브 동기화
+
+`controllers/archive.py`(`python3 -B -m controllers.archive prepare|publish|verify|abandon|enqueue`)는 운영자가 고른 공모전의 검토한 파일만 기존 아카이브 저장소에 더하거나 갱신한다. 아카이브는 `index.json`(`contests` 배열)과 `contests/<폴더>/` 트리로 된 Git 저장소다. 고르지 않은 트리와 색인 행은 그대로 둔다. 공모전은 `ach show`로 읽기만 하고 상태를 쓰지 않으며, 아카이브의 실패는 배정·실행·제출·정리를 되돌리거나 다시 실행하는 이유가 아니다. 상태는 `data/archive-sync/`(0700)에만 둔다.
+
+요청 파일:
+
+```json
+{"run_id": "<새 UUID>", "phase": "assignment | checkpoint | manual", "remote": "<아카이브 Git 원격>", "branch": "main", "private_remote_confirmed": true,
+ "row_defaults": {"submitted_at": ""},
+ "selection": [{"id": "<공모전 id>", "files": [{"path": "README.md", "sha256": "<검토한 파일의 해시>", "privacy_reviewed": true}]}]}
+```
+
+- `remote`는 절대 경로, `https://`, `ssh://`, `git@`, `file:///` 가운데 하나다. URL에 인증 정보를 넣은 원격과 외부 전송 명령(`ext::` 등)은 거절한다. 인증은 설정된 Git 전송이 맡는다. 원격이 비공개인지는 Git이 알려 주지 않으므로 운영자가 확인하고 `private_remote_confirmed`를 `true`로 적는다.
+- 대상은 진행 중(`gate_pass`·`routed`·`running`·`plan_review`·`awaiting_approval`)이고 제출 기록이 없는 공모전뿐이다. 제출한 공모전과, 아카이브 색인에서 이미 `submitted`·`closed`·`followup_pending`이거나 `submitted_at`이 있는 행은 고치지 않는다.
+- 파일은 하나하나 `privacy_reviewed: true`와 해시로 지정한다. 숨김·비공개·빌드 폴더(`.private`, `.harness`, `.git`, `node_modules` 등), 서명·증명·신분·동의서·신청서·credential류 이름, 심볼릭 링크, 텍스트가 아닌 확장자, 1.5 MiB를 넘는 파일, 이메일·전화번호·주민등록번호·키·토큰 모양이 든 내용은 거절한다. 하나라도 거절되면 선택 전체를 막는다. 한 공모전은 40 MiB까지다. 패턴 검사는 사람 이름 같은 것을 모두 잡지 못하므로 파일별 검토를 대신하지 않는다.
+- 색인 행에는 공모전의 `id`, `state`, `type`, `level`, `deadline`, `title`, `organizer`, `url`과 `folder`, `path`, `files`(개수), `archive_basis`만 쓴다. 이력의 메모, 접수 증빙, 로컬 경로는 넣지 않는다. `row_defaults`는 새 행에만 넣는 그 아카이브 고유의 칸이고(단순 값만, 위의 필드는 덮어쓸 수 없다), 이미 있는 행은 자기 칸을 유지한다.
+
+`prepare --file <요청>`: `data/archive-sync/<run_id>/`에 요청과 기록(`receipt.json`)을 두고 원격의 최신 커밋 하나를 파일 내용 없이 받아(체크아웃 없음, 훅 없음) 고른 공모전의 트리만 바꾼 후보 커밋을 만든다. 부모는 관측한 원격 커밋(`base`)이다. 바뀔 수 있는 것은 고른 `contests/<경로>/`, `index.json`, `README.md` 맨 위의 도구 소유 블록뿐이고, 그 밖의 경로나 고르지 않은 행이 바뀌면 중단한다. 같은 내용이 이미 있으면 커밋을 만들지 않고 `unchanged`다. 아무것도 올리지 않는다.
+
+`publish --run-id <id>`: 원본 파일의 해시와 공모전의 상태·이력 길이가 준비 때와 같은지 다시 확인하고, 원격이 아직 `base`인지 본 뒤, 기록을 `pushing`으로 저장하고 한 번 올린다. 올리기는 원격 브랜치가 정확히 `base`일 때만 받아들여지는 조건(`--force-with-lease=<브랜치>:<base>`)을 달아, 이력을 고쳐 쓰지 않고 다른 쓰기와 겹치면 거절된다. 응답을 받지 못해도 다시 올리지 않고 바로 `verify`를 한다. 같은 원격·브랜치에 결과가 정해지지 않은(`pushing`·`unknown`) 이전 실행이 같은 공모전을 담고 있으면 새 실행은 올리지 않는다(`prior_push_unresolved`).
+
+`verify --run-id <id>`: 원격을 다시 받아 기록한 커밋이 원격 브랜치의 이력에 있는지, 고른 행과 트리가 그 커밋의 것과 같은지 본다.
+
+| `state` | 뜻 |
+|---|---|
+| `prepared` | 후보 커밋이 있고 올리지 않았다 |
+| `unchanged` | 같은 내용이 이미 원격에 있다 |
+| `conflict` | 올리기 전에 원격이 `base`에서 움직였다. 올리지 않았다 |
+| `pushing` | 올리기를 시작했다는 기록. 끊기면 이 상태로 남는다 |
+| `verified` | 커밋이 원격 이력에 있고 고른 행·트리가 그대로다(`remote_commit`, `verified_at`) |
+| `superseded` | 커밋은 원격 이력에 있지만 뒤의 커밋이 고른 행·트리를 다시 바꿨다 |
+| `not_published` | 커밋 없이 원격이 `base`에서 움직였다. 조건부 올리기는 더는 받아들여질 수 없다 |
+| `unknown` | 원격을 읽지 못했거나(`remote_unreachable`), 원격이 아직 `base`이고 커밋이 없다(`commit_not_on_remote`) |
+| `abandoned` | `unknown`을 운영자가 포기했다 |
+| `prepare_failed` | 준비 중 실패 |
+
+<p>표 19. 아카이브 실행의 상태</p>
+
+`unknown`은 올리기를 되풀이하지 않고 `verify`를 다시 한다. 올라가지 않은 것이 분명하면 `abandon --run-id <id>`로 포기한다. `abandon`은 원격을 한 번 더 본 뒤에도 `unknown`일 때만 `abandoned`로 바꾸고, 아무것도 올리거나 되돌리지 않는다. 포기한 뒤 늦게 도착한 올리기가 있더라도 다음 실행은 움직인 원격을 만나 조건부 올리기가 거절된다. `verified`는 그때의 관측 기록이고 원격이 그 뒤로 바뀌지 않는다는 보증이 아니다. 종료 코드는 `prepared`·`unchanged`·`verified` 0, 그 밖의 상태 1, 거절 2다. 출력에는 안정된 코드만 내고 원격 URL·파일 내용·Git 오류 원문은 내지 않는다.
+
+대기 기록(선택): 운영자가 `data/archive-sync/config.json`에 `{"enabled": true}`를 두면, 대기열 컨트롤러가 `launch`에 성공한 뒤 `enqueue`로 `data/archive-sync/pending/<id>.json`(`id`, `phase`, 상태, 이력 길이, 토큰)을 남기고 `archive_sync_followup` 기록을 쓴다. 직접 배정하거나 체크포인트를 마친 뒤에는 메인 세션이 `enqueue --id <id> --phase assignment|checkpoint`를 실행한다. 설정이 없으면 아무것도 하지 않는다. 대기 기록은 "아카이브 갱신이 필요하다"는 메모이고 무엇도 올리지 않는다. 기록 실패는 `{"state": "error"}`로만 알리고 이미 성공한 실행을 실패로 만들거나 다시 실행하지 않는다. `verified`·`unchanged`인 실행은 준비 때 읽은 토큰의 대기 기록만 `verified`로 바꾸며, 그 뒤에 생긴 새 대기 기록은 남는다.
+
+확인 기준: 고르지 않은 트리의 SHA와 색인 행(`id`가 없는 옛 행, 모르는 칸 포함), 기존 README 내용이 그대로다. 같은 실행은 두 번 올리지 않는다. 원격이 먼저 움직이면 올리지 않거나 거절되고, 결과 불명은 `verify`로만 확인한다. 제출한 공모전, 개인정보 모양이 든 파일, 검토 표시가 없는 파일은 올라가지 않는다. 파일 내용 없이 받은 저장소에서도 준비·올리기·검증이 된다(`tests/test_archive.py`, 로컬 Git 저장소로 검증).

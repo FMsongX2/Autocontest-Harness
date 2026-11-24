@@ -376,6 +376,45 @@ ach schedule remove      # 지운다(다른 스케줄러는 --scheduler orca|lau
 
 보드와 `runtime` 요약은 공모전 파일을 읽지 않고 저장된 기록으로 같은 상태를 정한다. 그래서 위임 범위 안에서 아직 승인되지 않은 요청은 거기서 `auto_approval_pending`으로 보인다. 정확한 사유는 `ach handoff <id> --dry-run`이 낸다.
 
+### 필수 증거와 글 실행 증거
+
+품질 점수는 평가자가 본 파일에 대한 판정이고, 정해진 작업이 실제로 수행됐다는 증거가 아니다. 게이트는 둘을 따로 선언할 수 있다(`gate.json`의 선택 필드).
+
+```json
+{"writing_models": {"draft": ["anthropic/claude-*"], "edit": ["agy/gemini-*"]}, "required_evidence": ["draft_execution", "editor_execution"]}
+```
+
+`writing_models`는 초안과 다듬기를 맡길 수 있는 모델을 역할별 `provider/model` 패턴으로 적는다. 운영자가 정하며 하네스에는 기본값이 없다. `required_evidence`는 제출 승인(사용자 승인과 위임 승인 모두) 전에 제출 준비 기록의 `evidence`(코드별 `[{path, sha256}]`)로 증명해야 하는 코드다. 증명되기 전에는 최신 `final` 판정과 관계없이 `ach approval-status`가 `required_evidence_missing`, `required_evidence_changed`, `required_execution_unverified`를 내고, 점수 관문 예외로도 없어지지 않는다.
+
+`draft_execution`과 `editor_execution`의 파일은 글 실행의 증거다.
+
+```bash
+python3 -B -m controllers.writing run --id <id> --file <공모전>/.private/<요청>.json
+python3 -B -m controllers.writing check --dir <공모전>/.private/writing/<run_id>
+```
+
+요청에는 새 `run_id`(UUID), `stage`(`draft` 또는 `edit`), 게이트의 패턴이 허용하는 정확한 `model` 선택자 하나, 공모전 폴더 안의 `source`·`instructions` 파일을 적는다. provider가 `agy`인 선택자는 Antigravity CLI로, 그 밖은 omp로 실행한다. 도구는 그 모델을 한 번 부른다. 도구를 내주지 않고(omp에서는 설정된 MCP 서버의 도구도 뺀다), 다른 모델로 재시도하거나 fallback하지 않으며, 후보와 러너의 출력 전부를 `.private/writing/<run_id>/`에 남긴다. 러너의 이벤트가 요청한 모델을 가리키고, 끝난 응답이 하나이며, 도구 호출이 없을 때만 실행으로 인정한다. 본문에 적힌 작성 모델, 모델 목록, 요청한 이름만으로는 증거가 되지 않는다. 공급자가 막으면 `pricing_required`·`insufficient_credits`로 알리고 다른 것을 시도하지 않으며, 같은 run id는 두 번 실행하지 않는다. `check`는 증거를 다시 읽고 `evidence`에 넣을 파일 목록을 낸다. 도구는 후보를 원고에 반영하지 않는다. 세션이 기준본과 대조한 뒤에 쓴다.
+
+이 검사는 로컬 기록끼리의 일관성 검사이고 공급자의 증명이 아니다. 자세한 것은 계약 24절.
+
+### 선택적 아카이브 동기화
+
+`controllers.archive`는 고른 공모전만 기존 아카이브 저장소(`index.json`의 `contests` 배열, `contests/` 아래 공모전별 트리)에 더하거나 갱신하고, 다른 트리와 행은 그대로 둔다.
+
+```bash
+python3 -B -m controllers.archive prepare --file <요청.json>   # data/archive-sync/<run_id>/에 후보 커밋. 올리지 않는다
+python3 -B -m controllers.archive publish --run-id <uuid>      # 관측한 커밋 위에만 얹히는 올리기 한 번, 이어서 검증
+python3 -B -m controllers.archive verify --run-id <uuid>       # 원격에서 커밋·행·트리를 확인
+python3 -B -m controllers.archive abandon --run-id <uuid>      # 결과 불명으로 남은 올리기를 포기
+```
+
+- 요청에는 공모전 id마다 올릴 파일(각각 SHA-256과 `"privacy_reviewed": true`), 원격과 브랜치, `"private_remote_confirmed": true`를 적는다(원격이 비공개인지는 Git이 알려 주지 않으므로 직접 확인한다). 진행 중이고 제출 기록이 없는 공모전만 받는다. 아카이브가 이미 제출로 표시한 행은 고치지 않는다.
+- 숨김·비공개·빌드 폴더, 서명·신분·신청서류 이름, 심볼릭 링크, 텍스트가 아닌 확장자, 1.5 MiB를 넘는 파일, 이메일·전화번호·주민등록번호·키·토큰 모양이 든 내용이 하나라도 있으면 선택 전체를 거절한다. 이 검사가 파일별 검토를 대신하지는 않는다.
+- 올리기는 관측한 바로 그 커밋에 조건을 걸어, 이력을 고쳐 쓰지 않고 다른 쓰기가 먼저 들어오면 거절된다. 응답을 받지 못해도 다시 올리지 않는다. `verify`가 `verified`·`superseded`·`not_published`·`unknown`을 내고, `unknown`인 실행은 확인되거나 포기될 때까지 같은 공모전의 다음 실행을 막는다.
+- `data/archive-sync/config.json`에 `{"enabled": true}`가 있으면 대기열 컨트롤러가 실행에 성공할 때마다 `data/archive-sync/pending/`에 메모를 남긴다(`enqueue`). 직접 배정하거나 체크포인트를 마친 뒤에는 메인 세션이 같은 일을 한다. 메모는 아무것도 올리지 않고, 메모 실패가 실행을 실패로 만들거나 되풀이하게 하지 않는다.
+
+자세한 것은 계약 25절.
+
 ### 관리 컨트롤러
 
 상시 자동화는 `controllers/` 패키지에 있고 `data/`에는 상태와 기록만 둔다.

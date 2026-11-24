@@ -16,7 +16,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from . import briefs, preset
+from . import archive, briefs, preset
 from .common import (Ach, AchError, Alerts, EventLog, atomic_write_json, deadline_band, error_code,
                      parse_time, read_json, serve, utcnow)
 
@@ -171,6 +171,11 @@ class QueueController:
             return 'stop'
         self.log.emit('launched', contest_id=contest_id, handle=result.get('handle'),
                       workspace_id=result.get('workspace_id'), preset=result.get('preset'))
+        # A note for a later archive update, when the operator enabled it. The launch stands whatever
+        # becomes of the note: it is never a reason to launch again.
+        noted = archive.enqueue(self.ach, contest_id, 'assignment')
+        if noted['state'] != 'disabled':
+            self.log.emit('archive_sync_followup', contest_id=contest_id, state=noted['state'])
         handle = result.get('handle')
         if not handle:
             self.log.emit('handoff_unverified', contest_id=contest_id, reason='missing_handle')

@@ -62,6 +62,7 @@
 - 에이전트(`ContestScout`, `ContestGate` 등)는 러너의 서브에이전트 기능으로 실행한다(omp는 `task` 도구). 서브에이전트 기능이 없는 러너면 같은 세션에서 해당 에이전트 지시문(`agents/<이름>.md`)을 읽고 차례로 수행한다.
 - 게이트를 여러 건 돌릴 때는 `ach capacity --json`의 `providers` 한도 상태를 보고 개수를 정한다. 한도가 빠듯하면 마감이 가까운 순으로 줄인다.
 - 상태를 바꾼 뒤에는 `ach board --json`으로 보드를 갱신한다.
+- 아카이브: 운영자가 선택적 아카이브 동기화를 켜 두었으면(`data/archive-sync/config.json`) 직접 배정·실행에 성공한 뒤 `python3 -B -m controllers.archive enqueue --id <id> --phase assignment`로 대기 기록을 남긴다(계약 25절). 올리기는 사용자가 고른 대상과 검토한 파일로만 `prepare` → `publish` → `verify` 순서로 하고, 아카이브가 실패해도 배정·실행을 다시 하지 않는다. 결과 불명인 올리기는 다시 올리지 않고 `verify`로 확인한다.
 
 ## 답변
 

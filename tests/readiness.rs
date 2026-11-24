@@ -485,3 +485,243 @@ fn changing_followup_required_needs_a_new_request_and_approval() {
     approve(&mut e, "제출해, 후속 일정 없음", "user", None).unwrap();
     assert!(submit_approved(&e));
 }
+
+/// The files `controllers.writing` leaves for one run, written by hand: a fixture of the evidence
+/// format, not a model call. `answered` is the model the runner's events name.
+fn writing_run(e: &Entry, name: &str, stage: &str, requested: &str, answered: &str, text: &str) -> Value {
+    let dir = folder(e).join(".private/writing").join(name);
+    fs::create_dir_all(&dir).unwrap();
+    let (provider, model) = answered.split_once('/').unwrap();
+    let agy = requested.starts_with("agy/");
+    let (trace, policy) = if agy {
+        (
+            format!(
+                "{}\n{}\n{}\n",
+                json!({"event": "init", "conversation_id": "c1", "init": {"model": model}}),
+                json!({"event": "step_update", "step_update": {"step_type": "agent_response", "state": "DONE"}}),
+                json!({"event": "result", "result": {"conversation_id": "c1", "status": "SUCCESS",
+                    "response": text, "num_turns": 1}})
+            ),
+            json!({"permissions": {"allow": [], "deny": ["*"]}}),
+        )
+    } else {
+        (
+            format!(
+                "{}\n{}\n",
+                json!({"type": "message_end", "message": {"role": "assistant", "provider": provider,
+                    "model": model, "stopReason": "stop", "content": [{"type": "text", "text": text}]}}),
+                json!({"type": "agent_end"})
+            ),
+            json!({"retry": {"enabled": false, "modelFallback": false, "usageAwareFallback": false},
+                "contextPromotion": {"enabled": false}}),
+        )
+    };
+    let patterns = e.gate.as_ref().unwrap()["writing_models"][stage].clone();
+    let mut contents = vec![
+        ("input.md", "기준본\n".to_string()),
+        ("prompt.md", "다듬는다\n".to_string()),
+        ("writing-models.json", patterns.to_string()),
+        ("runner-policy.json", policy.to_string()),
+        ("stdout.jsonl", trace),
+        ("stderr.log", String::new()),
+        ("candidate.md", text.to_string()),
+    ];
+    if !agy {
+        contents.push(("runner-guard.ts", "export default function () {}\n".to_string()));
+        contents.push(("system.md", "prose only\n".to_string()));
+    }
+    let mut named = serde_json::Map::new();
+    for (file, body) in &contents {
+        fs::write(dir.join(file), body).unwrap();
+        named.insert((*file).to_string(), json!(readiness::sha256_file(&dir.join(file)).unwrap()));
+    }
+    let receipt = json!({"version": 1, "run_id": name, "stage": stage, "runner": if agy { "agy" } else { "omp" },
+        "contest_id": e.id, "revision": registry::revision(e), "requested_model": requested,
+        "observed_models": [answered], "allowed_models": patterns, "code": "candidate_generated",
+        "returncode": 0, "files": named});
+    fs::write(dir.join("receipt.json"), receipt.to_string()).unwrap();
+    let mut names: Vec<String> = contents.iter().map(|(file, _)| format!(".private/writing/{name}/{file}")).collect();
+    names.push(format!(".private/writing/{name}/receipt.json"));
+    files(e, &names.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+fn with_evidence(e: &mut Entry, evidence: Value) {
+    let mut raw = request(e, &["form.md"]);
+    raw["evidence"] = evidence;
+    readiness::record(e, &raw).unwrap();
+}
+
+#[test]
+fn a_ready_score_never_stands_in_for_required_evidence() {
+    let mut e = eligible("r-evidence");
+    assert!(reasons(&e, false).is_empty());
+    let gate = e.gate.as_mut().unwrap();
+    gate["required_evidence"] = json!(["editor_execution", "originality_pledge"]);
+    gate["writing_models"] = json!({"edit": ["agy/gemini-*-hydrogen-*"]});
+    // The latest final is ready, but nothing proves the required steps.
+    assert_eq!(status(&e, false).unwrap()["latest_final"]["verdict"], "ready");
+    assert_eq!(reasons(&e, false), ["required_evidence_missing"]);
+    assert_eq!(readiness::record_reasons(&e), ["required_evidence_missing"]);
+    assert!(approve(&mut e, "제출해", "user", None).is_err(), "a user approval needs the evidence too");
+
+    // Any file proves a plain code; an execution code needs the evidence of a run.
+    fs::write(folder(&e).join("pledge.md"), "서약\n").unwrap();
+    fs::write(folder(&e).join("note.md"), "Hydrogen이 다듬었다\n").unwrap();
+    let pledge = files(&e, &["pledge.md"]);
+    let note = files(&e, &["note.md"]);
+    with_evidence(&mut e, json!({"originality_pledge": pledge, "editor_execution": note}));
+    assert_eq!(reasons(&e, false), ["required_execution_unverified"]);
+    assert!(readiness::record_reasons(&e).is_empty(), "stored records alone cannot tell");
+
+    // A run another model answered is not the editor's work, whatever was requested.
+    let other =
+        writing_run(&e, "run-other", "edit", "agy/gemini-4-hydrogen-high", "agy/gemini-4-carbon-high", "다듬은 글\n");
+    with_evidence(&mut e, json!({"originality_pledge": pledge, "editor_execution": other}));
+    assert_eq!(reasons(&e, false), ["required_execution_unverified"]);
+
+    let run =
+        writing_run(&e, "run-1", "edit", "agy/gemini-4-hydrogen-high", "agy/gemini-4-hydrogen-high", "다듬은 글\n");
+    with_evidence(&mut e, json!({"originality_pledge": pledge, "editor_execution": run}));
+    assert!(reasons(&e, false).is_empty(), "{:?}", reasons(&e, false));
+    approve(&mut e, "제출해", "user", None).unwrap();
+
+    // A candidate edited after the run no longer is what the model returned.
+    fs::write(folder(&e).join(".private/writing/run-1/candidate.md"), "손으로 고친 글\n").unwrap();
+    assert_eq!(reasons(&e, false), ["required_evidence_changed"]);
+}
+
+#[test]
+fn execution_evidence_is_checked_against_the_runner_events_and_the_gate() {
+    let mut e = eligible("r-evidence-runs");
+    let gate = e.gate.as_mut().unwrap();
+    gate["required_evidence"] = json!(["draft_execution"]);
+    gate["writing_models"] = json!({"draft": ["fixture/claude-*", "fixture/*-astra"], "edit": ["agy/gemini-*"]});
+    let valid = |e: &mut Entry, evidence: Value| {
+        with_evidence(e, json!({"draft_execution": evidence}));
+        reasons(e, false).is_empty()
+    };
+
+    let run = writing_run(&e, "d1", "draft", "fixture/claude-opus", "fixture/claude-opus", "초안\n");
+    assert!(valid(&mut e, run.clone()));
+    // Several runs (one per section) count together; one of them unverified spoils the proof.
+    let second = writing_run(&e, "d2", "draft", "fixture/gpt-astra", "fixture/gpt-astra", "둘째 절\n");
+    let both: Vec<Value> = run.as_array().unwrap().iter().chain(second.as_array().unwrap()).cloned().collect();
+    assert!(valid(&mut e, json!(both)));
+    let model_outside = writing_run(&e, "d3", "draft", "fixture/gemini", "fixture/gemini", "초안\n");
+    assert!(!valid(&mut e, model_outside), "a model the gate does not allow");
+    let edit_run = writing_run(&e, "d4", "edit", "agy/gemini-4", "agy/gemini-4", "다듬은 글\n");
+    assert!(!valid(&mut e, edit_run), "an edit run is not a draft");
+    // A subset of the run's files proves nothing.
+    let partial: Vec<Value> =
+        run.as_array().unwrap().iter().filter(|f| f["path"] != ".private/writing/d1/stdout.jsonl").cloned().collect();
+    assert!(!valid(&mut e, json!(partial)));
+
+    // The receipt's word is not enough: the runner's events must hold the same model and text.
+    let rewrite = |e: &Entry, name: &str, file: &str, body: String| {
+        let dir = folder(e).join(".private/writing").join(name);
+        fs::write(dir.join(file), body).unwrap();
+        let mut receipt: Value = serde_json::from_slice(&fs::read(dir.join("receipt.json")).unwrap()).unwrap();
+        receipt["files"][file] = json!(readiness::sha256_file(&dir.join(file)).unwrap());
+        fs::write(dir.join("receipt.json"), receipt.to_string()).unwrap();
+        let names: Vec<String> = receipt["files"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .chain([&"receipt.json".to_string()])
+            .map(|f| format!(".private/writing/{name}/{f}"))
+            .collect();
+        files(e, &names.iter().map(String::as_str).collect::<Vec<_>>())
+    };
+    let message = |model: &str, stop: &str, content: Value| {
+        json!({"type": "message_end", "message": {"role": "assistant", "provider": "fixture", "model": model,
+            "stopReason": stop, "content": content}})
+        .to_string()
+    };
+    let text = json!([{"type": "text", "text": "초안\n"}]);
+    let end = json!({"type": "agent_end"}).to_string();
+    for (case, trace) in [
+        ("another model answered", format!("{}\n{end}\n", message("claude-haiku", "stop", text.clone()))),
+        ("cut off", format!("{}\n{end}\n", message("claude-opus", "length", text.clone()))),
+        ("the run did not end", format!("{}\n", message("claude-opus", "stop", text.clone()))),
+        ("two attempts", format!("{0}\n{0}\n{end}\n", message("claude-opus", "stop", text.clone()))),
+        (
+            "a tool call",
+            format!(
+                "{}\n{end}\n",
+                message(
+                    "claude-opus",
+                    "stop",
+                    json!([{"type": "toolCall", "name": "x"}, {"type": "text", "text": "초안\n"}])
+                )
+            ),
+        ),
+        (
+            "another text",
+            format!("{}\n{end}\n", message("claude-opus", "stop", json!([{"type": "text", "text": "다른 글\n"}]))),
+        ),
+    ] {
+        writing_run(&e, "d5", "draft", "fixture/claude-opus", "fixture/claude-opus", "초안\n");
+        let evidence = rewrite(&e, "d5", "stdout.jsonl", trace);
+        assert!(!valid(&mut e, evidence), "{case}");
+    }
+    writing_run(&e, "d6", "draft", "fixture/claude-opus", "fixture/claude-opus", "초안\n");
+    let fallback_on = rewrite(&e, "d6", "runner-policy.json", json!({"retry": {"enabled": true}}).to_string());
+    assert!(!valid(&mut e, fallback_on), "a run that allowed retries or fallback");
+
+    // Evidence belongs to the contest and the work revision it was made in.
+    assert!(valid(&mut e, run.clone()));
+    for (key, value) in [("revision", json!(registry::revision(&e) + 1)), ("contest_id", json!("another-contest"))] {
+        writing_run(&e, "d7", "draft", "fixture/claude-opus", "fixture/claude-opus", "초안\n");
+        let dir = folder(&e).join(".private/writing/d7");
+        let mut receipt: Value = serde_json::from_slice(&fs::read(dir.join("receipt.json")).unwrap()).unwrap();
+        receipt[key] = value;
+        fs::write(dir.join("receipt.json"), receipt.to_string()).unwrap();
+        let names: Vec<String> = receipt["files"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .chain([&"receipt.json".to_string()])
+            .map(|f| format!(".private/writing/d7/{f}"))
+            .collect();
+        let evidence = files(&e, &names.iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(!valid(&mut e, evidence), "{key}");
+    }
+}
+
+#[test]
+fn a_gate_declares_required_evidence_and_writing_models_strictly() {
+    let gate = |extra: Value| {
+        let mut gate = json!({"decision": "pass", "type": "idea", "level": 2,
+            "criteria": [{"name": "완성도", "weight": 100}], "reasons": ["근거"]});
+        gate.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let mut e = new_entry(NewEntry {
+            id: "r-gate-evidence",
+            title: "공모전",
+            url: "https://e.com",
+            source: "manual",
+            organizer: "",
+            deadline: None,
+            categories: vec![],
+            note: None,
+        });
+        apply_gate(&mut e, gate, "ContestGate").map(|()| e)
+    };
+    let e = gate(json!({"required_evidence": ["draft_execution", "editor_execution", "originality_pledge"],
+        "writing_models": {"draft": ["anthropic/claude-*"], "edit": ["agy/gemini-4-hydrogen-high"]}}))
+    .unwrap();
+    assert_eq!(e.gate.as_ref().unwrap()["writing_models"]["edit"], json!(["agy/gemini-4-hydrogen-high"]));
+    assert!(gate(json!({})).is_ok(), "both fields are optional");
+    for bad in [
+        json!({"required_evidence": ["editor_execution"]}),
+        json!({"required_evidence": ["editor_execution"], "writing_models": {"draft": ["a/b"]}}),
+        json!({"required_evidence": ["pledge", "pledge"]}),
+        json!({"required_evidence": ["Has Space"]}),
+        json!({"required_evidence": "pledge"}),
+        json!({"writing_models": {"edit": []}}),
+        json!({"writing_models": {"review": ["a/b"]}}),
+        json!({"writing_models": {"edit": ["a/b c"]}}),
+        json!({"writing_models": ["a/b"]}),
+    ] {
+        assert!(gate(bad.clone()).is_err(), "{bad}");
+    }
+}
