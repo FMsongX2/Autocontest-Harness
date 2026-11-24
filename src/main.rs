@@ -155,8 +155,13 @@ enum Command {
         expected_request: Option<String>,
         /// The `key` of the one accepted `criteria` rule to use, when the official rules give
         /// separate criteria per division or track. The rows must be that rule's rows exactly.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "assumed_criteria")]
         criteria_key: Option<String>,
+        /// The accepted official rules publish no criteria or weights: fill in the criteria every
+        /// recorded score used, equal weights within a stage, marked "[가정]" in the gate reasons
+        /// (only for a request ready but for its independent evaluation; one per work revision).
+        #[arg(long)]
+        assumed_criteria: bool,
         /// Check every condition and show the change without writing anything.
         #[arg(long)]
         dry_run: bool,
@@ -887,7 +892,15 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(json_mode, &entry, Some(format!("게이트 기록: {}", line(&entry))))?;
             Ok(0)
         }
-        Command::GateCriteria { id, file, expected_revision, expected_request, criteria_key, dry_run } => {
+        Command::GateCriteria {
+            id,
+            file,
+            expected_revision,
+            expected_request,
+            criteria_key,
+            assumed_criteria,
+            dry_run,
+        } => {
             let text = read_file(file)?;
             let session = std::env::var(launch::SESSION_ENV).ok();
             let request = amend::Request {
@@ -896,6 +909,7 @@ fn run(cli: &Cli) -> Result<u8> {
                 expected_revision: *expected_revision,
                 expected_request: expected_request.as_deref(),
                 criteria_key: criteria_key.as_deref(),
+                assumed: *assumed_criteria,
                 session: session.as_deref(),
                 dry_run: *dry_run,
             };

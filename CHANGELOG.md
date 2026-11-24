@@ -4,6 +4,18 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.5 - 2026-11-24
+
+### Added
+- `ach gate-criteria … --assumed-criteria` fills the empty gate criteria of a contest whose notice publishes no criteria or weights with the score loop's `[가정]` equal-weight criteria, so the work can get an internal independent evaluation. Until now only structured rows of the accepted official rules counted, so `ach evaluation prepare` always refused such a contest and it could never get the independent final assessment a delegated approval needs (`independent_final_missing`). Official rules are not invented: the accepted rule version must have at least one `criteria` rule and none of them may hold a structured row (the notice's silence on criteria must itself be an accepted rule with its source location); one official row refuses the option. The new rows are the rows every recorded score already used, every row carries points, and rows of one stage carry equal points. The request must be ready to approve but for its independent evaluation (`awaiting_approval`, a current readiness record whose files hash as recorded, a current `ready` final that reviewed them). The corrected file adds `"[가정] 배점 미공개, 균등 배분"` as the last line of `reasons` besides the criteria. Not together with `--criteria-key`.
+- The result and the `extra.gate_amendments` record carry `basis` (`official_rules` or `assumed_equal_weights`). For assumed criteria `evidence.rules` cites every accepted `criteria` rule with its value, and the same-state history marker says the criteria are an assumption.
+
+### Changed
+- A contest whose criteria were filled as an assumption gets one independent evaluation per work revision. `ach evaluation prepare` makes only an `independent_final` packet, one per revision, checks the request again when it does (readiness file hashes, a `ready` final that reviewed them), and the candidate's sources must be exactly the readiness files (paths and SHA-256). `ach evaluation record` takes one assessment of that packet (the same record from the same `run_id` is a `duplicate`). Contests with official criteria are unchanged.
+
+### Migration
+- None. Entries change only when the command is run for them.
+
 ## 0.9.4 - 2026-11-24
 
 ### Fixed

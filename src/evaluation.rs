@@ -10,6 +10,10 @@
 //!   the documents is the caller's job and is recorded as a caller attestation, never as a
 //!   verified anonymization.
 //! - `record` stores one immutable assessment of a packet by a named evaluator/model/run.
+//! - An entry whose gate criteria are an assumption (`ach gate-criteria --assumed-criteria`: the
+//!   official rules publish none) gets one `independent_final` packet per work revision, of exactly
+//!   the files its readiness record submits and only once that request checks out, and one
+//!   assessment of it.
 //! - `validate_final` binds a `final` score to a current independent assessment.
 //! - `report`, `outcome` and `calibration` report measured dispersion and observed outcomes.
 //!
@@ -460,6 +464,9 @@ pub fn prepare(entry: &mut Entry, raw: &Value) -> Result<Value> {
         }
         declared.push(d);
     }
+    if crate::amend::criteria_assumed(entry) {
+        check_assumed_packet(entry, &purpose, &declared)?;
+    }
     let rubric = match raw.get("rubric") {
         None | Some(Value::Null) => None,
         Some(item) => {
@@ -596,6 +603,56 @@ pub fn prepare(entry: &mut Entry, raw: &Value) -> Result<Value> {
         "anonymization": "caller_attested",
         "boundary": BOUNDARY,
     }))
+}
+
+/// An entry whose gate criteria are an assumption ([`crate::amend::criteria_assumed`]: the
+/// official rules publish no criteria) gets one independent final evaluation of the files it would
+/// submit, per work revision. The packet is `independent_final`; the request is ready but for that
+/// evaluation (a current readiness record whose files hash as recorded and a current passing
+/// `final` that reviewed them); the candidate's sources are exactly the request's files; and no
+/// other `independent_final` packet exists for the revision.
+fn check_assumed_packet(entry: &Entry, purpose: &str, declared: &[Declared]) -> Result<()> {
+    let id = &entry.id;
+    if purpose != "independent_final" {
+        bail!("{id}: 가정 기준(배점 미공개)으로 채운 공모전은 independent_final 묶음만 만든다");
+    }
+    let revision = registry::revision(entry) as u64;
+    let earlier = section(entry, "packets")
+        .iter()
+        .find(|p| p["purpose"] == "independent_final" && p["revision"].as_u64() == Some(revision));
+    if let Some(packet) = earlier {
+        bail!(
+            "{id}: 가정 기준 공모전의 독립 평가는 작업 판마다 한 번이다(작업 판 {revision}의 묶음 {}). 같은 파일을 다시 평가하지 않는다",
+            packet["packet_id"].as_str().unwrap_or("-")
+        );
+    }
+    let reviewed = readiness::evaluate(entry, false, false);
+    if !reviewed.reasons.is_empty() || reviewed.basis != "score" {
+        let why = match reviewed.reasons.is_empty() {
+            true => "점수 관문이 없는 요청".to_string(),
+            false => reviewed.reasons.join(", "),
+        };
+        bail!(
+            "{id}: 가정 기준 공모전의 독립 평가는 제출 파일과 최종 채점까지 확인된 승인 대기 요청에만 한다({why}). ach approval-status {id}로 확인한다"
+        );
+    }
+    let content = readiness::request_content(entry).unwrap_or(Value::Null);
+    let mut request: Vec<(String, String)> = content["artifacts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| (a["path"].as_str().unwrap_or("").to_string(), a["sha256"].as_str().unwrap_or("").to_string()))
+        .collect();
+    request.sort();
+    let mut sources = declared.first().map(|d| d.sources.clone()).unwrap_or_default();
+    sources.sort();
+    if sources != request {
+        bail!(
+            "{id}: 가정 기준 공모전의 독립 평가 원본(source)은 제출 준비 기록의 파일 전부여야 한다(기록: {})",
+            request.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>().join(", ")
+        );
+    }
+    Ok(())
 }
 
 type Built = (Vec<Value>, Option<Value>, Vec<Value>);
@@ -848,6 +905,15 @@ pub fn record(entry: &mut Entry, raw: &Value) -> Result<Value> {
             "{}: 같은 run_id({})의 다른 평가가 이미 있다. 평가 기록은 바꾸지 않는다(새 실행이면 새 run_id)",
             entry.id,
             run_id
+        );
+    }
+    if crate::amend::criteria_assumed(entry)
+        && packet["purpose"] == "independent_final"
+        && assessments_of(entry, &packet_id).next().is_some()
+    {
+        bail!(
+            "{}: 가정 기준 공모전의 독립 평가 묶음 {packet_id}은(는) 이미 평가됐다. 독립 평가는 작업 판마다 한 번이다",
+            entry.id
         );
     }
     let mut stored = body;

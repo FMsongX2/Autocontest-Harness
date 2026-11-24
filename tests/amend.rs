@@ -154,6 +154,7 @@ struct Call {
     token: Option<String>,
     session: Option<&'static str>,
     key: Option<&'static str>,
+    assumed: bool,
     dry_run: bool,
 }
 
@@ -166,6 +167,7 @@ impl Call {
             token: token(e),
             session: None,
             key: None,
+            assumed: false,
             dry_run: false,
         }
     }
@@ -173,6 +175,11 @@ impl Call {
     /// The same, naming the accepted criteria rule of one division.
     fn selecting(e: &Entry, gate: &Value, key: &'static str) -> Call {
         Call { key: Some(key), ..Call::reviewed(e, gate) }
+    }
+
+    /// The same, filling in the criteria the work was scored with as an assumption.
+    fn assuming(e: &Entry, gate: &Value) -> Call {
+        Call { assumed: true, ..Call::reviewed(e, gate) }
     }
 
     fn run(&self, e: &mut Entry) -> harness::error::Result<Value> {
@@ -184,6 +191,7 @@ impl Call {
                 expected_revision: self.revision,
                 expected_request: self.token.as_deref(),
                 criteria_key: self.key,
+                assumed: self.assumed,
                 session: self.session,
                 dry_run: self.dry_run,
             },
@@ -630,4 +638,139 @@ fn a_selection_passes_every_other_condition_too() {
     Call::selecting(&e, &gate, "service").run(&mut e).unwrap();
     let other = Call::selecting(&e, &corrected(&e, data_division()), "data");
     assert_refused(&mut e, &other, "이미 있다");
+}
+
+/// Rows with equal weights within one stage: what the work of an [`unpublished`] entry was scored
+/// with under ContestGate's rule for unpublished weights.
+fn equal() -> Value {
+    json!([
+        {"stage": "본심", "name": "창의성", "weight": 50},
+        {"stage": "본심", "name": "완성도", "weight": 50}
+    ])
+}
+
+fn equal_score(e: &Entry, stage: &str, a: f64, b: f64) -> Value {
+    let file =
+        json!({"path": "proposal.md", "sha256": readiness::sha256_file(&folder(e).join("proposal.md")).unwrap()});
+    json!({"at": "t", "stage": stage, "total": a + b, "target": 90.0, "verdict": "ready",
+    "revision": registry::revision(e), "rules_binding": rules::binding(e), "artifacts": [file], "final_rounds": 3,
+    "criteria": [
+        {"name": "창의성", "round": "본심", "weight": 50.0, "score": a},
+        {"name": "완성도", "round": "본심", "weight": 50.0, "score": b}
+    ]})
+}
+
+/// An entry whose accepted official `criteria` rule says the notice publishes no criteria, scored
+/// with [`equal`] rows and ready to approve but for the independent evaluation.
+fn unpublished(id: &str) -> Entry {
+    let mut e = entry_with(id, json!("심사기준·배점 공고에 없음"));
+    e.scores = vec![equal_score(&e, "plan", 45.0, 45.0), equal_score(&e, "final", 46.0, 46.0)];
+    assert!(readiness::evaluate(&e, false, false).reasons.is_empty(), "the fixture is a complete request");
+    e
+}
+
+/// The recorded gate with [`equal`] criteria and the assumption marked in `reasons`.
+fn assumed_gate(e: &Entry) -> Value {
+    let mut gate = corrected(e, equal());
+    gate["reasons"].as_array_mut().unwrap().push(json!(amend::ASSUMED_REASON));
+    gate
+}
+
+fn assessment(e: &Entry, prepared: &Value, run: &str) -> Value {
+    let dir = folder(e).join(prepared["packet_dir"].as_str().unwrap());
+    let manifest: Value = serde_json::from_slice(&fs::read(dir.join(evaluation::MANIFEST)).unwrap()).unwrap();
+    json!({
+        "packet_id": prepared["packet_id"],
+        "evaluator": {"id": "ContestJudge", "model": "fixture-model", "run_id": run},
+        "mode": "independent",
+        "candidates": [{"label": "A", "total": 88.0, "verdict": "ready", "artifacts": manifest["candidates"][0]["files"],
+            "scores": [
+                {"name": "창의성", "round": "본심", "weight": 50, "score": 44},
+                {"name": "완성도", "round": "본심", "weight": 50, "score": 44}
+            ]}],
+    })
+}
+
+#[test]
+fn unpublished_criteria_are_filled_as_a_marked_assumption_for_one_independent_evaluation() {
+    let mut e = unpublished("amend-assumed");
+    let before = e.clone();
+
+    // Prose saying there are no criteria is no official row: the plain correction stays refused.
+    let call = Call::reviewed(&e, &corrected(&e, equal()));
+    assert_refused(&mut e, &call, "구조화된 기준 행");
+    // The assumption must be marked in the gate reasons, and the weights must be equal.
+    let call = Call::assuming(&e, &corrected(&e, equal()));
+    assert_refused(&mut e, &call, "criteria 밖에서 다르다(reasons)");
+    let mut uneven = assumed_gate(&e);
+    uneven["criteria"] =
+        json!([{"stage": "본심", "name": "창의성", "weight": 40}, {"stage": "본심", "name": "완성도", "weight": 60}]);
+    let call = Call::assuming(&e, &uneven);
+    assert_refused(&mut e, &call, "균등 배분");
+    // Rows the work was not scored with are refused too.
+    let mut other = assumed_gate(&e);
+    other["criteria"] = json!([{"stage": "본심", "name": "창의성", "weight": 100}]);
+    let call = Call::assuming(&e, &other);
+    assert_refused(&mut e, &call, "기록된 점수 1(plan)");
+    let call = Call { key: Some("service"), ..Call::assuming(&e, &assumed_gate(&e)) };
+    assert_refused(&mut e, &call, "함께 쓰지 않는다");
+
+    let out = Call::assuming(&e, &assumed_gate(&e)).run(&mut e).unwrap();
+    assert_eq!((&out["basis"], &out["after"], &out["amendment"]), (&json!(amend::BASIS_ASSUMED), &equal(), &json!(1)));
+    assert!(amend::criteria_assumed(&e));
+    assert_eq!(e.gate, Some(assumed_gate(&before)));
+    assert_eq!(e.extra[amend::KEY][0]["basis"], amend::BASIS_ASSUMED);
+    assert_eq!(e.extra[amend::KEY][0]["evidence"]["rules"][0]["value"], "심사기준·배점 공고에 없음");
+    assert!(e.history.last().unwrap().note.contains(amend::ASSUMED_REASON));
+    // The official rules, the request and the scores are as they were.
+    assert_eq!(e.extra[rules::KEY], before.extra[rules::KEY]);
+    assert_eq!(token(&e), token(&before));
+    assert_eq!(e.scores, before.scores);
+
+    // The independent evaluation is of the files the request submits, as one final packet.
+    let mut comparison = packet_request(&e);
+    comparison["purpose"] = json!("comparison");
+    comparison["stage"] = json!("final");
+    comparison["candidates"] = json!([comparison["candidates"][0], comparison["candidates"][0]]);
+    comparison["candidates"][0]["name"] = json!("가");
+    comparison["candidates"][1]["name"] = json!("나");
+    assert!(evaluation::prepare(&mut e, &comparison).unwrap_err().0.contains("independent_final 묶음만"));
+    let mut elsewhere = packet_request(&e);
+    let rubric = elsewhere["rubric"].clone();
+    elsewhere["candidates"][0]["artifacts"][0]["source"] = rubric;
+    assert!(evaluation::prepare(&mut e, &elsewhere).unwrap_err().0.contains("제출 준비 기록의 파일 전부"));
+    let request = packet_request(&e);
+    let prepared = evaluation::prepare(&mut e, &request).unwrap();
+    assert!(evaluation::prepare(&mut e, &request).unwrap_err().0.contains("작업 판마다 한 번"));
+
+    // One assessment: the same run again is idempotent, another run is refused.
+    let (r1, r2) = (assessment(&e, &prepared, "r1"), assessment(&e, &prepared, "r2"));
+    let first = evaluation::record(&mut e, &r1).unwrap();
+    let again = evaluation::record(&mut e, &r1).unwrap();
+    assert_eq!((&again["duplicate"], &again["assessment_id"]), (&json!(true), &first["assessment_id"]));
+    let second = evaluation::record(&mut e, &r2).unwrap_err();
+    assert!(second.0.contains("이미 평가됐다"), "{}", second.0);
+    assert_eq!(e.extra[evaluation::KEY]["assessments"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn the_assumption_needs_rules_without_official_rows_and_a_checked_request() {
+    // Official rows exist: they are never replaced by an assumption.
+    let mut official_rows = entry("amend-assumed-official");
+    let mut gate = corrected(&official_rows, official());
+    gate["reasons"].as_array_mut().unwrap().push(json!(amend::ASSUMED_REASON));
+    let call = Call::assuming(&official_rows, &gate);
+    assert_refused(&mut official_rows, &call, "공식 기준 행이 있다");
+
+    // The final no longer covers the files the request submits.
+    let mut changed = unpublished("amend-assumed-changed");
+    fs::write(folder(&changed).join("proposal.md"), "고친 제안서\n").unwrap();
+    let call = Call::assuming(&changed, &assumed_gate(&changed));
+    assert_refused(&mut changed, &call, "최종 채점까지 확인된 승인 대기 요청에만");
+
+    // The latest final is not ready.
+    let mut revise = unpublished("amend-assumed-revise");
+    revise.scores[1]["verdict"] = json!("revise");
+    let call = Call::assuming(&revise, &assumed_gate(&revise));
+    assert_refused(&mut revise, &call, "final_not_ready");
 }

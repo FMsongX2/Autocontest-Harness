@@ -260,7 +260,7 @@ running    → followup_pending(기존 제출 기록이 있을 때만)
 | `ach list [--state S] [--type T]` | 목록(마감 순) |
 | `ach show <id>` | 항목 전체 |
 | `ach gate <id> --file gate.json` | 게이트 결과를 기록한다(`type`, `level`, `priority` 포함). `decision`에 따라 `gate_pass`/`rejected`/`hold`로 옮긴다 |
-| `ach gate-criteria <id> --file <정정 gate.json> --expected-revision N [--expected-request 토큰] [--criteria-key K] [--dry-run]` | 진행 중인 항목의 비어 있는 `gate.criteria`만 수락된 공식 규칙 근거로 채운다(7절 "심사기준 보완"). 공식 규칙이 부문별 기준이면 `--criteria-key`로 출품 부문의 `criteria` 규칙 하나를 고른다. 조건이 하나라도 어긋나면 아무것도 쓰지 않는다. 공모전 세션 안에서는 거절된다 |
+| `ach gate-criteria <id> --file <정정 gate.json> --expected-revision N [--expected-request 토큰] [--criteria-key K \| --assumed-criteria] [--dry-run]` | 진행 중인 항목의 비어 있는 `gate.criteria`만 수락된 공식 규칙 근거로 채운다(7절 "심사기준 보완"). 공식 규칙이 부문별 기준이면 `--criteria-key`로 출품 부문의 `criteria` 규칙 하나를 고른다. 수락된 공식 규칙이 심사기준·배점을 공개하지 않았다고 적은 공모전은 `--assumed-criteria`로 기록된 점수가 쓴 균등 배분 기준을 [가정]으로 채운다(내부 독립 평가 1회용). 조건이 하나라도 어긋나면 아무것도 쓰지 않는다. 공모전 세션 안에서는 거절된다 |
 | `ach route <id> [--folder 이름] [--no-repo] [--no-workspace]` | 폴더(git 초기화·첫 커밋)·저장소·작업 공간·`CONTEST.md`를 만들고 `session`을 기록한 뒤 `routed`로 옮긴다. 쓰기 전에 사전 점검을 한다: `--no-workspace`가 아니면 작업 환경 백엔드(와 `orca_repo_path`가 있는지), `--no-repo`가 아니면 `gh`가 PATH에 있고 `gh auth status`가 성공하는지, git 커밋 신원. 오류는 고치는 법을 알려 준다. `.harness/contest.json` 초안을 `.harness/` 바로 뒤에 쓰므로, 실패한 뒤 다시 돌리면 이어서 한다. 폴더 이름과 같은 GitHub 저장소가 이미 있으면 private이고 비어 있거나 이 공모전의 것(`.harness/contest.json` 또는 `CONTEST.md`의 `\| 하네스 id \| <id> \|` 행)이어야 하고, 원격 `main`의 이력이 다르면 거절한다. 저장소를 만든 뒤 GitHub Actions를 끄고(`gh api -X PUT repos/<full>/actions/permissions -F enabled=false`), 실패하면 경고한다. JSON에 `warnings`가 있다. `existing_contests.md`와 커밋 메시지의 제목은 한 줄이다. 제출 기록부에 같은 공모전이 있으면 거절한다 |
 | `ach launch <id> [--preset 이름] [--dry-run] [--force]` | 설정 러너를 설정 작업 환경에서 `env ACH_SESSION=<id> PATH=<클론>/bin:… <명령>`으로 띄우고 `running`으로 옮긴다. 전체 상한, 그 레벨의 상한, 메모리 예산(메모리 압박 포함) 중 하나라도 여유가 없으면 거절한다(`--force`로만 넘김). 용량 검사와 실행은 `data/launch.lock`으로 직렬화한다. `--preset`은 omp 전용이다. `--dry-run`은 아무것도 쓰지 않고 명령과 지시문만 보여 준다. JSON은 `prompt`(실제 실행이 쓸 지시문 경로), `prompt_text`, `warnings`(PATH에 없는 러너·작업 환경 실행 파일)를 담고, 텍스트에도 경고를 낸다 |
 | `ach peek <id> [--lines N]` | 띄운 세션의 화면(orca, tmux)이나 로그(headless) 끝 N줄(기본 40) |
@@ -418,7 +418,7 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 
 게이트 뒤 공식 원문 보관: `gate.json`의 `official_url`과 원문 첨부는 판정의 근거이므로, 게이트한 쪽(ContestGate)이 그 원문 바이트를 `ach rules capture`로 보관하고 판정에 쓴 규칙을 `ach rules review`로 기록한다(18절). `gate.json`은 요약이고, 규칙 변경 판단은 보관된 원문과 구조화된 규칙의 비교로만 한다.
 
-심사기준 보완(`ach gate-criteria <id> --file F --expected-revision N [--expected-request 토큰] [--criteria-key K] [--dry-run]`, 정본 `src/amend.rs`): 게이트는 라우팅 뒤에는 다시 기록할 수 없다. 게이트 기록의 `criteria`가 비어 있으면 독립 평가 패킷(19절)을 만들 수 없으므로, 메인 세션이나 사용자가 이 명령으로 그 한 필드만 채운다. `F`는 기록된 게이트에서 `criteria`만 채운 `gate.json` 사본이다. 아래 조건을 모두 만족할 때만 쓰고, 하나라도 어긋나면 이유를 내고 아무것도 바꾸지 않는다.
+심사기준 보완(`ach gate-criteria <id> --file F --expected-revision N [--expected-request 토큰] [--criteria-key K | --assumed-criteria] [--dry-run]`, 정본 `src/amend.rs`): 게이트는 라우팅 뒤에는 다시 기록할 수 없다. 게이트 기록의 `criteria`가 비어 있으면 독립 평가 패킷(19절)을 만들 수 없으므로, 메인 세션이나 사용자가 이 명령으로 그 한 필드만 채운다. `F`는 기록된 게이트에서 `criteria`만 채운 `gate.json` 사본이다(`--assumed-criteria`는 아래처럼 `reasons` 한 줄을 더한다). 아래 조건을 모두 만족할 때만 쓰고, 하나라도 어긋나면 이유를 내고 아무것도 바꾸지 않는다.
 
 - 공모전 세션 밖에서 실행한다(`ACH_SESSION`이 있으면 거절).
 - 항목이 `running`·`plan_review`·`awaiting_approval`이고, 제출 기록과 해소되지 않은 제출 시도(`intent`·`dispatching`·`unknown`)가 없다.
@@ -426,11 +426,12 @@ ContestGate가 쓰고 `ach gate`가 읽는다.
 - 기록된 게이트가 `pass`이고 `criteria`가 없거나 빈 배열이다. 정정 파일은 `criteria` 밖의 모든 필드가 기록된 게이트와 같다.
 - 새 기준 행 `{stage?, name, weight?}`(다른 필드 없음, 심사 단계+이름 중복 없음, 배점이 있는 기준 하나 이상)의 집합이 수락된 규칙 판(18절) `criteria` 범주 규칙의 구조화된 행(값이 배열이고 `name`이 있는 원소)과 같다. 그 규칙이 인용한 원문 스냅숏은 보관 때의 해시 그대로여야 한다. 글로만 적은 규칙은 근거가 되지 않는다.
 - 공식 규칙이 부문·트랙마다 다른 심사기준을 두면(부문마다 `key`가 다른 `criteria` 규칙 하나씩) `--criteria-key K`로 출품 부문의 규칙 하나를 고른다. `K`는 영문자·숫자·`.`·`_`·`-`만 쓴 100자 이하 값이다. 수락된 규칙 판에서 `key`가 `K`인 `criteria` 규칙이 정확히 하나여야 하고, 그 규칙 값의 모든 원소가 구조화된 행이어야 하며, 새 기준 행은 그 규칙의 행 전부와 개수·심사 단계·이름·배점이 같아야 한다. 부문 기준의 일부, 여러 부문의 행을 합치거나 섞은 것, 어느 규칙에도 없는 행, 규칙이 없거나 둘 이상인 `key`는 거절한다. `--criteria-key`가 없으면 수락된 `criteria` 규칙 전체의 행을 한 목록으로 대조하므로(여러 규칙에 같은 행이 있으면 한 번으로 센다) 한 부문의 행만으로는 통과하지 않고, 거절 사유에 고를 수 있는 `key`가 나온다. 고르지 않은 부문의 규칙은 지우거나 바꾸지 않는다.
+- 가정 기준(`--assumed-criteria`, `--criteria-key`와 함께 쓰지 않는다): 공고가 심사기준·배점을 공개하지 않은 공모전에서, 게이트 규칙("배점이 공개되지 않았으면 같은 단계 안에서 균등 배분", 8절 ContestGate)대로 기록된 점수가 이미 쓴 기준을 내부 평가용 [가정]으로 채운다. 공식 규칙을 지어내지 않는다: 수락된 규칙 판에 `criteria` 규칙이 하나 이상 있고 그 어느 규칙에도 구조화된 행이 없어야 한다(공고에 기준이 없다는 사실 자체가 원문 위치와 함께 수락된 규칙이어야 한다). 공식 행이 하나라도 있으면 거절한다. 새 기준 행은 모두 0보다 큰 배점이 있고 같은 심사 단계 안에서 배점이 같아야 한다. 요청은 독립 평가만 빼고 승인할 수 있는 상태여야 한다: `awaiting_approval`, 지금 작업 판의 제출 준비 기록(파일 해시가 지금 파일과 같음), 그 파일을 검토한 지금 작업 판의 `ready` 최종 점수(`ach approval-status`의 핵심 이유 코드가 비어 있음). 정정 파일은 `criteria`를 채우고 `reasons` 끝에 `"[가정] 배점 미공개, 균등 배분"` 한 줄을 더한(이미 있으면 그대로) 사본이어야 한다. 변경 기록에는 `basis: "assumed_equal_weights"`(공식 근거면 `"official_rules"`)가 남고, `evidence.rules`는 수락된 `criteria` 규칙 전부를 값과 함께 인용한다. 이렇게 채운 항목은 작업 판마다 독립 평가 1회만 받는다(19절).
 - 기록된 모든 점수의 기준 행(심사 단계·이름·배점)이 새 기준과 맞는다(`ach score`가 게이트 기준과 대조하는 규칙 그대로).
 - 이번 승인 대기에 제출 승인 기록이 없고(유효 여부와 무관), 독립 평가 패킷·평가 기록이 없다.
 - 폴더의 `.harness/gate.json`이 기록된 게이트(또는 이미 정정된 게이트)와 같다.
 
-쓰는 것은 폴더의 `.harness/gate.json`(임시 파일에 쓴 뒤 이름 바꾸기), 레지스트리 `gate.criteria`, 변경 기록 `extra.gate_amendments[{seq, at, by, field, before, after, weight_total, criteria_key, file: {path, sha256}, evidence: {rules_version, rules: [{key, source, verification}]}, state, revision, request_token, scores_checked, folder_gate: {path, sha256}}]`, 같은 상태의 `history` 표시(`by: "ach gate-criteria"`, `gate_amendment: <seq>`)다. `criteria_key`는 `--criteria-key`로 고른 규칙의 `key`이고(고르지 않았으면 `null`), 이때 `evidence.rules`에는 그 규칙 하나만 남는다. 상태·작업 판·요청 토큰·점수·제출 준비 기록·규칙 묶음은 바뀌지 않는다. 결과는 `{id, dry_run, field, before, after, weight_total, criteria_key, state, revision, request_token, evidence, scores_checked, folder_gate, amendment}`이고, `--dry-run`은 같은 검사를 하고 아무것도 쓰지 않는다(`amendment: null`). 공모전 세션은 바뀐 `.harness/gate.json`을 커밋한다.
+쓰는 것은 폴더의 `.harness/gate.json`(임시 파일에 쓴 뒤 이름 바꾸기), 레지스트리 `gate.criteria`(`--assumed-criteria`면 `gate.reasons`의 [가정] 한 줄도), 변경 기록 `extra.gate_amendments[{seq, at, by, field, before, after, weight_total, basis, criteria_key, file: {path, sha256}, evidence: {rules_version, rules: [{key, source, verification, value?}]}, state, revision, request_token, scores_checked, folder_gate: {path, sha256}}]`, 같은 상태의 `history` 표시(`by: "ach gate-criteria"`, `gate_amendment: <seq>`)다. `criteria_key`는 `--criteria-key`로 고른 규칙의 `key`이고(고르지 않았으면 `null`), 이때 `evidence.rules`에는 그 규칙 하나만 남는다. 상태·작업 판·요청 토큰·점수·제출 준비 기록·규칙 묶음은 바뀌지 않는다. 결과는 `{id, dry_run, field, before, after, weight_total, basis, criteria_key, state, revision, request_token, evidence, scores_checked, folder_gate, amendment}`이고, `--dry-run`은 같은 검사를 하고 아무것도 쓰지 않는다(`amendment: null`). 공모전 세션은 바뀐 `.harness/gate.json`을 커밋한다.
 
 ## 8. 에이전트
 
@@ -896,6 +897,7 @@ CLI는 lifecycle 직렬화와 레지스트리 CAS 아래에서 다시 관측해 
 - 경로는 공모전 폴더 기준이고 `..`, 폴더 밖·심볼릭 링크, `.private/`, `.harness/`(점수·평가 이력), `JUDGE.md`, 프로필 파일은 거절한다. `running`·`plan_review`·`awaiting_approval`에서만 된다.
 - CLI는 내용을 익명화하지 않는다. 경계는 이렇다: 파일 이름·이름표·메타데이터(점수·이력·작성자·공모전 id)는 CLI가 지우고, 문서 안의 신원 정보는 호출자가 지운 사본을 주고 `attestation`으로 확인한다. 블라인드 심사 공고면 이 사본이 제출본과 같은 수준으로 지워져 있어야 한다.
 - 결과 `{packet_id, purpose, stage, packet_dir: ".harness/evaluation/<packet_id>/packet", manifest: "PACKET.json", manifest_sha256, labels: ["A", ...], anonymization: "caller_attested", boundary}`. 패킷 안 파일은 `<라벨>/file-<n>.<확장자>`, `rubric/rubric.<확장자>`, `references/ref-<n>.<확장자>`이고 라벨 순서는 무작위다. 작업 판·규칙 묶음·원본 해시는 비공개로 함께 남는다. 원본 결과물은 바꾸지 않는다.
+- 가정 기준 항목(7절 `--assumed-criteria`로 기준을 채운 항목): `independent_final` 패킷만 만들고, 작업 판마다 하나뿐이다. 만들 때 요청이 독립 평가만 빼고 승인할 수 있는 상태여야 하고(제출 준비 기록 파일 해시, 그 파일을 검토한 `ready` 최종 점수), 후보의 `source`는 제출 준비 기록의 파일 전부와 경로·해시가 정확히 같아야 한다. 같은 작업 판에서 두 번째 패킷은 거절한다.
 
 ### 평가 기록(`ach evaluation record <id> --file F`)
 
@@ -910,6 +912,7 @@ CLI는 lifecycle 직렬화와 레지스트리 CAS 아래에서 다시 관측해 
 
 - 평가자는 패킷 폴더만 읽는 새 ContestJudge 실행이다. 이전 점수·`JUDGE.md`·대화 이력을 주지 않는다. `artifacts`는 그 후보의 패킷 파일 전부와 평가자가 직접 계산한 해시다. `comparison`은 `pairwise: [{preferred, over, rationale?}]`를 더할 수 있다. `run_id`는 패킷마다 겹치지 않는다.
 - 작업 판·규칙 묶음·게이트 기준·원본 해시·패킷 파일이 바뀌었으면 거절한다. 결과 `{assessment_id, packet_id, duplicate}`. 평가 기록은 불변이고 개선 점수(`scores`)와 따로 남는다.
+- 가정 기준 항목의 `independent_final` 패킷은 평가 기록 하나만 받는다. 같은 `run_id`로 같은 기록을 다시 내면 `duplicate: true`이고, 다른 실행의 두 번째 평가는 거절한다. 결과가 마음에 들지 않는다고 다시 평가해 좋은 값을 고를 수 없다.
 
 ### 최종 점수와 묶기
 
