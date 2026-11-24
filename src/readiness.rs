@@ -307,6 +307,9 @@ pub fn record(entry: &mut Entry, raw: &Value) -> Result<Value> {
     let f = fields(entry, raw)?;
     let artifacts = normalize_artifacts(entry, raw.get("artifacts").unwrap_or(&Value::Null))?;
     let mut record = Value::Object(base_record(entry, &f, artifacts));
+    if let Some(value) = raw.get(crate::evidence::KEY).filter(|v| !v.is_null()) {
+        record[crate::evidence::KEY] = crate::evidence::normalize(entry, value)?;
+    }
     if let Some(value) = raw.get("destination") {
         let destination = value
             .as_str()
@@ -507,6 +510,7 @@ pub fn record_reasons(entry: &Entry) -> Vec<&'static str> {
             }
         }
     }
+    reasons.extend(crate::evidence::stored_problems(entry, original(entry)));
     if crate::rules::status(entry)["tracked"] == true
         && latest(entry).and_then(|r| r.get("rules_binding")) != Some(&crate::rules::binding(entry))
     {
@@ -527,6 +531,7 @@ pub fn evaluate(entry: &Entry, video_exempt: bool, allow_override: bool) -> Eval
     let revision = registry::revision(entry);
     let mut reasons: Vec<&'static str> = Vec::new();
     reasons.extend(crate::rules::approval_problems(entry));
+    reasons.extend(crate::evidence::problems(entry, original(entry)));
     if entry.state != "awaiting_approval" {
         reasons.push("state_not_awaiting_approval");
     }

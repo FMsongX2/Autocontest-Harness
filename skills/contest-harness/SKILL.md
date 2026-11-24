@@ -297,6 +297,17 @@ OpenSourceScout는 결과물에 코드·모델·서비스·실험 파이프라�
 
 에이전트: `ContestScout`, `ContestGate`, `ContestHQ`, `DomainResearcher`, `OpenSourceScout`, `ContestEditor`, `ReferenceScout`, `UxReviewer`, `ContestJudge`(이 저장소 `agents/`, `ach install`이 러너별로 설치), 논문 근거는 기존 `ArticleResearcher`, 코드·보안 리뷰는 러너의 기본 `reviewer`·`security-reviewer`(없으면 세션이 같은 관점으로 직접 검토). 역할·레벨은 계약 8절.
 
+## 필수 증거와 글 실행 증거
+
+`.harness/gate.json`에 `required_evidence`가 있으면 그 코드마다 파일 증거가 있어야 제출 승인 자격이 생긴다(계약 24절). 최종 채점이 `ready`여도, `--score-ok`를 붙여도 대신하지 못한다. 없는 공모전은 이 절을 건너뛴다.
+
+- `draft_execution`·`editor_execution`: 게이트의 `writing_models.draft`·`writing_models.edit`가 허용하는 모델이 초안·다듬기를 실제로 수행한 실행 증거다. 요청 파일을 `write`로 `.private/`에 만들고(`run_id`는 새 UUID, `stage`, 정확한 `model` 선택자, `source`, `instructions`), 공모전 폴더에서 `PYTHONPATH="$(dirname "$(command -v ach)")/.." python3 -B -m controllers.writing run --id <id> --file .private/<요청>.json`을 실행한다. 원고·공고의 글을 명령줄에 넣지 않는다. provider가 `agy`인 선택자는 Antigravity CLI로, 그 밖은 omp로 한 번 실행되고, 후보는 `.private/writing/<run_id>/candidate.md`에 남는다.
+- 다듬기는 제출 직전 다듬기 단계(점수 루프 4단계, "한글 윤문 단계")에서 한다. 지시 파일에 보존할 것(수치·인용·수식·코드·제목·표·서식)을 적고 검토된 기준본을 `source`로 넘긴다. 문서가 길면 절마다 실행한다(실행마다 증거가 남고 함께 낸다). `scripts/agy-polish.sh`로 제자리에서 고친 것은 실행 증거가 남지 않으므로 이 코드를 채우지 못한다.
+- 후보는 도구가 원고에 반영하지 않는다. 기준본과 직접 대조하고(`guarded_check.py`가 있으면 함께) 통과한 것만 원고에 반영한다. 지정 모델이 실행됐지만 후보를 버린 경우와 지정 모델을 실행하지 못한 경우를 `JUDGE.md`에 구분해 적는다.
+- 실행이 `pricing_required`·`insufficient_credits`·`execution_unknown` 등으로 끝나면 기준본을 그대로 두고 그 코드를 보고한다. 다른 모델·공급자·CLI로 바꾸거나, 다른 모델이 고친 글을 지정 모델의 결과로 적거나, 같은 `run_id`를 다시 실행하지 않는다.
+- 증거 연결: 같은 방식으로 `python3 -B -m controllers.writing check --dir .private/writing/<run_id>`를 실행해 나온 `evidence` 목록을 `.private/readiness.json`의 `evidence.draft_execution`·`evidence.editor_execution`에 그대로 넣는다(여러 실행이면 이어 붙인다). 그 밖의 코드(서약 등)는 그 증거 파일의 `[{path, sha256}]`를 넣는다. `ach approval-status <id>`의 `reasons`에 `required_evidence_*`·`required_execution_unverified`가 남아 있으면 승인 요청으로 가지 않는다.
+- 작업 판이 바뀌면(`running`으로 되돌아감) 이전 실행 증거는 효력을 잃는다. 이미 제출한 공모전에는 소급해 실행하지 않는다.
+
 ## 한글 윤문 단계
 
 한글 본문(보고서·제안서·정책 제안·논문·기획서·신청서·칼럼·에세이)은 `skill://humanize-korean` 윤문을 거쳐야 한다. 선택 단계가 아니다. 영상 대본·카드 문구·코드·로그·고유 서식 칸 값은 대상이 아니다. 이 스킬은 하네스 밖에 설치하는 공용 스킬이다. 설치되지 않은 환경에서는 실행 불가 사유를 기록에 남기고, 최종 채점에서 HIGH 발견 사항이 된다.

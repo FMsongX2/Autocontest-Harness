@@ -4,6 +4,19 @@
 
 주요 변경 기록이다. 버전은 [Semantic Versioning](https://semver.org/)을 따른다. 1.0 전에는 마이너 버전이 CLI나 파일 형식을 바꿀 수 있고, 그때는 항목에 무엇을 어떻게 옮기는지 적는다.
 
+## 0.9.8 - 2026-11-25
+
+- **추가**:
+  - 품질 점수와 따로 검사하는 필수 작업 증거(`src/evidence.rs`). 게이트에 `required_evidence`(증명이 필요한 코드)와 `writing_models`(`draft`·`edit` 역할별로 허용하는 `provider/model` 패턴)를 둘 수 있고, 제출 준비 기록은 증거를 `evidence`(코드별 `[{path, sha256}]`)로 싣는다. 요구된 코드의 파일이 없거나, 파일이 바뀌었거나, 실행 코드가 증명되지 않으면 `ach approval-status`가 `required_evidence_missing`, `required_evidence_changed`, `required_execution_unverified`(선언을 읽을 수 없으면 `required_evidence_ambiguous`)를 내고, 최신 `final` 판정이나 `--score-ok`와 관계없이 사용자 승인도 위임 승인도 기록되지 않는다. 저장된 기록만 보는 화면(보드)에서는 "제출 준비 중"으로 보인다. `ach gate`는 형식이 어긋난 선언을 거절한다. `ach contract`에 `workflow_evidence`가 생겼다.
+  - `python3 -B -m controllers.writing run|check`: 정확히 지정한 모델 하나로 글을 한 번 실행하고, 답한 모델의 증거를 남긴다. provider가 `agy`인 선택자는 Antigravity CLI로, 그 밖은 omp로 실행한다. 도구, 다른 모델로의 재시도, fallback, 컨텍스트 승격이 없고, 입력은 파일이나 표준 입력으로만 전달하며, 원본 파일을 바꾸지 않고 후보를 원고에 반영하지 않는다. 러너의 이벤트가 요청한 모델을 가리키고 끝난 응답이 정확히 하나이며 도구 호출이 없을 때만 통과한다. 같은 run id는 두 번 실행하지 않고, 시간 초과는 `execution_unknown`이며, 공급자가 막으면 다른 것을 시도하지 않고 `pricing_required`·`insufficient_credits`로 알린다. `check`는 이벤트와 해시를 다시 읽고 `evidence.draft_execution`·`evidence.editor_execution`에 넣을 파일 목록을 낸다. 코어는 이 공모전·지금 작업 판에서 게이트가 허용한 모델이 수행한 완전한 실행만 인정하고 이벤트를 직접 다시 읽는다.
+  - omp의 `--no-tools`는 설정된 MCP 서버의 도구를 요청에 남긴다(서버 몇 개만 있어도 수십만 토큰이고 호출도 된다). 글 실행은 모델에게 도구를 하나도 내주지 않고 호출을 거절하는 작은 확장과 자체의 짧은 시스템 지시를 쓴다.
+  - `python3 -B -m controllers.archive prepare|publish|verify|abandon|enqueue`: 선택적 아카이브 동기화. 고른 공모전(진행 중이고 제출한 적 없는 것)의, 해시와 개인정보 검토 표시로 지정한 파일만 기존 아카이브 저장소에 쓴다. 다른 트리, 색인 행(`id`가 없는 행과 모르는 칸 포함), README 본문은 그대로다. 숨김·비공개·빌드 폴더, 서명·신분·신청서류 이름, 심볼릭 링크, 텍스트가 아닌 파일, 큰 파일, 개인정보·비밀 모양이 든 내용이 있으면 선택 전체를 거절한다. 후보 커밋은 관측한 원격 커밋의 직계 자식이고, 파일 내용 없이 커밋 하나만 받은 저장소에서 만든다. 올리기는 그 커밋에 조건을 걸어 한 번만 한다. 응답을 받지 못하면 다시 올리지 않고 `verify`로 확인한다(`verified`, `superseded`, `not_published`, `unknown`). 결과 불명인 실행은 확인되거나 포기될 때까지 같은 공모전의 다음 실행을 막는다. 내용이 같으면 커밋 대신 `unchanged`다.
+  - 선택 기능인 아카이브 대기 기록: `data/archive-sync/config.json`에 `{"enabled": true}`가 있으면 대기열 컨트롤러가 실행에 성공할 때마다 대기 기록을 남긴다(`archive_sync_followup`). 직접 배정이나 체크포인트 뒤에는 `enqueue`로 남긴다. 기록 실패가 실행을 실패로 만들거나 되풀이하게 하지 않는다.
+- **바뀜**:
+  - `JUDGE.md` 템플릿에 "글 실행 기록" 절이 생겼고, ContestGate는 운영자가 정해 둔 경우에 `writing_models`·`required_evidence`를 선언할 수 있으며, 스킬과 실행 지시문이 증거를 만들고 붙이는 방법을 알려 준다. 게이트에 두 필드가 없는 공모전은 전과 같이 동작하고, `scripts/agy-polish.sh`는 그대로다(제자리 수정은 실행 증거를 남기지 않는다).
+- **옮기는 법**:
+  - 없다. 기존 게이트와 제출 준비 기록에는 두 필드가 없고 고쳐 쓰지 않는다. 이 증거는 로컬 기록의 일관성이고 모델 공급자의 증명이 아니다.
+
 ## 0.9.7 - 2026-11-25
 
 - **고침**:

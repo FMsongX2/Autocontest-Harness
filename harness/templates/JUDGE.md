@@ -32,6 +32,12 @@
 
 <p>표 3. 한글 윤문 기록</p>
 
+## 글 실행 기록
+
+게이트에 `required_evidence`가 있을 때만 쓴다(`contest-harness` 스킬 "필수 증거와 글 실행 증거"). 실행마다 한 줄을 더하고, `controllers.writing check`가 확인한 것만 적는다.
+
+- [YYYY-MM-DD HH:MM] [draft/edit] run_id [UUID], 실제 모델 [provider/model], 결과 [candidate_generated], 작업 폴더 [.private/writing/<run_id>/], 후보 [반영 / 기준본 유지: <사유> / 실행 못 함: <코드>]
+
 ---
 
 ## [YYYY-MM-DD HH:MM] [체크포인트]

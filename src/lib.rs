@@ -12,6 +12,7 @@ pub mod dedupe;
 pub mod doctor;
 pub mod error;
 pub mod evaluation;
+pub mod evidence;
 pub mod guard;
 pub mod handoff;
 pub mod http;

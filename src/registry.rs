@@ -617,6 +617,7 @@ fn truthy(value: Option<&Value>) -> bool {
 
 /// Validate a gate record (`gate.json`), copy it onto the entry and move the entry by its decision.
 pub fn apply_gate(entry: &mut Entry, mut gate: Value, by: &str) -> Result<()> {
+    crate::evidence::required(&gate)?;
     let Some(record) = gate.as_object_mut() else { bail!("gate.json은 객체여야 한다") };
     let target = match record.get("decision").and_then(Value::as_str) {
         Some("pass") => "gate_pass",
