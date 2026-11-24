@@ -54,7 +54,7 @@
 3. 패키지를 새 폴더에 풀고, 새로 만든 환경에서 README의 명령만으로 test 예측을 다시 만든다. 다시 만든 결과와 제출 결과를 비교한다(파일 집합, 크기·형식, 픽셀·값 차이 비율, 가중치 해시). 차이가 있으면 크기를 숫자로 적고(예: 전체 픽셀 중 다른 픽셀 수) 원인을 확인한다.
 4. 형식 관문: 파일 개수·이름 규칙·이미지 크기·클래스 값 집합·압축 용량을 스크립트로 검사한다. 용량 제한을 넘는 가중치는 공고가 안내한 별도 방법(메일 등)을 SUBMISSION.md에 적는다.
 5. 제출 사본에서 내부 호칭·개인 경로·비밀 키를 지운다(저장소 원본은 그대로 둔다).
-6. ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)로 결과서·패키지를 판정해 `ready`를 받고(목표 이상이거나 `final_rounds` 예산을 다 쓸 때까지, 스킬 "점수 루프" 5단계) `ach score <id> --stage final --file <경로>`로 기록한다. 결과서가 한글 본문이면 그 전에 한글 윤문 단계를 마친다. SUBMISSION.md를 채우고 커밋·푸시한 뒤 `ach check <id>` → `.private/readiness.json`을 써서(본선 등 남은 일정이 있으면 `followup_required: true`) `ach readiness <id> --file .private/readiness.json` → 후보 run id·검증 점수·재현 결과 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(점수 관문을 넘지 못한 채 내야 하면 `--score-ok "<사유>"`). 제출은 승인이 기록된 뒤에만 한다.
+6. ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)로 결과서·패키지를 판정해 `ready`를 받고(목표 이상이거나 채점·개선 회차 `final_rounds` 예산을 다 쓸 때까지, 스킬 "점수 루프" 5단계) `ach score <id> --stage final --file <경로>`로 기록한다. 결과서가 한글 본문이면 그 전에 한글 윤문 단계를 마친다. SUBMISSION.md를 채우고 커밋·푸시한 뒤 `ach check <id>` → `.private/readiness.json`을 써서(본선 등 남은 일정이 있으면 `followup_required: true`) `ach readiness <id> --file .private/readiness.json` → 후보 run id·검증 점수·재현 결과 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`(점수 관문을 넘지 못한 채 내야 하면 `--score-ok "<사유>"`). 제출은 승인이 기록된 뒤에만 한다.
 
 ## 6. 본선 발표와 보고서
 

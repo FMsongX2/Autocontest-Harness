@@ -45,7 +45,7 @@
 
 ## 6. 채점 반복
 
-초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. `draft`는 초안마다 한 번 채점하고, `final`은 작업 판마다 설정 `final_rounds`(기본 3)회가 예산이다. 실행마다 CRITICAL·HIGH와 배점이 큰 기준의 감점부터 고치고, 최근 `final`이 `ready`이고 목표 이상이거나 예산을 다 썼으면 멈춘다. 고치지 않은 파일을 더 높은 점수를 바라고 다시 채점하지 않는다(`contest-harness` 스킬 "점수 루프" 5단계). ContestEditor 다듬기와 한글 윤문은 개선이 끝나 내용이 확정된 제출 후보에 제출 직전 한 번만 한다(초안 직후나 개선 반복 중에는 하지 않는다). 마무리 순서: 개선 채점 종료 → ContestEditor(평가표가 있을 때) → 한글 윤문 단계(`JUDGE.md` 기록) → 서식 반영·전 페이지 검수 → 최종 채점.
+초안 완성 뒤 ContestJudge(stage `draft`), 서식 반영 뒤 제출 전 ContestJudge(stage `final`, 제출 파일 목록을 넘겨 `artifacts`를 받는다)를 부르고, 결과를 `.harness/judge/<stage>-<n>.json`에 저장해 `ach score <id> --stage <stage> --file <경로>`로 기록하고 JUDGE.md에도 적는다. `draft`는 초안마다 한 번 채점하고, 채점·개선 회차(새 파일 내용을 검토한 `draft`·`final` 채점)는 설정 `final_rounds`(기본 3)회가 예산이다. 실행마다 CRITICAL·HIGH와 배점이 큰 기준의 감점부터 고치고, 최근 `final`이 `ready`이고 목표 이상이거나 예산을 다 썼으면 멈춘다. 고치지 않은 파일을 더 높은 점수를 바라고 다시 채점하지 않는다(`contest-harness` 스킬 "점수 루프" 5단계). ContestEditor 다듬기와 한글 윤문은 개선이 끝나 내용이 확정된 제출 후보에 제출 직전 한 번만 한다(초안 직후나 개선 반복 중에는 하지 않는다). 마무리 순서: 개선 채점 종료 → ContestEditor(평가표가 있을 때) → 한글 윤문 단계(`JUDGE.md` 기록) → 서식 반영·전 페이지 검수 → 최종 채점.
 
 ## 7. HWP 서식 마무리
 
@@ -57,4 +57,4 @@
 ## 8. 제출 준비
 
 - 생성형 AI 활용 공개 요구, 표절·유사도 검사 요구, 서약서·개인정보 동의서를 확인해 SUBMISSION.md에 적는다. 개인 값은 제출 승인이 기록된 뒤 `ach profile show --for <id> --json`에서 꺼내 `.private/approved/`의 별도 최종 사본 서식에만 넣고(전 페이지 재검수 뒤 `ach readiness <id> --file .private/readiness.json --personalized`), 저장소 파일·커밋 메시지·로그·메모에 옮기지 않는다.
-- 커밋·푸시하고 `ach check <id>`를 확인한 뒤 `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인"). 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 최근 `final` 점수가 필요하다(목표 미만이면 그 작업 판의 `final`이 `final_rounds`회에 이를 때까지 막힌다. 그 전에 내거나 `ready`가 아닌 채 내야 하면 `--score-ok "<사유>"`). 그다음 `ach approval-status <id>`를 확인하고 사용자에게 메인 세션이나 `ach approve <id>`로 승인해 달라고 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다).
+- 커밋·푸시하고 `ach check <id>`를 확인한 뒤 `.private/readiness.json`을 써서 `ach readiness <id> --file .private/readiness.json`로 기록한다(`contest-harness` 스킬 "제출 준비 기록과 승인"). 요약을 `write`로 `.private/note.txt`에 쓰고 `ach transition <id> awaiting_approval --note-file .private/note.txt`. 레벨 2 이상은 `plan` 점수와 지금 작업 판의 `ready`인 최근 `final` 점수가 필요하다(목표 미만이면 채점·개선 회차가 `final_rounds`회에 이를 때까지 막힌다. 그 전에 내거나 `ready`가 아닌 채 내야 하면 `--score-ok "<사유>"`). 그다음 `ach approval-status <id>`를 확인하고 사용자에게 메인 세션이나 `ach approve <id>`로 승인해 달라고 요청하고 멈춘다(이 세션은 `approve`를 실행하지 않는다).
