@@ -4,6 +4,18 @@
 
 주요 변경 기록이다. 버전은 [Semantic Versioning](https://semver.org/)을 따른다. 1.0 전에는 마이너 버전이 CLI나 파일 형식을 바꿀 수 있고, 그때는 항목에 무엇을 어떻게 옮기는지 적는다.
 
+## 0.9.9 - 2026-11-25
+
+0.9.7 위에 만든 판이다. 아직 배포하지 않은 0.9.8(작성 모델 증빙, 선택적 보관 동기화)은 들어 있지 않고, 0.9.8은 반영할 때 번호를 다시 매긴다.
+
+- **고침**:
+  - 기준을 가정으로 채운 공모전(`ach gate-criteria --assumed-criteria`)은 마지막 개선 `final` 뒤에 제출 파일을 교정하면 독립 최종 평가를 받을 수 없었다. 필수 한글 윤문이 다섯 번째이자 마지막 `final`(`final_rounds` 5) 뒤에 PDF 하나를 바꾸자 `ach evaluation prepare`가 `final_artifact_changed`로 거절했고, 남은 길은 여섯 번째 일반 `final`, 재채점, 교정 전 파일 복원뿐이었다.
+- **바뀜**:
+  - 그런 공모전의 `ach evaluation prepare`는 승인 이유가 `final_artifact_changed` 하나뿐인 요청도 받는다. 제출 준비 기록의 파일이 모두 최근 `final`이 검토한 경로이고 지금 해시가 제출 준비 기록과 같으며, 그 `final`이 검토한 나머지 파일이 그대로일 때만이다. 다른 이유(막힘, 사용자 확인 필요, 낡았거나 바뀐 제출 준비 파일, `ready`가 아니거나 이전 작업 판의 `final`, 낡은 규칙, `awaiting_approval`이 아닌 상태)가 있거나, 그 `final`이 검토하지 않은 제출 파일이 있거나, 검토한 다른 파일이 바뀌었으면 지금처럼 거절한다. 패킷만으로는 승인되지 않는다. 평가를 묶은 `final`을 기록하기 전에는 `final_artifact_changed`·`independent_final_missing`이 그대로 남고, 패킷 뒤에 파일이 바뀌면 `ach evaluation record`가 `source_changed`로 거절하며, 실패한 평가를 묶은 `final`은 `final_not_ready`로 막힌다.
+  - 그런 공모전에서 독립 평가를 묶은 `final`(`independent_assessment`)은 채점·개선 회차로 세지 않고, 그 파일 내용도 회차 계산에서 본 것으로 치지 않는다. 공식 기준이 있는 공모전은 전처럼 센다.
+- **옮기는 법**:
+  - 없다. 기존 기록은 새 규칙으로 읽고, 고쳐 쓰지 않는다.
+
 ## 0.9.7 - 2026-11-25
 
 - **고침**:

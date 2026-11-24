@@ -774,3 +774,114 @@ fn the_assumption_needs_rules_without_official_rows_and_a_checked_request() {
     let call = Call::assuming(&revise, &assumed_gate(&revise));
     assert_refused(&mut revise, &call, "final_not_ready");
 }
+
+/// An entry with [`assumed_gate`] criteria applied: ready to approve but for the independent
+/// evaluation.
+fn assumed(id: &str) -> Entry {
+    let mut e = unpublished(id);
+    Call::assuming(&e, &assumed_gate(&e)).run(&mut e).unwrap();
+    e
+}
+
+/// Record a readiness request for the files as they are now.
+fn ready(e: &mut Entry, files: &[&str], blockers: Value) {
+    let artifacts: Vec<Value> = files
+        .iter()
+        .map(|rel| json!({"path": rel, "sha256": readiness::sha256_file(&folder(e).join(rel)).unwrap()}))
+        .collect();
+    readiness::record(
+        e,
+        &json!({"submission_ready": true, "needs_user_input": false, "blockers": blockers, "followup_required": false,
+            "artifacts": artifacts, "destination": "contest@organizer.example"}),
+    )
+    .unwrap();
+}
+
+/// The `final` score of `assessment`, bound to it as `ach score --stage final` records it.
+fn bound_final(e: &mut Entry, prepared: &Value, assessed: &Value, recorded: &Value) -> harness::error::Result<Value> {
+    let candidate = &assessed["candidates"][0];
+    let judge = json!({"total": candidate["total"], "target": 90.0, "verdict": candidate["verdict"],
+        "scores": candidate["scores"], "artifacts": [{"path": "proposal.md",
+            "sha256": readiness::sha256_file(&folder(e).join("proposal.md")).unwrap()}],
+        "evaluation_id": prepared["packet_id"], "assessment_id": recorded["assessment_id"]});
+    registry::record_score(e, &judge, "final", "final-2.json", "", 1)
+}
+
+fn reasons(e: &Entry) -> Vec<&'static str> {
+    readiness::evaluate(e, false, false).reasons
+}
+
+#[test]
+fn a_correction_after_the_last_final_gets_one_independent_assessment_of_the_current_files() {
+    // The submitted file is corrected after the last improvement final, and the request is
+    // recorded again with the corrected file.
+    let mut e = assumed("amend-corrected");
+    let rounds = registry::improvement_rounds(&e);
+    fs::write(folder(&e).join("proposal.md"), "교정한 제안서\n").unwrap();
+    let stale = e.clone();
+    ready(&mut e, &["proposal.md"], json!([]));
+    assert_eq!(reasons(&e), vec![registry::FINAL_ARTIFACT_CHANGED]);
+
+    // Every other way the request is not ready still refuses the packet.
+    let refused = |mut e: Entry, request: Option<Value>| {
+        let request = request.unwrap_or_else(|| packet_request(&e));
+        let before = serde_json::to_value(&e).unwrap();
+        let err = evaluation::prepare(&mut e, &request).unwrap_err();
+        assert!(err.0.contains("최종 채점까지 확인된 승인 대기 요청에만"), "{}", err.0);
+        assert_eq!(serde_json::to_value(&e).unwrap(), before, "a refused packet changed the entry");
+    };
+    // The request still names the file as the final reviewed it.
+    refused(stale, None);
+    // The request says it is blocked.
+    let mut blocked = e.clone();
+    ready(&mut blocked, &["proposal.md"], json!(["서명 누락"]));
+    refused(blocked, None);
+    // The last final was not ready.
+    let mut revise = e.clone();
+    revise.scores[1]["verdict"] = json!("revise");
+    refused(revise, None);
+    // The request submits a file the final never reviewed.
+    let mut unreviewed = e.clone();
+    ready(&mut unreviewed, &["proposal.md", "RUBRIC.md"], json!([]));
+    let mut request = packet_request(&unreviewed);
+    let rubric = request["rubric"].clone();
+    request["candidates"][0]["artifacts"].as_array_mut().unwrap().push(json!({"source": rubric, "sanitized": rubric}));
+    refused(unreviewed, Some(request));
+    // A reviewed file the request does not submit changed too (the final saw other contents).
+    let mut other = e.clone();
+    let rubric = json!({"path": "RUBRIC.md", "sha256": "0".repeat(64)});
+    other.scores[1]["artifacts"].as_array_mut().unwrap().push(rubric);
+    refused(other, None);
+
+    // The packet of the corrected request is made; on its own it approves nothing.
+    let request = packet_request(&e);
+    let prepared = evaluation::prepare(&mut e, &request).unwrap();
+    assert_eq!(reasons(&e), vec![registry::FINAL_ARTIFACT_CHANGED]);
+    assert_eq!(evaluation::final_problem(&e), Some(evaluation::FINAL_MISSING));
+    assert!(evaluation::prepare(&mut e, &request).unwrap_err().0.contains("작업 판마다 한 번"));
+
+    // A file changed again after the packet: the packet is stale and records nothing.
+    let mut moved = e.clone();
+    fs::write(folder(&moved).join("proposal.md"), "다시 고친 제안서\n").unwrap();
+    let assessed = assessment(&moved, &prepared, "r1");
+    let err = evaluation::record(&mut moved, &assessed).unwrap_err();
+    assert!(err.0.contains("source_changed"), "{}", err.0);
+    fs::write(folder(&e).join("proposal.md"), "교정한 제안서\n").unwrap();
+
+    // A failed assessment gives the final verdict too, and it does not pass.
+    let mut failed = e.clone();
+    let mut low = assessment(&failed, &prepared, "r-low");
+    low["candidates"][0]["verdict"] = json!("revise");
+    let recorded = evaluation::record(&mut failed, &low).unwrap();
+    bound_final(&mut failed, &prepared, &low, &recorded).unwrap();
+    assert!(reasons(&failed).contains(&"final_not_ready"), "{:?}", reasons(&failed));
+
+    // The one assessment of the current files is the final verdict and no improvement round.
+    let assessed = assessment(&e, &prepared, "r1");
+    let recorded = evaluation::record(&mut e, &assessed).unwrap();
+    let scored = bound_final(&mut e, &prepared, &assessed, &recorded).unwrap();
+    assert!(scored[evaluation::SCORE_KEY].is_object());
+    assert_eq!(registry::improvement_rounds(&e), rounds, "the independent final counted as an improvement round");
+    assert_eq!(reasons(&e), Vec::<&str>::new());
+    assert_eq!(evaluation::final_problem(&e), None);
+}
