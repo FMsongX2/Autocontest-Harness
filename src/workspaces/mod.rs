@@ -54,6 +54,12 @@ pub trait Workspace: Sync {
     fn workspace_exists(&self, _workspace_id: &str) -> Result<bool> {
         Ok(true)
     }
+    /// Terminals in `workspace_id` that are provably untouched shells the backend opened by itself
+    /// in a workspace the harness created for `contest_id` (Orca's `Terminal 1`). Only these may be
+    /// closed without a record; backends that cannot prove it return none.
+    fn idle_shells(&self, _workspace_id: &str, _contest_id: &str) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
     /// Forget the workspace (never the contest folder itself; the harness trashes that). Backends
     /// without workspaces do nothing.
     fn remove_workspace(&self, workspace_id: &str) -> Result<()>;
@@ -136,6 +142,27 @@ pub fn ensure_no_other_terminals(
         );
     }
     Ok(())
+}
+
+/// Close every terminal of `workspace_id` other than `except` that the backend proves to be an
+/// untouched shell in the workspace the harness created for `contest_id`, each confirmed closed.
+/// Returns their handles. Anything not proven (a shell with a command, an agent, a terminal the
+/// user named) stays and still blocks [`ensure_no_other_terminals`].
+pub fn close_idle_shells(
+    workspace: &dyn Workspace,
+    workspace_id: Option<&str>,
+    except: Option<&str>,
+    contest_id: &str,
+) -> Result<Vec<String>> {
+    let Some(id) = workspace_id else { return Ok(Vec::new()) };
+    let mut closed = Vec::new();
+    for handle in workspace.idle_shells(id, contest_id)? {
+        if Some(handle.as_str()) != except {
+            close_confirmed(workspace, &handle, CLOSE_WAIT)?;
+            closed.push(handle);
+        }
+    }
+    Ok(closed)
 }
 
 /// Quote one word for a POSIX shell (zsh and sh agree on single quotes).

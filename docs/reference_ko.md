@@ -412,11 +412,13 @@ ach controller preset --pick
 
 제출 뒤 정리 방식은 세션이 제출 준비 기록의 `followup_required`로 정한다. `false`면 `ach clean <id>`를 실행하고 정기 실행은 `ach clean --all`을 쓴다. 본선·발표 등 미래 일정만 남아 `true`면 할 일을 기록하고 `followup_pending`으로 옮긴다. 기존 제출 기록이 있어야 하며, 폴더와 접수 증빙을 보존하고 실행 슬롯을 반환하며 정리 대상에서도 제외된다. 실제 후속 작업을 재개할 때만 용량을 확인하는 `ach resume <id>`로 `running`에 돌아간다. 메인 세션의 자동 정리는 `followup_required: false`로 기록된 공모전만 정리하고, `true`이거나 구조화된 기록이 없는(0.7.0 이전) 공모전은 사용자가 요청할 때만 정리한다. 끝난 공모전에 남은 세션은 `ach session-close`로 닫는다.
 
+`ach tick`도 정리 순회를 돈다(JSON `cleanup`, 공모전 세션 안에서는 하지 않는다): 자기 세션 안의 정리가 남긴 세션 닫기(`pending_close`)를 마저 하고, 접수가 확정되고 `followup_required: false`인 `submitted` 공모전을 제출 30분 뒤 같은 조건으로 정리하며, 그 밖의 끝난 공모전(`followup_pending` 포함)은 10분 뒤 세션만 닫는다. 세션을 닫을 때 그 공모전 작업 공간에서 Orca가 스스로 연 손대지 않은 빈 셸(`Terminal 1`)도 닫는다. 명령을 친 흔적이나 출력이 있는 셸, 이름 붙인 탭이 있으면 닫지 않고 정리를 멈춘다.
+
 `clean`은 아래 다섯 조건을 모두 만족할 때만 지운다. 하나라도 어긋나면 이유를 나열하고 아무것도 지우지 않는다. `--force`는 1~4 검사를 건너뛰지만 5는 건너뛰지 않는다. 이때 폴더가 없으면 실행을 멈추지 않고 그 공모전의 문제로 알린다.
 
 1. 상태가 `submitted` 또는 `closed`다.
 2. 제출 기록부에 이 공모전 기록이 있다.
-3. 폴더가 upstream이 있는 git 저장소이고, 작업 트리가 깨끗하며(변경 없음, 무시되지 않은 untracked 파일 없음), push 안 된 커밋이 없다(`git fetch` 뒤 확인).
+3. 폴더가 upstream이 있는 git 저장소이고, 작업 트리가 깨끗하며(변경 없음, 무시되지 않은 untracked 파일 없음), push 안 된 커밋이 없다(`git fetch` 뒤 확인). 예외는 하나다: 커밋된 `CONTEST.md` 위에 하네스가 덧붙인 브리프(그 글이 `.private/controller-brief.md`에 그대로 있음)는 막지 않고 그 작업 트리 사본을 보관한다.
 4. 레지스트리 `submissions[].files`에 적힌 파일이 git이나 폴더에 있다. 서명본처럼 일부러 git에서 뺀 파일은 문제가 아니고, 다음 단계에서 보관된다.
 5. 풀리지 않은 제출 시도(`intent`·`dispatching`·`unknown`)가 없다.
 

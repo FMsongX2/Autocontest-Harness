@@ -412,11 +412,13 @@ ach controller preset --pick
 
 Once a contest is submitted, the session decides cleanup from `followup_required` in its readiness record. When it is `false`, run `ach clean <id>`; scheduled cleanup uses `ach clean --all`. When it is `true`, because only a future final round or presentation remains, record what is left and move to `followup_pending`. This requires an existing submission, preserves the folder and ledger, releases the session slot, and prevents cleanup. Return to `running` only with `ach resume <id>`, which checks capacity, when actual follow-up work resumes. Automatic cleanup from the main session only cleans contests recorded with `followup_required: false`; contests with `true`, or without a structured record (from before 0.7.0), are cleaned only when you ask. Close a finished contest's leftover session with `ach session-close`.
 
+`ach tick` also runs a cleanup sweep (`cleanup` in its JSON, never inside a contest session): it finishes session closes a clean left owed (`pending_close`), cleans `submitted` contests with a confirmed receipt and `followup_required: false` 30 minutes after submission under the same conditions, and closes only the session of other finished contests (`followup_pending` included) after 10 minutes. Closing a session also closes an untouched shell Orca opened by itself (`Terminal 1`) in the contest's own workspace; a shell with a typed command or output, or a named tab, stops the cleanup instead.
+
 `clean` removes nothing unless all five conditions hold; otherwise it lists the problems. `--force` skips conditions 1 to 4, never 5; a missing folder is then reported as a problem for that contest instead of stopping the run.
 
 1. The state is `submitted` or `closed`.
 2. The contest is in the submission ledger.
-3. The folder is a git repository with an upstream, a clean working tree (no changes and no untracked files that are not ignored), and no unpushed commits (checked after `git fetch`).
+3. The folder is a git repository with an upstream, a clean working tree (no changes and no untracked files that are not ignored), and no unpushed commits (checked after `git fetch`). One change is allowed: the harness brief prepended to the committed `CONTEST.md` when that text appears verbatim in `.private/controller-brief.md`; the working copy is archived instead.
 4. Every file listed in the registry's `submissions[].files` exists in git or in the folder. Signed copies and other files kept out of git on purpose are fine; they are archived in the next step.
 5. No submission attempt is unresolved (`intent`, `dispatching`, or `unknown`).
 

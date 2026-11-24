@@ -101,6 +101,17 @@ pub fn in_flight(entry: &Entry) -> bool {
     malformed(entry) || attempts(entry).iter().any(|a| IN_FLIGHT.contains(&status_of(a)))
 }
 
+/// The receipt is confirmed: some attempt is `confirmed` by `ach submit` and its confirmation does
+/// not ask for a review (the workflow did not move on since the approval). Entries without a
+/// submission transaction are not.
+pub fn receipt_confirmed(entry: &Entry) -> bool {
+    !malformed(entry)
+        && attempts(entry).iter().any(|a| {
+            status_of(a) == "confirmed"
+                && a.pointer("/confirmation/review_needed").and_then(Value::as_bool) != Some(true)
+        })
+}
+
 /// Safe per-attempt summary: ids, states, times, reason codes and hashes. Never the receipt text,
 /// the destination or file contents.
 fn public_view(attempt: &Value) -> Value {

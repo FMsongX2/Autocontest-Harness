@@ -4,6 +4,21 @@
 
 All notable changes. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change the CLI or file formats, and the entry says how.
 
+## 0.9.6 - 2026-11-24
+
+### Fixed
+- `ach clean` and `ach session-close` kept failing for contests that were already submitted. Orca opens an empty shell (`Terminal 1`) by itself in the workspace the harness creates, and the harness never removes a workspace that still holds an unrecorded terminal. Now, only in an Orca folder workspace the harness created for that contest (comment `harness <id>`), a shell that is connected, carries Orca's default title (`Terminal <n>`), is no agent, has printed nothing but the same prompt line in its whole retained output and has an empty composer is closed. A shell with a typed command or any output, a named tab, or a shell in another workspace still stops the cleanup, as before.
+- The brief the harness puts on top of `CONTEST.md` counted as an uncommitted change and blocked the cleanup. When the working `CONTEST.md` is the committed text with a block prepended, and that block (without a trailing `---` separator) appears verbatim in the folder's `.private/controller-brief.md`, it no longer blocks; the working copy is archived as `data/archive/<id>/CONTEST.md`. An edit to the committed text, text that is not in the brief, or any other changed file still blocks.
+- A contest cleaned from inside its own session saves its records and closes the session last; when that close failed or was interrupted, the session record was already gone and the leftover terminal and workspace could not be found again. The owed close is now stored as `pending_close` and removed once a close is confirmed.
+- A clean interrupted after the folder moved to the trash and before the registry was saved stayed blocked forever ("폴더가 없다"). The next `ach clean` moves nothing again and only finishes the registry record, with the time from the ledger.
+
+### Added
+- A cleanup sweep in `ach tick` (JSON `cleanup {recovered, cleaned, sessions_closed, refused}`; also with `new_work_frozen`, never inside a contest session): it finishes `pending_close` closes, cleans `submitted` contests whose receipt is confirmed (a `confirmed` attempt without review, no unresolved attempt) with `followup_required: false` after 30 minutes, with every check of `ach clean` (no `--force`, no `--purge`), and closes only the session of the other finished contests (`followup_pending` and the rest) after 10 minutes. It only does what is still unfinished, so after a restart it resumes where it stopped.
+- `finished_cleanup` in the `capabilities` of `ach contract`.
+
+### Migration
+- None. Contests blocked today are cleaned by the next `ach tick` or `ach clean <id>` under the rules above.
+
 ## 0.9.5 - 2026-11-24
 
 ### Added

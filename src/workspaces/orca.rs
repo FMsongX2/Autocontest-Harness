@@ -76,6 +76,40 @@ pub fn live_terminals_in(result: &Value, workspace_id: &str) -> Result<Vec<(Stri
     Ok(out)
 }
 
+/// The comment `orca worktree create` gets from [`Orca::create`]: the contest that owns the workspace.
+pub fn owner_comment(contest_id: &str) -> String {
+    format!("harness {contest_id}")
+}
+
+/// Orca's default tab title for a terminal nobody named (`Terminal 1`, `Terminal 2`, …).
+fn default_title(title: &str) -> bool {
+    title.strip_prefix("Terminal ").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// From `terminal list`: connected, Orca's default title and no recognised agent.
+fn default_shell_listing(terminal: &Value) -> bool {
+    terminal.get("connected").and_then(Value::as_bool) == Some(true)
+        && terminal.get("agentIdentity").is_none_or(Value::is_null)
+        && terminal.get("title").and_then(Value::as_str).is_some_and(default_title)
+}
+
+/// Whether one terminal is an untouched shell Orca opened by itself: from `terminal list` (`terminal`)
+/// it is connected, has Orca's default title and no recognised agent; from a complete
+/// `terminal read` (`read`, its `result.terminal`) it still runs, nothing is typed in the composer,
+/// and everything it ever printed is the same bare prompt line (so no command was typed, run or
+/// left running). Anything else, or anything Orca does not report, is not proven idle.
+pub fn idle_default_shell(terminal: &Value, read: &Value) -> bool {
+    let complete = read.get("status").and_then(Value::as_str) == Some("running")
+        && read.get("truncated").and_then(Value::as_bool) == Some(false)
+        && read.get("limited").and_then(Value::as_bool) != Some(true)
+        && read.get("draft").is_none_or(|d| d.is_null() || d.as_str() == Some(""));
+    let Some(tail) = read.get("tail").and_then(Value::as_array) else { return false };
+    let mut lines = tail.iter().map(|l| l.as_str().map(str::trim_end)).filter(|l| l != &Some(""));
+    let Some(Some(prompt)) = lines.next() else { return false };
+    let bare_prompt = prompt.ends_with(['%', '$', '#', '>', '❯']);
+    default_shell_listing(terminal) && complete && bare_prompt && lines.all(|l| l == Some(prompt))
+}
+
 /// Orca's error codes for a handle or workspace it no longer knows.
 const GONE: &[&str] = &["terminal_handle_stale", "terminal_not_found", "selector_not_found", "worktree_not_found"];
 
@@ -138,7 +172,7 @@ impl Workspace for Orca {
     fn create(&self, entry: &Entry, config: &Config) -> Result<Option<String>> {
         let repo = format!("path:{}", config.orca_repo_path().display());
         let name = worktree_name(entry)?;
-        let comment = format!("harness {}", entry.id);
+        let comment = owner_comment(&entry.id);
         let result = orca_json(&["worktree", "create", "--repo", &repo, &name, "--no-parent", "--comment", &comment])?;
         created_worktree_id(&result).map(Some)
     }
@@ -223,5 +257,42 @@ impl Workspace for Orca {
         let args = remove_workspace_args(workspace_id)?;
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         ignore_gone(orca_json(&args).map(drop))
+    }
+
+    /// Only in a folder workspace the harness created for `contest_id` (its comment says so): every
+    /// terminal that [`idle_default_shell`] proves untouched, read completely one by one.
+    fn idle_shells(&self, workspace_id: &str, contest_id: &str) -> Result<Vec<String>> {
+        if !is_folder_workspace(workspace_id) {
+            return Ok(Vec::new());
+        }
+        let selector = format!("id:{workspace_id}");
+        let shown = match orca_json(&["worktree", "show", "--worktree", &selector]) {
+            Ok(result) => result,
+            Err(e) if GONE.iter().any(|c| e.0.contains(c)) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        if field(&shown, "worktree", &["comment"]) != Some(owner_comment(contest_id).as_str()) {
+            return Ok(Vec::new());
+        }
+        let listed = orca_json(&["terminal", "list", "--worktree", &selector])?;
+        // The same completeness rule as `live_terminals`: no decision on a partial list.
+        let live = live_terminals_in(&listed, workspace_id)?;
+        let terminals = listed.get("terminals").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut idle = Vec::new();
+        for (handle, _) in live {
+            // Only a listed default shell is read at all; agents and named tabs never are.
+            let Some(terminal) = terminals
+                .iter()
+                .find(|t| t.get("handle").and_then(Value::as_str) == Some(&handle))
+                .filter(|t| default_shell_listing(t))
+            else {
+                continue;
+            };
+            let read = orca_json(&["terminal", "read", "--terminal", &handle, "--limit", "1000"])?;
+            if idle_default_shell(terminal, read.get("terminal").unwrap_or(&read)) {
+                idle.push(handle);
+            }
+        }
+        Ok(idle)
     }
 }

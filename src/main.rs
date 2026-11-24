@@ -643,7 +643,8 @@ fn run(cli: &Cli) -> Result<u8> {
                     "protocol": harness::CONTROL_PROTOCOL,
                     "version": env!("CARGO_PKG_VERSION"),
                     "capabilities": ["readiness", "reconcile", "checkpoint", "recover", "rules", "evaluation",
-                        "submission_transactions", "managed_controllers", "new_work_freeze", "delegated_handoff"]
+                        "submission_transactions", "managed_controllers", "new_work_freeze", "delegated_handoff",
+                        "finished_cleanup"]
                 }),
                 None,
             )?;
@@ -1747,12 +1748,29 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
     };
     let handoff_lines: Vec<String> = handoffs.iter().map(handoff::describe).collect();
     report["handoff"] = json!(handoffs);
+    // Finished contests clean up after themselves here too (frozen or not): owed session closes,
+    // `submitted` folders whose receipt is confirmed and need no follow-up, and the sessions of
+    // every other finished contest. A contest session never runs it.
+    let (cleanup, cleanup_error) = match in_session {
+        true => (Value::Null, None),
+        false => match clean::sweep(chrono::Utc::now().with_timezone(&harness::text::kst())) {
+            Ok(result) => (result, None),
+            Err(err) => (Value::Null, Some(format!("cleanup: {err}"))),
+        },
+    };
+    let cleanup_lines = cleanup_lines(&cleanup);
+    report["cleanup"] = cleanup;
+    let handoff_error: Option<String> = match (handoff_error, cleanup_error) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    };
     if cfg.new_work_frozen {
         report["new_work_frozen"] = json!(true);
         report["errors"] = json!(handoff_error.iter().collect::<Vec<_>>());
         let mut lines = vec!["신규 작업 동결: 수집·게이트·실행을 건너뛴다".to_string()];
         lines.extend(handoff_error.iter().map(|e| format!("오류: {e}")));
         lines.extend(handoff_lines);
+        lines.extend(cleanup_lines);
         emit(json_mode, &report, Some(lines.join("\n")))?;
         return Ok(0);
     }
@@ -1857,10 +1875,32 @@ fn tick(json_mode: bool, auto_launch: bool, no_collect: bool) -> Result<u8> {
     ]);
     lines.extend(ids("warnings").iter().map(|w| format!("경고: {w}")));
     lines.extend(handoff_lines);
+    lines.extend(cleanup_lines);
     // Exit 0 even when launches failed: the report (needs_gate, waiting) is still valid for the
     // scheduled run, which reads `errors` from the JSON.
     emit(json_mode, &report, Some(lines.join("\n")))?;
     Ok(0)
+}
+
+/// One line per contest the sweep cleaned, closed or had to leave, for the tick summary.
+fn cleanup_lines(cleanup: &Value) -> Vec<String> {
+    let ids = |key: &str| -> Vec<String> {
+        cleanup[key].as_array().into_iter().flatten().filter_map(|v| v["id"].as_str().map(str::to_string)).collect()
+    };
+    let mut lines = Vec::new();
+    for (key, label) in
+        [("cleaned", "정리(폴더·세션)"), ("sessions_closed", "세션만 닫음"), ("recovered", "남은 세션 닫기 재시도")]
+    {
+        let found = ids(key);
+        if !found.is_empty() {
+            lines.push(format!("{label} {}건: {}", found.len(), found.join(", ")));
+        }
+    }
+    for item in cleanup["refused"].as_array().into_iter().flatten() {
+        let problems: Vec<&str> = item["problems"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        lines.push(format!("정리 보류: {} ({})", item["id"].as_str().unwrap_or("?"), problems.join(" / ")));
+    }
+    lines
 }
 
 /// Route `base` (a copy of the stored entry) without holding the registry lock, then store the

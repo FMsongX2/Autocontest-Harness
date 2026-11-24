@@ -168,3 +168,62 @@ fn dry_run_lists_actions_without_touching_anything() {
     assert!(outcome.actions.iter().any(|a| a.starts_with("폴더를 휴지통으로")));
     fs::remove_dir_all(&fx.root).unwrap();
 }
+
+#[test]
+fn the_harness_brief_on_top_of_contest_md_is_archived_but_any_other_edit_blocks() {
+    let mut fx = fixture("brief");
+    let committed = "# 공모전 정리\n\n| 하네스 id | x-done |\n";
+    fs::write(fx.folder.join(".gitignore"), "big.mp4\n.private/\n").unwrap();
+    fs::write(fx.folder.join("CONTEST.md"), committed).unwrap();
+    git(&fx.folder, &["add", "-A"]);
+    git(&fx.folder, &["commit", "-q", "-m", "Contest"]);
+    git(&fx.folder, &["push", "-q"]);
+    let top = "현재 배정 범위: 개인 단독. 진행은 메인 세션에 보고한다.";
+    fs::create_dir_all(fx.folder.join(".private")).unwrap();
+    fs::write(fx.folder.join(".private/controller-brief.md"), format!("{top}\n\n# 실행 인계\n")).unwrap();
+    let ledger = ledger::load_at(&fx.ledger).unwrap();
+    let blocked = |text: &str| {
+        fs::write(fx.folder.join("CONTEST.md"), text).unwrap();
+        clean::problems(&fx.entry, &ledger).iter().any(|p| p.starts_with("커밋 안 된 변경"))
+    };
+    assert!(blocked(&format!("다른 사람이 쓴 메모\n\n{committed}")), "text that is not in the brief");
+    assert!(blocked(&format!("{top}\n\n{}", committed.replace("x-done", "y"))), "an edit below the brief");
+    assert!(blocked(&format!("{committed}{top}\n")), "the brief appended, not prepended");
+    assert!(!blocked(&format!("{top}\n\n\n---\n\n{committed}")), "the brief on top is the harness's own");
+    fs::write(fx.folder.join("notes.md"), "local").unwrap();
+    let other = clean::problems(&fx.entry, &ledger);
+    assert!(other.iter().any(|p| p.contains("1개") && p.contains("notes.md") && !p.contains("CONTEST")), "{other:?}");
+    fs::remove_file(fx.folder.join("notes.md")).unwrap();
+
+    let archive = fx.root.join("archive");
+    let opts =
+        Options { trash_dir: Some(fx.root.join("trash")), archive_dir: Some(archive.clone()), ..Options::default() };
+    let outcome = clean::clean(&mut fx.entry, &fx.ledger, &opts).unwrap();
+    assert!(outcome.ok && !fx.folder.exists(), "{outcome:?}");
+    let kept = fs::read_to_string(archive.join("x-done/CONTEST.md")).unwrap();
+    assert_eq!(kept, format!("{top}\n\n\n---\n\n{committed}"), "the working text is kept byte for byte");
+    fs::remove_dir_all(&fx.root).unwrap();
+}
+
+#[test]
+fn a_clean_stopped_after_the_folder_moved_finishes_only_its_record() {
+    let mut fx = fixture("interrupted");
+    let before = fx.entry.clone();
+    let opts = Options { trash_dir: Some(fx.root.join("trash")), ..Options::default() };
+    assert!(clean::clean(&mut fx.entry, &fx.ledger, &opts).unwrap().ok);
+    let removed_at = fx.entry.extra["folder_removed_at"].clone();
+
+    // The registry write never happened: the entry is as it was, the folder and ledger moved on.
+    let mut stale = before.clone();
+    stale.session = Some(json!({"workspace": "terminal", "workspace_id": null, "runner": "omp", "handle": "h-1"}));
+    let outcome = clean::clean(&mut stale, &fx.ledger, &opts).unwrap();
+    assert!(outcome.ok && outcome.problems.is_empty(), "{outcome:?}");
+    assert_eq!(stale.extra["folder_removed_at"], removed_at, "the time the folder really went");
+    assert!(stale.session.is_none());
+    assert_eq!(stale.extra[clean::PENDING_CLOSE]["handle"], "h-1", "an unconfirmed session close is owed");
+    assert!(stale.history.last().unwrap().note.starts_with("중단된 정리 마무리"));
+    assert!(!clean::candidate(&stale));
+    let trashed: Vec<_> = fs::read_dir(fx.root.join("trash")).unwrap().collect();
+    assert_eq!(trashed.len(), 1, "nothing was moved twice");
+    fs::remove_dir_all(&fx.root).unwrap();
+}
